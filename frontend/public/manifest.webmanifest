@@ -1,0 +1,16 @@
+{
+  "name": "ExamMind",
+  "short_name": "ExamMind",
+  "description": "Exam-intelligent study support for Nigerian university students.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0d11",
+  "theme_color": "#e8a23a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
