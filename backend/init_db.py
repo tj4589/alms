@@ -25,8 +25,9 @@ def seed_courses():
 if __name__ == "__main__":
     print("Creating database tables...")
     try:
-        with engine.begin() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        if engine.url.get_backend_name().startswith("postgresql"):
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(bind=engine)
         seed_courses()
         print("Done!")

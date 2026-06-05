@@ -9,6 +9,7 @@ pydantic-settings
 email-validator
 python-jose[cryptography]
 passlib[bcrypt]
+bcrypt==4.0.1
 python-multipart
 PyPDF2
 alembic

@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 import models
 
-SECRET_KEY = "super-secret-key-for-ai-lms" # In production, use os.getenv
+SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-for-ai-lms")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 1 week
 
