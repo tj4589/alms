@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ScreenType } from '../types';
 import { apiPost } from '../lib/api';
 
@@ -44,7 +44,7 @@ function friendlyError(error: unknown) {
   return message;
 }
 
-export default function Assistant({ go }: { go: (s: ScreenType) => void }) {
+export default function Assistant({ go, selectedQuestion }: { go: (s: ScreenType) => void; selectedQuestion?: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -54,6 +54,12 @@ export default function Assistant({ go }: { go: (s: ScreenType) => void }) {
     () => [...messages].reverse().find((message) => message.role === 'assistant'),
     [messages],
   );
+
+  useEffect(() => {
+    if (selectedQuestion) {
+      setInput(selectedQuestion);
+    }
+  }, [selectedQuestion]);
 
   const sendQuestion = async () => {
     const question = input.trim();

@@ -19,6 +19,8 @@ export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('token'));
   const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedQuestion, setSelectedQuestion] = useState('');
+  const [questionCount, setQuestionCount] = useState<number | null>(null);
 
   const handleLogin = (jwt: string) => {
     localStorage.setItem('token', jwt);
@@ -39,6 +41,11 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const askQuestion = (questionText: string) => {
+    setSelectedQuestion(questionText);
+    go('assistant');
+  };
+
   if (!token) {
     return <Auth onLogin={handleLogin} />;
   }
@@ -53,7 +60,7 @@ export default function App() {
         <nav className="nav">
           <div className="nav-section">Main</div>
           <div className={`ni ${activeScreen === 'dashboard' ? 'on' : ''}`} onClick={() => go('dashboard')}><span className="ni-ico">*</span>Dashboard</div>
-          <div className={`ni ${activeScreen === 'questions' ? 'on' : ''}`} onClick={() => go('questions')}><span className="ni-ico">Q</span>Past Questions<span className="ni-badge">847</span></div>
+          <div className={`ni ${activeScreen === 'questions' ? 'on' : ''}`} onClick={() => go('questions')}><span className="ni-ico">Q</span>Past Questions{questionCount !== null && <span className="ni-badge">{questionCount}</span>}</div>
           <div className={`ni ${activeScreen === 'assistant' ? 'on' : ''}`} onClick={() => go('assistant')}><span className="ni-ico">AI</span>AI Assistant</div>
           <div className={`ni ${activeScreen === 'upload' ? 'on' : ''}`} onClick={() => go('upload')}><span className="ni-ico">+</span>Upload</div>
           <div className={`ni ${activeScreen === 'offline' ? 'on' : ''}`} onClick={() => go('offline')}><span className="ni-ico">D</span>Offline Library</div>
@@ -93,8 +100,8 @@ export default function App() {
         </div>
 
         {activeScreen === 'dashboard' && <Dashboard go={go} />}
-        {activeScreen === 'questions' && <Questions go={go} />}
-        {activeScreen === 'assistant' && <Assistant go={go} />}
+        {activeScreen === 'questions' && <Questions go={go} onAskQuestion={askQuestion} onQuestionCountChange={setQuestionCount} />}
+        {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} />}
         {activeScreen === 'upload' && <Upload go={go} />}
         {activeScreen === 'offline' && <Offline go={go} />}
         {activeScreen === 'analytics' && <Analytics go={go} />}
