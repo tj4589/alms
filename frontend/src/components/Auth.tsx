@@ -1,16 +1,5 @@
 import React, { useState } from 'react';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-const BACKEND_CONNECTION_ERROR = 'Cannot connect to backend. Make sure FastAPI is running on http://127.0.0.1:8000';
-
-async function readErrorMessage(response: Response, fallback: string) {
-  try {
-    const data = await response.json();
-    return data.detail || fallback;
-  } catch {
-    return fallback;
-  }
-}
+import { apiFormPost, apiPost } from '../lib/api';
 
 export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -33,15 +22,7 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
         body.set('username', email);
         body.set('password', password);
 
-        const response = await fetch(`${API_BASE_URL}/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        if (!response.ok) {
-          throw new Error(await readErrorMessage(response, 'Login failed.'));
-        }
-        const data = await response.json();
+        const data = await apiFormPost('/auth/login', body);
         if (!data.access_token) {
           throw new Error('Login response did not include an access token.');
         }
@@ -50,25 +31,14 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, role: 'student' }),
-      });
-      if (!response.ok) {
-        throw new Error(await readErrorMessage(response, 'Registration failed.'));
-      }
+      await apiPost('/auth/register', { name, email, password, role: 'student' });
 
       setIsLogin(true);
       setPassword('');
       setName('');
       setSuccess('Account created. Sign in with your new details.');
     } catch (err) {
-      if (err instanceof TypeError) {
-        setError(BACKEND_CONNECTION_ERROR);
-      } else {
-        setError(err instanceof Error ? err.message : 'Authentication failed.');
-      }
+      setError(err instanceof Error ? err.message : 'Authentication failed.');
     } finally {
       setLoading(false);
     }

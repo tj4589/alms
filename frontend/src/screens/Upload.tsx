@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ScreenType } from '../types';
 import { queuePendingUpload } from '../offline';
+import { apiFormPost } from '../lib/api';
 
 type UploadState = 'idle' | 'processing' | 'confirm' | 'duplicate' | 'success';
 
@@ -67,13 +68,7 @@ export default function Upload({ go }: { go: (s: ScreenType) => void }) {
     formData.append('file', selected);
 
     try {
-      const res = await fetch('http://localhost:8000/ingest/upload', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Upload analysis failed.');
+      const data = await apiFormPost('/ingest/upload', formData);
 
       setMetadata({ ...emptyMetadata, ...data.metadata });
       if (data.status === 'duplicate') {
@@ -99,13 +94,7 @@ export default function Upload({ go }: { go: (s: ScreenType) => void }) {
     formData.append('confirmed_metadata', JSON.stringify(metadata));
 
     try {
-      const res = await fetch('http://localhost:8000/ingest/upload', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Indexing failed.');
+      const data = await apiFormPost('/ingest/upload', formData);
 
       if (data.status === 'duplicate') {
         setState('duplicate');
@@ -225,9 +214,4 @@ export default function Upload({ go }: { go: (s: ScreenType) => void }) {
       )}
     </div>
   );
-}
-
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
