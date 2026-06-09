@@ -8,10 +8,16 @@ export type User = {
   role: string;
 };
 
+export type MsgType =
+  | 'greeting' | 'guidance' | 'unsure_support' | 'upload_help'
+  | 'missing_materials' | 'academic_answer' | 'search_result'
+  | 'practice_help' | 'confirmation' | 'follow_up' | 'error';
+
 export type ChatMessage = {
   id: string;
   role: 'assistant' | 'user';
   content: string;
+  msgType?: MsgType;
   sources?: string[];
   noPastQuestionsFound?: boolean;
   noLectureNotesFound?: boolean;

@@ -10,7 +10,12 @@ import models
 from database import get_db
 
 from ai_clients import embeddings_model as _embed
-from query_understanding import expanded_search_terms, public_understanding, understand_query
+from query_understanding import (
+    CONVERSATIONAL_NONTOPICS,
+    expanded_search_terms,
+    public_understanding,
+    understand_query,
+)
 
 router = APIRouter(tags=["search"])
 
@@ -24,17 +29,23 @@ def smart_search(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     q = q.strip()
-    if not q:
-        return {
-            "query": q,
-            "understanding": public_understanding(understand_query(q)),
-            "past_questions": [],
-            "lecture_notes": [],
-            "threads": [],
-            "related_topics": [],
-            "study_groups": [],
-            "study_sessions": [],
-        }
+
+    # Guard: if query is only conversational/non-academic tokens, return empty results.
+    # Prevents "sure", "lost", "okay", etc. from triggering semantic search.
+    import re as _re
+    _q_tokens = set(_re.findall(r"[a-z]+", q.lower()))
+    _empty_response = {
+        "query": q,
+        "understanding": public_understanding(understand_query(q)),
+        "past_questions": [],
+        "lecture_notes": [],
+        "threads": [],
+        "related_topics": [],
+        "study_groups": [],
+        "study_sessions": [],
+    }
+    if not q or (_q_tokens and _q_tokens.issubset(CONVERSATIONAL_NONTOPICS)):
+        return _empty_response
 
     metadata_context = _metadata_context(db)
     understanding = understand_query(q, metadata_context)

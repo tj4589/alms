@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 import auth
 import models
 from database import get_db
-from query_understanding import GUIDANCE_NEEDED_MARKERS, understand_query
+from query_understanding import CONVERSATIONAL_NONTOPICS, GUIDANCE_NEEDED_MARKERS, understand_query
 
 try:
     from ai_clients import metadata_llm as _llm
@@ -39,6 +39,22 @@ _SHORT_ACKS = frozenset([
     "ok", "okay", "yes", "yeah", "yep", "no", "nah",
     "sure", "alright", "thanks", "thank you", "noted",
     "got it", "fine", "cool", "understood", "i see",
+])
+
+# Follow-up / conversational phrases — NEVER academic, NEVER call RAG
+_FOLLOWUP_PHRASES: frozenset[str] = frozenset([
+    "are you sure", "are u sure", "you sure", "u sure",
+    "really", "for real",
+    "how", "why",
+    "explain", "explain that", "explain more",
+    "what do you mean", "what does that mean", "what do u mean",
+    "then what", "what next", "and then", "what happens next",
+    "okay but how", "ok but how", "yes but how", "but how",
+    "alright then",
+    "so what should i do", "so what do i do",
+    "how do i do that", "how do i start",
+    "what should i do", "what can i do",
+    "is that right", "is this right", "are you certain",
 ])
 
 
@@ -124,7 +140,7 @@ def _trivial(message: str) -> IntentResult | None:
             confidence=1.0,
             response_strategy="greet naturally and ask what to study",
         )
-    if core in _SHORT_ACKS:
+    if core in _SHORT_ACKS or core in _FOLLOWUP_PHRASES:
         return IntentResult(
             intent="confirmation",
             student_state="neutral",
@@ -266,4 +282,27 @@ def understand_message(
         return result
 
     # Layer 3/4 — LLM (with rule-based fallback)
-    return _llm_classify(message, context)
+    result = _llm_classify(message, context)
+
+    # Post-process: if the LLM returned an interpreted_topic made entirely of
+    # conversational non-topic words (e.g. "sure", "lost", "don lost mehhh"),
+    # discard it and flip to confirmation so RAG is never called.
+    if result.interpreted_topic:
+        topic_tokens = set(re.findall(r"[a-z]+", result.interpreted_topic.lower()))
+        if topic_tokens and topic_tokens.issubset(CONVERSATIONAL_NONTOPICS):
+            result = IntentResult(
+                intent="confirmation",
+                student_state=result.student_state,
+                should_call_rag=False,
+                should_search=False,
+                should_ask_clarifying_question=False,
+                interpreted_topic=None,
+                related_terms=[],
+                possible_course=None,
+                possible_lecturer=None,
+                confidence=0.95,
+                response_strategy="continue conversation",
+                clarifying_question=None,
+            )
+
+    return result

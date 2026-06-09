@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, ScreenType, User } from '../types';
+import type { ChatMessage, MsgType, ScreenType, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -46,38 +46,471 @@ type Course = {
   name: string;
 };
 
-type ThinkingPhase = 'idle' | 'understanding' | 'searching';
+// ── Pre-gate types ────────────────────────────────────────────────────────────
+
+// Message function — what the user is TRYING TO DO, not what they typed
+type ConversationFunction =
+  | 'greeting'
+  | 'self_doubt_or_anxiety'     // I feel dumb, I will fail, this is too much
+  | 'emotional_confusion'       // lost, confused, frustrated, blank, overwhelmed
+  | 'correction_or_complaint'   // "not what I meant", "you misunderstood"
+  | 'confirmation_or_followup'  // "are u sure?", "how?", "then what?"
+  | 'acknowledgement'           // ok, yes, alright, thanks, hmm
+  | 'academic_or_search_intent';
+
+type ConversationPrecheck = {
+  intent: ConversationFunction;
+  shouldBypassAcademicSearch: boolean;
+  confidence: number;
+  studentState: 'neutral' | 'confused' | 'frustrated' | 'overwhelmed' | 'anxious';
+};
+
+// Tracks what the assistant last asked and whether it's expecting user to fill a slot
+type ConversationState = {
+  pendingSlot: 'course_or_topic' | 'lecturer' | 'exam' | 'material_clue' | null;
+  lastAssistantMsgType: MsgType | null;
+  awaitingUserDetail: boolean;
+};
+
+// ── Thinking phases ───────────────────────────────────────────────────────────
+
+type ThinkingPhase = 'idle' | 'understanding' | 'searching' | 'context' | 'support' | 'empathy';
 
 const PHASE_TEXT: Record<Exclude<ThinkingPhase, 'idle'>, string> = {
   understanding: 'Understanding what you mean…',
   searching: 'Searching the ExamMind library…',
+  context: 'Checking the context…',
+  support: "Understanding where you're stuck…",
+  empathy: 'Understanding how to help…',
 };
 
-// Pure single-word greetings handled locally without any API call
-const TRIVIAL_GREETINGS = new Set([
-  'hi', 'hey', 'hello', 'yo', 'sup', 'hiya',
-  'good morning', 'good afternoon', 'good evening',
+// ── Pre-gate constants ────────────────────────────────────────────────────────
+
+// Words that must NEVER become an academic interpreted_topic alone or combined.
+// Used by: classifyConversationFunction (Layer 3/5) + buildInterpretationMsg guard.
+const CONVERSATIONAL_TOKENS = new Set([
+  // Emotional states
+  'lost', 'confused', 'frustrated', 'tired', 'overwhelmed', 'blank', 'stuck',
+  'bored', 'worried', 'scared', 'nervous', 'anxious', 'stressed', 'drained',
+  // Self-doubt / exam anxiety words
+  'understand', 'regardless', 'will', 'fail', 'pass', 'dumb', 'stupid',
+  'behind', 'cope', 'hopeless', 'useless', 'worthless',
+  // Acknowledgements / filler
+  'sure', 'okay', 'ok', 'yes', 'yeah', 'yep', 'no', 'nah', 'nope', 'maybe',
+  'hmm', 'hm', 'ohh', 'oh', 'ah', 'ugh', 'argh', 'meh', 'mehh', 'mehhh',
+  'alright', 'thanks', 'noted', 'fine', 'cool', 'understood', 'got',
+  'really', 'exactly', 'meant', 'said', 'asked', 'right',
+  // Common verbs / short words (non-academic when standalone)
+  'don', 'what', 'why', 'how', 'help', 'know', 'think', 'feel', 'like',
+  'just', 'still', 'going', 'done', 'been', 'want', 'need', 'get',
 ]);
 
-// ── Local reply helpers ───────────────────────────────────────────────────────
+// ── Pre-gate: classifyConversationFunction ────────────────────────────────────
+// Runs BEFORE /understand, /search, and /rag/ask.
+// Returns shouldBypassAcademicSearch=true for all non-academic messages.
+// Academic APIs are only called when shouldBypassAcademicSearch===false.
 
-function firstName(user: User | null) {
-  return user?.name?.trim().split(/\s+/)[0] || '';
+function classifyConversationFunction(
+  text: string,
+): ConversationPrecheck {
+  const norm = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  // stripped: for exact set lookups — removes all punctuation
+  const stripped = norm.replace(/[!.,?…;:'"]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const bypass = (
+    intent: ConversationFunction,
+    confidence: number,
+    studentState: ConversationPrecheck['studentState'] = 'neutral',
+  ): ConversationPrecheck => ({ intent, shouldBypassAcademicSearch: true, confidence, studentState });
+
+  const academic = (confidence = 0.72): ConversationPrecheck => ({
+    intent: 'academic_or_search_intent',
+    shouldBypassAcademicSearch: false,
+    confidence,
+    studentState: 'neutral',
+  });
+
+  // ── Layer 1: Exact phrase sets (highest confidence, no ambiguity) ─────────
+  // IMPORTANT: FOLLOWUP_SET checked BEFORE ACK_SET so "okay are you sure?"
+  // is caught as confirmation_or_followup, not acknowledgement.
+
+  const GREETING_SET = new Set([
+    'hi', 'hey', 'hello', 'yo', 'sup', 'hiya',
+    'good morning', 'good afternoon', 'good evening',
+  ]);
+  if (GREETING_SET.has(stripped)) return bypass('greeting', 1.0);
+
+  const FOLLOWUP_SET = new Set([
+    'are u sure', 'are you sure', 'you sure', 'u sure',
+    'really', 'for real',
+    'how', 'why',
+    'explain', 'explain that', 'explain more',
+    'what do you mean', 'what does that mean', 'what do u mean',
+    'then what', 'what next', 'and then', 'what happens next',
+    'okay but how', 'ok but how', 'yes but how', 'but how',
+    'alright then', 'so what should i do', 'so what do i do',
+    'how do i do that', 'how do i start',
+    'what should i do', 'what can i do',
+    'is that right', 'is this right', 'are you certain',
+  ]);
+  if (FOLLOWUP_SET.has(stripped)) return bypass('confirmation_or_followup', 1.0);
+
+  // Substring check: catches "okay are you sure?", "hmm are you certain", etc.
+  // Only multi-word phrases to avoid false positives from single words like "how".
+  const multiWordFollowups = [...FOLLOWUP_SET].filter(p => p.includes(' '));
+  if (multiWordFollowups.some(p => stripped.includes(p))) {
+    return bypass('confirmation_or_followup', 0.92);
+  }
+
+  const ACK_SET = new Set([
+    'ok', 'okay', 'yes', 'yeah', 'yep', 'no', 'nah', 'nope',
+    'sure', 'alright', 'thanks', 'thank you', 'noted', 'got it', 'fine', 'cool',
+    'understood', 'i see', 'hmm', 'hm', 'ohh', 'oh', 'ah', 'nice', 'great',
+  ]);
+  if (ACK_SET.has(stripped)) return bypass('acknowledgement', 1.0);
+
+  // ── Layer 2a: Correction / complaint ─────────────────────────────────────
+
+  const CORRECTION_PATTERNS = [
+    /\b(not what i meant|not what i said|not what i asked|didn'?t mean that|did not mean that)\b/i,
+    /\b(you misunderstood|misunderstood me|that'?s wrong|that is wrong)\b/i,
+    /\b(that'?s not (it|right|correct|what)|not (that|this one))\b/i,
+    /\b(why are you searching|you'?re not getting|not getting me)\b/i,
+    /\b(reset|start over|i said no|you got it wrong)\b/i,
+    // "what that's not..." / "no that's not..."
+    /^(what|no)[,.\s]+that'?s?\s+not\b/i,
+    // "that is not what i..."
+    /\bthat\s+is\s+not\s+what\s+i\b/i,
+  ];
+  if (CORRECTION_PATTERNS.some(p => p.test(norm))) {
+    return bypass('correction_or_complaint', 0.95, 'frustrated');
+  }
+
+  // ── Layer 2b: Emotional confusion / frustration ───────────────────────────
+
+  const CONFUSION_PATTERNS = [
+    // "so/very/really lost/confused/blank/..." — intensified emotion
+    /\b(so|very|really|just)\s+(lost|confused|blank|stuck|overwhelmed|frustrated|tired|drained)\b/i,
+    // "I'm / I am" + emotion
+    /\b(i'?m|i\s+am)\s+(so\s+)?(lost|confused|blank|stuck|overwhelmed|frustrated|tired|drained)\b/i,
+    // "don't know where/what to..."
+    /\b(don'?t|do not|cant|cannot|can'?t)\s+know\s+(where|what|which|how|the\s+topic|what\s+course)\b/i,
+    // Standalone "I don't know" / "don't know" (whole message)
+    /^(i\s+)?(don'?t|dont|do not)\s+(know|have\s+(an?\s+)?idea)(\s+yet)?[!.,\s]*$/i,
+    // No idea / no clue
+    /\b(no idea|have no idea|no clue|not sure what|not sure where)\b/i,
+    // Can't remember / can't place
+    /\b(can'?t|cannot)\s+(remember|place|think of|find)\b/i,
+    // Nothing entering my head
+    /\b(nothing\s+(is\s+)?entering|e no dey enter)\b/i,
+    // Expressive frustration sounds (meh, ugh, argh)
+    /\bmeh{2,}\b/i,
+    /\bugh+\b/i,
+    /\bargh+\b/i,
+    // Nigerian Pidgin
+    /\b(no sabi|i no sabi|dey lost|dey blank|dey confused|nothing dey enter|wetin to read|wetin i wan read|i dey tire)\b/i,
+  ];
+  if (CONFUSION_PATTERNS.some(p => p.test(norm))) {
+    const isFrustrated = /\b(frustrated|ugh+|argh+|meh{2,}|tired|drained|e don tire|i dey tire)\b/i.test(norm);
+    const isOverwhelmed = /\b(overwhelmed|so lost|so confused|everything at once|all at once)\b/i.test(norm);
+    const studentState = isOverwhelmed ? 'overwhelmed' : isFrustrated ? 'frustrated' : 'confused';
+    return bypass('emotional_confusion', 0.93, studentState);
+  }
+
+  // ── Layer 2c: Self-doubt / exam anxiety ───────────────────────────────────
+  // Catches: "I feel I will not understand regardless", "I will fail",
+  // "I feel dumb", "this is too much", etc.
+  // Must fire BEFORE Layer 4 (which has "understand" in ACADEMIC_RE).
+
+  const SELF_DOUBT_PATTERNS = [
+    // "will not understand/pass/cope" — the core failing case
+    /\b(will\s+not|won'?t)\s+(understand|pass|cope|learn|get\s+(it|this))\b/i,
+    // "I feel (like) I will/can't/won't..."
+    /\bi\s+feel(\s+like)?\s+i\s+(will\s+not|won'?t|can'?t|cannot|could\s+not)\b/i,
+    // "I don't think I will/can..."
+    /\bi\s+(don'?t|do\s+not)\s+think\s+i\s+(will|can|could)\b/i,
+    // "I will fail" / "I'm going to fail" / "I'll never pass"
+    /\b(i\s+will|i'?m\s+going\s+to|i'll)\s+(fail|never\s+(pass|understand|cope|learn))\b/i,
+    // "I feel/am dumb/stupid/hopeless/useless/worthless"
+    /\b(i'?m|i\s+am|i\s+feel)\s+(so\s+)?(dumb|stupid|hopeless|useless|worthless|a\s+failure)\b/i,
+    // "this is too much/hard/confusing/difficult"
+    /\b(this|it)\s+is\s+too\s+(much|hard|difficult|confusing)\b/i,
+    // "I can't cope"
+    /\b(i\s+)?(can'?t|cannot)\s+cope\b/i,
+    // "will not X regardless" / "won't X regardless"
+    /\b(will\s+not|won'?t)\s+\w+\s+regardless\b/i,
+    // "I feel like I will never..."
+    /\bi\s+feel\s+like\s+i\s+(will\s+never|won'?t\s+(ever\s+)?|can'?t\s+(ever\s+)?)\b/i,
+    // "too much to read/understand/cover"
+    /\btoo\s+much\s+to\s+(read|understand|cover|study|revise)\b/i,
+    // Nigerian Pidgin self-doubt
+    /\b(i\s+go\s+fail|e\s+don\s+too\s+much|too\s+plenty\s+to\s+(read|understand))\b/i,
+  ];
+  if (SELF_DOUBT_PATTERNS.some(p => p.test(norm))) {
+    return bypass('self_doubt_or_anxiety', 0.95, 'anxious');
+  }
+
+  // ── Layer 3: Content-word analysis ───────────────────────────────────────
+  // If ALL non-stopword content words are purely conversational → bypass.
+
+  const STOPWORDS = new Set([
+    'i', 'am', 'is', 'are', 'the', 'a', 'an', 'and', 'or', 'in', 'of', 'to',
+    'with', 'be', 'do', 'my', 'me', 'we', 'it', 'so', 'for', 'on', 'at',
+    'this', 'that', 'these', 'those', 'not', 'just', 'very', 'quite', 'about',
+    'from', 'by', 'as', 'if', 'but', 'then', 'than', 'into', 'out', 'up', 'down',
+  ]);
+  const words = stripped.split(/\s+/).filter(w => w.length > 1);
+  const contentWords = words.filter(w => !STOPWORDS.has(w));
+  const allConversational =
+    contentWords.length > 0 && contentWords.every(w => CONVERSATIONAL_TOKENS.has(w));
+  if (allConversational) return bypass('acknowledgement', 0.88);
+
+  // ── Layer 4: Academic signal detection ───────────────────────────────────
+
+  const ACADEMIC_RE =
+    /\b(explain|find|search|show me|give me|what is|what are|what did|what does|what topic|how does|how do|when did|who is|who was|define|summarize|summarise|tell me about|past question|lecture note|course outline|practice|quiz|test me|drill me|generate|theory|concept|model|principle|law|method|analysis|system|structure|function|understand)\b/i;
+  const COURSE_CODE_RE = /\b[a-z]{2,4}\s*\d{3,4}\b/i;
+  const LECTURER_RE = /\b(lecturer|professor|dr\.?|madam|sir|prof\.?|mr\.?|mrs\.?)\s+\w+/i;
+
+  if (ACADEMIC_RE.test(norm) || COURSE_CODE_RE.test(norm) || LECTURER_RE.test(norm)) {
+    return academic(0.83);
+  }
+
+  // ── Layer 5: Meaningful-word richness ────────────────────────────────────
+  // If the message has no meaningful non-conversational words → bypass.
+
+  const meaningfulWords = contentWords.filter(
+    w => w.length >= 4 && !CONVERSATIONAL_TOKENS.has(w),
+  );
+  if (meaningfulWords.length === 0) return bypass('acknowledgement', 0.74);
+
+  // Default: pass through to academic pipeline
+  return academic(0.65);
 }
 
-function buildContext(msgs: ChatMessage[]): string {
-  return msgs
-    .slice(-4)
-    .map((m) => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.content.slice(0, 150)}`)
-    .join('\n');
+// ── Pending slot reply classifier ─────────────────────────────────────────────
+// Runs when awaitingUserDetail=true and user sends a reply.
+// Returns whether they gave a topic/detail, just confirmed, or declined.
+
+function classifyPendingSlotReply(
+  input: string,
+): 'affirmed_but_no_detail' | 'declined_or_unsure' | 'provided_detail' {
+  const norm = input.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  // Affirmations that confirm they have a topic but haven't given it yet
+  const AFFIRM_NO_DETAIL = [
+    /^(yes|yeah|yep|yup|sure|okay|ok|alright)(\s+i\s+(have|got)\s+one(\s+in\s+mind)?)?\s*$/i,
+    /^yes\s+i\s+have\s+one(\s+in\s+mind)?\s*$/i,
+    /^i\s+have\s+one(\s+in\s+mind)?\s*$/i,
+    /^(maybe|kind\s+of|i\s+think\s+so|sort\s+of|perhaps|more\s+or\s+less)\s*$/i,
+    /^i\s+think\s+i\s+do\s*$/i,
+    /^(yes|yeah|sure|okay)\s+(please|of\s+course|absolutely|definitely)\s*$/i,
+    /^(yes|yeah)\s*[,!.]?\s*$/i,
+  ];
+  if (AFFIRM_NO_DETAIL.some(p => p.test(norm))) return 'affirmed_but_no_detail';
+
+  // Declining or expressing uncertainty (no detail forthcoming)
+  const DECLINE = [
+    /^(no|nah|not\s+yet|not\s+really|none\s+(yet|right\s+now)|not\s+at\s+all)\s*$/i,
+    /^(not\s+sure|i'm\s+not\s+sure|i\s+don'?t\s+know(\s+yet)?)\s*$/i,
+    /^i\s+(don'?t|do\s+not)\s+(have\s+one|have\s+any)(\s+yet)?\s*$/i,
+    /^(nothing\s+(yet|comes\s+to\s+mind|specific))\s*$/i,
+  ];
+  if (DECLINE.some(p => p.test(norm))) return 'declined_or_unsure';
+
+  // Everything else is treated as actual detail → pass to academic pipeline
+  return 'provided_detail';
 }
 
-function buildLocalReply(
-  result: IntentResult,
+// ── Conversation reply builder (pre-gate responses) ───────────────────────────
+
+function buildFollowUpReply(question: string, lastAssistantMsg: ChatMessage | undefined): string {
+  const norm = question.trim().toLowerCase().replace(/[!.,?…]+$/, '').trim().replace(/\s+/g, ' ');
+
+  // Reassurance / exam-readiness question — needs empathy, not topic prompt
+  const isReassuranceQ =
+    /\bwill\s+i\s+be\s+(ready|okay?|fine|prepared|able)\b/i.test(norm) ||
+    /\bcan\s+i\s+(make\s+it|do\s+(this|it)|pass|be\s+ready)\b/i.test(norm) ||
+    /\bwill\s+i\s+(make\s+it|pass|succeed|understand(\s+(it|this))?)\b/i.test(norm);
+  if (isReassuranceQ) {
+    return [
+      "I can't promise it will be effortless, but you can become more ready by starting small.",
+      '',
+      "Do you have a course, topic, lecturer, or exam in mind?",
+    ].join('\n');
+  }
+
+  const prevType = lastAssistantMsg?.msgType;
+  const prevContent = (lastAssistantMsg?.content ?? '').toLowerCase();
+
+  const wasGuidance =
+    prevType === 'guidance' ||
+    prevType === 'unsure_support' ||
+    prevContent.includes("it's okay") ||
+    prevContent.includes("no problem") ||
+    prevContent.includes('start with') ||
+    prevContent.includes('you do not need to know') ||
+    prevContent.includes('feeling overwhelmed') ||
+    prevContent.includes("you're not searching");
+
+  const isConfirmQ = /^(are\s+[uy](ou)?\s+sure|you\s+sure|u\s+sure|really|for\s+real|is\s+that\s+right|is\s+this\s+right|are\s+you\s+certain)$/.test(norm);
+  const isHowQ = /^(how|okay\s+but\s+how|ok\s+but\s+how|yes\s+but\s+how|but\s+how|how\s+do\s+i(\s+start)?)/.test(norm);
+  const isWhyQ = /^why/.test(norm);
+  const isWhatNextQ = /^(what\s+next|then\s+what|and\s+then|so\s+what|what\s+should\s+i\s+do|what\s+can\s+i\s+do)/.test(norm);
+  const isExplainQ = /^explain/.test(norm);
+
+  if (isConfirmQ && wasGuidance) {
+    return [
+      "Yes. You do not need the exact course or topic first.",
+      '',
+      "A vague clue is enough — a lecturer, phrase from class, exam, course code, or topic idea. I'll interpret it and guide you to the right materials.",
+    ].join('\n');
+  }
+
+  if (isConfirmQ) {
+    return "Yes, that's right. Is there a specific course, topic, or exam you want to focus on?";
+  }
+
+  if (isHowQ && wasGuidance) {
+    return [
+      "Start with the easiest clue you have:",
+      "- A lecturer's name",
+      '- A course code',
+      '- A topic phrase from class',
+      '- An exam date',
+      '- Even something vague like "the human relations thingy"',
+      '',
+      "I'll try to interpret it and guide you to the right materials.",
+    ].join('\n');
+  }
+
+  if (isHowQ) {
+    return "What specifically would you like help with? I can explain a topic, find past questions, or generate practice — just tell me the course or topic.";
+  }
+
+  if (isWhyQ) {
+    return "ExamMind works with uploaded materials — lecture notes, past questions, course outlines — so it can give you grounded answers even when you describe a topic vaguely. The more materials uploaded, the better it can help.";
+  }
+
+  if (isWhatNextQ && wasGuidance) {
+    return [
+      "You can start by typing any course code, topic, lecturer, or exam date.",
+      '',
+      'Even a vague description works — try something like "the motivation topic" or "what Iheanetu taught".',
+    ].join('\n');
+  }
+
+  if (isWhatNextQ) {
+    return "You can search the ExamMind library, generate practice questions, or upload new course materials. What would you like to do?";
+  }
+
+  if (isExplainQ) {
+    return "I can explain topics from uploaded materials. What course or topic would you like me to explain?";
+  }
+
+  return "Is there a specific course, topic, or exam you want to focus on? You can describe it in plain language.";
+}
+
+function buildConversationReply(
+  precheck: ConversationPrecheck,
+  question: string,
   user: User | null,
   messages: ChatMessage[],
 ): string {
-  const name = firstName(user);
+  const name = user?.name?.trim().split(/\s+/)[0] || '';
+  const prevAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+
+  switch (precheck.intent) {
+    case 'greeting':
+      return `Hey${name ? ` ${name}` : ''}. What course, topic, lecturer, or exam are you preparing for today?`;
+
+    case 'self_doubt_or_anxiety':
+      return [
+        `${name ? `Hey ${name} — that` : 'That'} feeling is more common than you think. A lot of students feel this way before exams.`,
+        '',
+        "You don't need to understand everything at once. Start with one small step: the course you're most worried about, one topic, or even a phrase you remember from class.",
+        '',
+        "What subject are you most anxious about? I'll help you focus there.",
+      ].join('\n');
+
+    case 'emotional_confusion': {
+      if (precheck.studentState === 'frustrated') {
+        return [
+          "I get you — feeling stuck like that is completely normal before exams.",
+          '',
+          "You don't need to search anything right now. Start with the easiest clue you have: a lecturer's name, a course code, an exam date, or even a vague phrase from class. I'll help you connect it to materials, past questions, practice, or a reading room.",
+        ].join('\n');
+      }
+      if (precheck.studentState === 'overwhelmed') {
+        return [
+          `${name ? `Hey ${name}, it` : 'It'}'s okay — feeling overwhelmed before exams is completely normal.`,
+          '',
+          "You're not trying to search right now — you're figuring out where to start. Start with the smallest clue you have: a lecturer, a course code, an exam, a phrase from class, or something very vague. I'll interpret it and guide you.",
+        ].join('\n');
+      }
+      return [
+        "I get you. You're not searching for a topic yet — you're trying to figure out where to start.",
+        '',
+        "Start with any small clue: a lecturer's name, a course code, an exam, a phrase from class, or even something vague. I'll help you connect it to materials, past questions, practice, or a reading room.",
+      ].join('\n');
+    }
+
+    case 'correction_or_complaint': {
+      const prevWasSearch =
+        prevAssistant?.wasStudyQuery ||
+        (prevAssistant?.content ?? '').toLowerCase().includes('i think you mean') ||
+        (prevAssistant?.content ?? '').toLowerCase().includes('searching the');
+      return prevWasSearch
+        ? [
+          "You're right — I misunderstood. I treated your message like a search when you were actually in conversation.",
+          '',
+          "Let's reset. Tell me any small clue you remember — a course, lecturer, exam, topic phrase, or something you vaguely remember from class.",
+        ].join('\n')
+        : [
+          "Got it — let me not assume what you meant.",
+          '',
+          "Tell me what you'd like help with: a course, topic, lecturer, exam, or anything from class.",
+        ].join('\n');
+    }
+
+    case 'confirmation_or_followup':
+      return buildFollowUpReply(question, prevAssistant);
+
+    case 'acknowledgement': {
+      const prevType = prevAssistant?.msgType;
+      if (prevType === 'guidance' || prevType === 'unsure_support') {
+        return "Alright. Whenever you're ready, give me any clue — a course, lecturer, exam, topic phrase, or something you vaguely remember. There's no wrong way to start.";
+      }
+      if (prevAssistant) return "Alright. What would you like to do next?";
+      return "When you're ready, give me any clue — course, lecturer, exam, topic phrase, or something you vaguely remember.";
+    }
+
+    default:
+      return `Which course, topic, or lecturer do you want to study${name ? `, ${name}` : ''}?`;
+  }
+}
+
+// ── Post-/understand local reply (for non-RAG intents from /understand) ───────
+
+function intentToMsgType(intent: string, studentState: string): MsgType {
+  if (intent === 'greeting') return 'greeting';
+  if (intent === 'self_doubt_or_anxiety') return 'unsure_support';
+  if (intent === 'emotional_confusion' || intent === 'guidance_needed') {
+    return studentState === 'frustrated' || studentState === 'overwhelmed'
+      ? 'unsure_support'
+      : 'guidance';
+  }
+  if (intent === 'correction_or_complaint') return 'follow_up';
+  if (intent === 'confirmation_or_followup' || intent === 'confirmation') return 'confirmation';
+  if (intent === 'acknowledgement') return 'follow_up';
+  if (intent === 'practice_request') return 'practice_help';
+  if (intent === 'upload_help') return 'upload_help';
+  if (intent === 'academic_search') return 'search_result';
+  return 'follow_up';
+}
+
+function buildLocalReply(result: IntentResult, user: User | null, messages: ChatMessage[]): string {
+  const name = user?.name?.trim().split(/\s+/)[0] || '';
   const { intent, student_state, clarifying_question } = result;
 
   if (intent === 'greeting') {
@@ -100,8 +533,6 @@ function buildLocalReply(
     }
     return [
       `No problem${name ? `, ${name}` : ''}. Start with a course, a topic from class, a lecturer, or an upcoming exam.`,
-      '',
-      'If ExamMind does not have materials for it yet, upload lecture notes, past questions, course outlines, tutorial sheets, assignment questions, revision slides, or exam prep material.',
       '',
       'You can describe what you remember from class, even if you do not know the exact topic name.',
     ].join('\n');
@@ -138,13 +569,7 @@ function buildLocalReply(
     return [
       `If ${whom} materials have been uploaded, I can analyze them.`,
       '',
-      'To identify topics, question style, and patterns, upload materials connected to that lecturer:',
-      '- Lecture notes or slides',
-      '- Past questions from their course',
-      '- Course outlines',
-      '- Tutorial sheets or assignment questions',
-      '',
-      'Once uploaded and indexed, ask me about the lecturer by name and I will search the uploaded materials.',
+      'Upload materials connected to that lecturer: lecture notes, past questions, course outlines, or tutorial sheets. Once indexed, ask me about the lecturer by name.',
     ].join('\n');
   }
 
@@ -157,38 +582,53 @@ function buildLocalReply(
     return 'Which course, topic, or lecturer do you want to study?';
   }
 
-  // Generic fallback
-  const prevAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  const prevAssistant = [...messages].reverse().find(m => m.role === 'assistant');
   const prevLower = (prevAssistant?.content ?? '').toLowerCase();
-  const prevAskedForTopic =
+  if (
     prevLower.includes('what course') ||
     prevLower.includes('which course') ||
     prevLower.includes('what topic') ||
-    prevLower.includes('which topic');
-  if (prevAskedForTopic) {
+    prevLower.includes('which topic')
+  ) {
     return 'Try typing a course, topic, or upcoming exam. You can search the ExamMind library or upload course materials if you are not sure where to begin.';
   }
   return `Which course, topic, or lecturer do you want to study${name ? `, ${name}` : ''}?`;
 }
 
+function buildContext(msgs: ChatMessage[]): string {
+  return msgs
+    .slice(-4)
+    .map(m => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.content.slice(0, 150)}`)
+    .join('\n');
+}
+
+// Only show interpretation when the topic is meaningfully different from the input
+// and doesn't consist entirely of conversational filler words.
 function buildInterpretationMsg(result: IntentResult, original: string): string {
-  const topic = result.interpreted_topic!;
-  const isSame = topic.toLowerCase().trim() === original.toLowerCase().trim();
-  if (isSame) return '';
+  if (!result.interpreted_topic) return '';
+  const topic = result.interpreted_topic;
+  if (topic.toLowerCase().trim() === original.toLowerCase().trim()) return '';
+
+  const topicWords = topic.trim().split(/\s+/);
+  // Single short word (≤5 chars) → likely filler
+  if (topicWords.length === 1 && topic.length <= 5) return '';
+  // All words are conversational non-topic tokens → discard
+  if (topicWords.every(w => CONVERSATIONAL_TOKENS.has(w.toLowerCase()))) return '';
+
   const related = result.related_terms.slice(0, 3);
   return `I think you mean "${topic}"${related.length ? ` — also searching: ${related.join(', ')}` : ''}. Searching the ExamMind library.`;
 }
 
-// ── RAG response helpers ──────────────────────────────────────────────────────
+// ── RAG / error helpers ───────────────────────────────────────────────────────
 
 function missingMaterialsReply(question: string, understanding?: QueryUnderstanding | null): string {
   const topic = understanding?.interpreted_topic || question;
   const related = (understanding?.related_terms || [])
-    .filter((t) => t.toLowerCase() !== topic.toLowerCase())
+    .filter(t => t.toLowerCase() !== topic.toLowerCase())
     .slice(0, 5);
 
   return [
-    'I could not find this topic in the uploaded ExamMind materials yet. To make answers more grounded, upload lecture notes, past questions, course outlines, tutorial sheets, assignment questions, revision slides, or exam prep PDFs for this course/topic.',
+    'I could not find this topic in the uploaded ExamMind materials yet. To improve answers, upload lecture notes, past questions, course outlines, tutorial sheets, revision slides, or exam prep PDFs for this topic.',
     related.length ? `\nRelated terms searched: ${related.join(', ')}.` : '',
     '',
     'Useful materials to upload:',
@@ -266,19 +706,24 @@ export default function Assistant({
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [thinkingPhase, setThinkingPhase] = useState<ThinkingPhase>('idle');
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<{ id: number; code: string; name: string }[]>([]);
   const msgsEndRef = useRef<HTMLDivElement>(null);
+  const conversationStateRef = useRef<ConversationState>({
+    pendingSlot: null,
+    lastAssistantMsgType: null,
+    awaitingUserDetail: false,
+  });
 
   const latestStudyAssistant = useMemo(
-    () => [...messages].reverse().find((m) => m.role === 'assistant' && m.wasStudyQuery),
+    () => [...messages].reverse().find(m => m.role === 'assistant' && m.wasStudyQuery),
     [messages],
   );
 
   const promptChips = useMemo(() => {
     if (courses.length === 0) return GENERIC_PROMPTS;
-    const coursePrompts = courses.slice(0, 2).flatMap((course) => [
-      `Explain a topic in ${course.code}`,
-      `Find past questions for ${course.code}`,
+    const coursePrompts = courses.slice(0, 2).flatMap(c => [
+      `Explain a topic in ${c.code}`,
+      `Find past questions for ${c.code}`,
     ]);
     return [...coursePrompts, 'Search uploaded notes', 'Generate practice', 'Upload course material'].slice(0, 6);
   }, [courses]);
@@ -286,13 +731,9 @@ export default function Assistant({
   useEffect(() => {
     let cancelled = false;
     apiGet('/courses')
-      .then((data) => {
-        if (!cancelled) setCourses(data as Course[]);
-      })
+      .then(data => { if (!cancelled) setCourses(data as Course[]); })
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -301,7 +742,28 @@ export default function Assistant({
 
   useEffect(() => {
     msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, thinkingPhase]);
+  }, [messages, thinkingPhase]);
+
+  // Show thinking bubble briefly before locally-computed replies.
+  const localReplyWithAnim = useCallback(
+    async (
+      phase: Exclude<ThinkingPhase, 'idle'>,
+      delayMs: number,
+      content: string,
+      msgType: MsgType,
+    ) => {
+      setLoading(true);
+      setThinkingPhase(phase);
+      await new Promise<void>(r => setTimeout(r, delayMs));
+      onMessagesChange(current => [
+        ...current,
+        { id: `assistant-local-${Date.now()}`, role: 'assistant', content, msgType, wasStudyQuery: false },
+      ]);
+      setLoading(false);
+      setThinkingPhase('idle');
+    },
+    [onMessagesChange],
+  );
 
   // Only path that calls /rag/ask
   const callRag = useCallback(
@@ -311,30 +773,24 @@ export default function Assistant({
       try {
         const data = (await apiPost('/rag/ask', { question })) as AskResponse;
         const noSources = data.no_past_questions_found && data.no_lecture_notes_found;
-        onMessagesChange((current) => [
+        onMessagesChange(current => [
           ...current,
           {
             id: `assistant-${Date.now()}`,
             role: 'assistant',
-            content: noSources
-              ? missingMaterialsReply(question, data.understanding)
-              : data.answer,
+            content: noSources ? missingMaterialsReply(question, data.understanding) : data.answer,
             sources: data.sources || [],
             noPastQuestionsFound: data.no_past_questions_found,
             noLectureNotesFound: data.no_lecture_notes_found,
             wasStudyQuery: true,
+            msgType: noSources ? 'missing_materials' : 'academic_answer',
             understanding: data.understanding || null,
           },
         ]);
       } catch (err) {
-        onMessagesChange((current) => [
+        onMessagesChange(current => [
           ...current,
-          {
-            id: `assistant-error-${Date.now()}`,
-            role: 'assistant',
-            content: friendlyError(err),
-            wasStudyQuery: true,
-          },
+          { id: `assistant-error-${Date.now()}`, role: 'assistant', content: friendlyError(err), wasStudyQuery: true, msgType: 'error' },
         ]);
       } finally {
         setLoading(false);
@@ -349,29 +805,84 @@ export default function Assistant({
       const question = (prompt ?? input).trim();
       if (!question || loading) return;
 
-      onMessagesChange((current) => [
+      onMessagesChange(current => [
         ...current,
         { id: `user-${Date.now()}`, role: 'user', content: question },
       ]);
       setInput('');
 
-      // Trivial guard — pure greeting words handled locally, no API call
-      const norm = question.toLowerCase().replace(/\s+/g, ' ').trim();
-      if (TRIVIAL_GREETINGS.has(norm)) {
-        const name = firstName(user);
-        onMessagesChange((current) => [
-          ...current,
-          {
-            id: `assistant-local-${Date.now()}`,
-            role: 'assistant',
-            content: `Hey${name ? ` ${name}` : ''}. What course, topic, lecturer, or exam are you preparing for today?`,
-            wasStudyQuery: false,
-          },
-        ]);
+      // ── PENDING SLOT CHECK: user replied to "what course/topic?" prompt ───
+      // Runs BEFORE the pre-gate so short affirmations are never sent to search.
+      const convState = conversationStateRef.current;
+      if (convState.awaitingUserDetail && convState.pendingSlot) {
+        const slotClass = classifyPendingSlotReply(question);
+        if (import.meta.env.DEV) {
+          console.debug('[Assistant slot check]', { question, slotClass, pendingSlot: convState.pendingSlot });
+        }
+        if (slotClass === 'affirmed_but_no_detail') {
+          // User confirmed they have a topic but hasn't typed it yet — ask again
+          await localReplyWithAnim(
+            'context', 360,
+            "Great. What is it? You can type the course, topic, lecturer, exam, or even a rough description.",
+            'guidance',
+          );
+          // Keep slot open so next reply is also checked
+          conversationStateRef.current = { ...convState };
+          return;
+        }
+        if (slotClass === 'declined_or_unsure') {
+          await localReplyWithAnim(
+            'context', 360,
+            "No problem. Start with any clue you remember — a lecturer, course code, exam date, class phrase, or something vague.",
+            'guidance',
+          );
+          conversationStateRef.current = { pendingSlot: 'material_clue', lastAssistantMsgType: 'guidance', awaitingUserDetail: true };
+          return;
+        }
+        // 'provided_detail' → clear slot and fall through to normal processing
+        conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: null, awaitingUserDetail: false };
+      }
+
+      // ── HARD PRE-GATE: classify message function BEFORE any API call ──────
+      const precheck = classifyConversationFunction(question);
+
+      if (import.meta.env.DEV) {
+        console.debug('[Assistant decision]', {
+          input: question,
+          precheckIntent: precheck.intent,
+          shouldBypassAcademicSearch: precheck.shouldBypassAcademicSearch,
+          studentState: precheck.studentState,
+          confidence: precheck.confidence,
+          willCallUnderstand: !precheck.shouldBypassAcademicSearch,
+          willCallRag: false, // determined after /understand
+        });
+      }
+
+      // ── Non-academic path: handle locally (no /understand, no /rag/ask) ───
+      if (precheck.shouldBypassAcademicSearch) {
+        const phase: Exclude<ThinkingPhase, 'idle'> =
+          precheck.intent === 'self_doubt_or_anxiety'
+            ? 'empathy'
+            : precheck.intent === 'emotional_confusion' || precheck.intent === 'correction_or_complaint'
+            ? 'support'
+            : 'context';
+        const delay =
+          precheck.intent === 'greeting' ? 180
+          : precheck.intent === 'acknowledgement' ? 240
+          : precheck.intent === 'self_doubt_or_anxiety' ? 600
+          : precheck.intent === 'emotional_confusion' ? 520
+          : precheck.intent === 'correction_or_complaint' ? 460
+          : 370;
+
+        const content = buildConversationReply(precheck, question, user, messages);
+        const msgType = intentToMsgType(precheck.intent, precheck.studentState);
+        await localReplyWithAnim(phase, delay, content, msgType);
+        // All non-academic replies leave us ready to receive a topic/course
+        conversationStateRef.current = { pendingSlot: 'course_or_topic', lastAssistantMsgType: msgType, awaitingUserDetail: true };
         return;
       }
 
-      // Phase 1 — call /understand for semantic intent classification
+      // ── Academic path: call /understand → route → optionally /rag/ask ─────
       setLoading(true);
       setThinkingPhase('understanding');
 
@@ -384,69 +895,76 @@ export default function Assistant({
       } catch (err) {
         setLoading(false);
         setThinkingPhase('idle');
-        onMessagesChange((current) => [
+        onMessagesChange(current => [
           ...current,
-          {
-            id: `assistant-error-${Date.now()}`,
-            role: 'assistant',
-            content: friendlyError(err),
-            wasStudyQuery: false,
-          },
+          { id: `assistant-error-${Date.now()}`, role: 'assistant', content: friendlyError(err), wasStudyQuery: false, msgType: 'error' },
         ]);
+        conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: 'error', awaitingUserDetail: false };
         return;
       }
 
-      // Non-RAG intents — reply locally, never call /rag/ask
+      if (import.meta.env.DEV) {
+        console.debug('[/understand result]', {
+          intent: result.intent,
+          should_call_rag: result.should_call_rag,
+          interpreted_topic: result.interpreted_topic,
+          confidence: result.confidence,
+        });
+      }
+
+      // ── Non-RAG intent from /understand ──────────────────────────────────
       if (!result.should_call_rag) {
+        if (result.intent === 'guidance_needed') {
+          setThinkingPhase('support');
+          await new Promise<void>(r => setTimeout(r, 350));
+        }
         setLoading(false);
         setThinkingPhase('idle');
-        onMessagesChange((current) => [
+        const nonRagMsgType = intentToMsgType(result.intent, result.student_state);
+        onMessagesChange(current => [
           ...current,
           {
             id: `assistant-local-${Date.now()}`,
             role: 'assistant',
             content: buildLocalReply(result, user, messages),
+            msgType: nonRagMsgType,
             wasStudyQuery: false,
           },
         ]);
+        // Guidance/unclear intents still need the user to provide a topic
+        const needsTopic = ['guidance_needed', 'greeting', 'unclear'].includes(result.intent);
+        conversationStateRef.current = {
+          pendingSlot: needsTopic ? 'course_or_topic' : null,
+          lastAssistantMsgType: nonRagMsgType,
+          awaitingUserDetail: needsTopic,
+        };
         return;
       }
 
-      // Phase 2 — academic intent with topic: show interpretation if topic expanded from vague
+      // ── Academic with RAG ────────────────────────────────────────────────
       const ragQuery = result.interpreted_topic || question;
       const interpMsg = buildInterpretationMsg(result, question);
       if (interpMsg) {
-        onMessagesChange((current) => [
+        onMessagesChange(current => [
           ...current,
-          {
-            id: `assistant-interp-${Date.now()}`,
-            role: 'assistant',
-            content: interpMsg,
-            wasStudyQuery: false,
-          },
+          { id: `assistant-interp-${Date.now()}`, role: 'assistant', content: interpMsg, wasStudyQuery: false, msgType: 'follow_up' },
         ]);
       }
 
-      // callRag transitions phase to 'searching' and back to 'idle' when done
       await callRag(ragQuery);
+      conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: 'academic_answer', awaitingUserDetail: false };
     },
-    [input, loading, messages, onMessagesChange, user, callRag],
+    [input, loading, messages, onMessagesChange, user, callRag, localReplyWithAnim],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const headerSub =
-    thinkingPhase !== 'idle' ? PHASE_TEXT[thinkingPhase] : 'Ready for your questions';
-
   return (
     <div className="page" id="s-assistant">
       <div className="pg-head">
-        <div className="pg-title">
-          AI <em>Assistant</em>
-        </div>
+        <div className="pg-title">AI <em>Assistant</em></div>
         <div className="pg-sub">
-          Describe a topic, course, lecturer, or exam in plain language. Exact keywords are not
-          required.
+          Describe a topic, course, lecturer, or exam in plain language. Exact keywords are not required.
         </div>
       </div>
 
@@ -455,20 +973,20 @@ export default function Assistant({
           <div className="ai-hd">
             <div className="ai-dot"></div>
             <div className="ai-hd-title">ExamMind AI</div>
-            <div className="ai-hd-sub">{headerSub}</div>
+            <div className="ai-hd-sub">
+              {thinkingPhase !== 'idle' ? PHASE_TEXT[thinkingPhase] : 'Ready for your questions'}
+            </div>
           </div>
 
           <div className="ai-msgs">
-            {messages.map((message) => (
-              <div
-                className={`msg ${message.role === 'user' ? 'usr' : ''}`}
-                key={message.id}
-              >
+            {messages.map(message => (
+              <div className={`msg ${message.role === 'user' ? 'usr' : ''}`} key={message.id}>
                 <div className={`msg-ava ${message.role === 'user' ? 'usr' : 'ai'}`}>
                   {message.role === 'user' ? 'You' : 'AI'}
                 </div>
                 <div className={`bubble ${message.role === 'user' ? 'usr' : 'ai'}`}>
                   <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>
+                  {/* "Understood as" only for real academic search results — never for conversation */}
                   {message.wasStudyQuery && message.understanding?.interpreted_topic && (
                     <div className="pq-ref-row">
                       <div className="pq-ref">
@@ -477,8 +995,7 @@ export default function Assistant({
                           {message.understanding.interpreted_topic}
                           {message.understanding.related_terms.length > 0 && (
                             <span>
-                              {' '}
-                              · also searched{' '}
+                              {' '}· also searched{' '}
                               {message.understanding.related_terms.slice(0, 3).join(', ')}
                             </span>
                           )}
@@ -488,7 +1005,7 @@ export default function Assistant({
                   )}
                   {message.sources && message.sources.length > 0 && (
                     <div className="pq-ref-row">
-                      {message.sources.map((source) => (
+                      {message.sources.map(source => (
                         <div className="pq-ref" key={source}>
                           <div className="pq-ref-yr">Source</div>
                           <div className="pq-ref-q">{source}</div>
@@ -505,14 +1022,9 @@ export default function Assistant({
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 20px 14px' }}>
-            {promptChips.map((prompt) => (
-              <button
-                className="pill"
-                key={prompt}
-                onClick={() => void handleSend(prompt)}
-                disabled={loading}
-              >
-                {prompt}
+            {promptChips.map(p => (
+              <button className="pill" key={p} onClick={() => void handleSend(p)} disabled={loading}>
+                {p}
               </button>
             ))}
           </div>
@@ -523,20 +1035,11 @@ export default function Assistant({
               type="text"
               placeholder="Ask about a topic, lecturer, past question, or anything you remember…"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void handleSend();
-                }
-              }}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleSend(); } }}
               disabled={loading}
             />
-            <button
-              className="send"
-              onClick={() => void handleSend()}
-              disabled={loading || !input.trim()}
-            >
+            <button className="send" onClick={() => void handleSend()} disabled={loading || !input.trim()}>
               {loading ? '...' : '>'}
             </button>
           </div>
@@ -546,43 +1049,26 @@ export default function Assistant({
         <div className="related-panel">
           {!latestStudyAssistant && (
             <div className="card">
-              <div className="card-hd">
-                <div className="card-ttl">What can you ask?</div>
-              </div>
+              <div className="card-hd"><div className="card-ttl">What can you ask?</div></div>
               <div className="note-absent-msg">
-                Ask about any course topic, uploaded note, past question, lecturer, or exam
-                preparation task. You can describe what you remember, even if you do not know
-                the exact topic name.
+                Ask about any course topic, uploaded note, past question, lecturer, or exam preparation task. You can describe what you remember, even if you do not know the exact topic name.
               </div>
               <div style={{ marginTop: 12 }}>
-                <button
-                  className="cta cta-ghost"
-                  style={{ width: '100%', justifyContent: 'center', fontSize: 12 }}
-                  onClick={() => go('questions')}
-                >
-                  Search uploaded materials
-                </button>
-                <button
-                  className="cta cta-ghost"
-                  style={{ width: '100%', justifyContent: 'center', fontSize: 12, marginTop: 8 }}
-                  onClick={() => go('upload')}
-                >
-                  Upload course material
-                </button>
-                <button
-                  className="cta cta-ghost"
-                  style={{ width: '100%', justifyContent: 'center', fontSize: 12, marginTop: 8 }}
-                  onClick={() => go('practice')}
-                >
-                  Generate practice
-                </button>
-                <button
-                  className="cta cta-ghost"
-                  style={{ width: '100%', justifyContent: 'center', fontSize: 12, marginTop: 8 }}
-                  onClick={() => go('groups')}
-                >
-                  Join a reading room
-                </button>
+                {[
+                  { label: 'Search uploaded materials', screen: 'questions' as ScreenType },
+                  { label: 'Upload course material', screen: 'upload' as ScreenType },
+                  { label: 'Generate practice', screen: 'practice' as ScreenType },
+                  { label: 'Join a reading room', screen: 'groups' as ScreenType },
+                ].map(({ label, screen }) => (
+                  <button
+                    key={label}
+                    className="cta cta-ghost"
+                    style={{ width: '100%', justifyContent: 'center', fontSize: 12, marginTop: 8 }}
+                    onClick={() => go(screen)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -591,12 +1077,9 @@ export default function Assistant({
             <div className="note-absent">
               <div className="note-absent-lbl">No lecture notes found</div>
               <div className="note-absent-msg">
-                The assistant did not find lecture notes for this question. Upload lecture
-                notes, revision slides, or course outlines to improve future answers.
+                The assistant did not find lecture notes for this question. Upload lecture notes, revision slides, or course outlines to improve future answers.
               </div>
-              <button className="upload-prompt" onClick={() => go('upload')}>
-                + Upload lecture notes
-              </button>
+              <button className="upload-prompt" onClick={() => go('upload')}>+ Upload lecture notes</button>
             </div>
           )}
 
@@ -604,26 +1087,19 @@ export default function Assistant({
             <div className="note-absent">
               <div className="note-absent-lbl">No past questions found</div>
               <div className="note-absent-msg">
-                No matching past question has been indexed yet. Upload past questions, tutorial
-                sheets, assignment questions, or exam prep material for this topic.
+                No matching past question has been indexed yet. Upload past questions, tutorial sheets, assignment questions, or exam prep material for this topic.
               </div>
-              <button className="upload-prompt" onClick={() => go('upload')}>
-                + Upload past question
-              </button>
+              <button className="upload-prompt" onClick={() => go('upload')}>+ Upload past question</button>
             </div>
           )}
 
           <div className="card">
-            <div className="card-hd">
-              <div className="card-ttl">Sources</div>
-            </div>
+            <div className="card-hd"><div className="card-ttl">Sources</div></div>
             {latestStudyAssistant?.sources && latestStudyAssistant.sources.length > 0 ? (
               <div className="prog-list">
-                {latestStudyAssistant.sources.map((source) => (
+                {latestStudyAssistant.sources.map(source => (
                   <div className="qi" key={source}>
-                    <div className="qi-body">
-                      <div className="qi-title">{source}</div>
-                    </div>
+                    <div className="qi-body"><div className="qi-title">{source}</div></div>
                   </div>
                 ))}
               </div>

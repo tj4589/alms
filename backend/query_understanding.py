@@ -270,6 +270,16 @@ GUIDANCE_NEEDED_MARKERS: frozenset[str] = frozenset([
     "i can't place", "i can't think",
     "i'm just tired", "im just tired",
     "no idea what", "no clue what",
+    # Self-doubt / exam anxiety
+    "will not understand", "won't understand",
+    "i will fail", "i'm going to fail", "im going to fail",
+    "i feel dumb", "i feel stupid", "i feel hopeless", "i feel useless",
+    "i'm so dumb", "im so dumb", "i am so dumb",
+    "i don't think i will", "i dont think i will",
+    "i don't think i can", "i dont think i can",
+    "i can't cope", "i cannot cope",
+    "this is too much", "it is too much", "too much to understand",
+    "regardless of how much", "regardless i will",
     # Nigerian Pidgin
     "no sabi wetin", "i no sabi", "no know wetin",
     "dey lost", "i dey lost",
@@ -278,7 +288,44 @@ GUIDANCE_NEEDED_MARKERS: frozenset[str] = frozenset([
     "wetin to read", "wetin i wan read",
     "i dey confused", "i dey tire",
     "e don tire me",
+    "i go fail", "e don too much",
 ])
+
+# Tokens that must NEVER become an academic interpreted_topic alone or combined.
+# Used as a post-processing guard: if interpreted_topic consists only of these
+# tokens, it is discarded and intent is reclassified as "confirmation".
+CONVERSATIONAL_NONTOPICS: frozenset[str] = frozenset([
+    "sure", "okay", "ok", "yes", "yeah", "yep", "no", "nah", "nope", "maybe",
+    "really", "meant", "lost", "confused", "frustrated", "tired", "overwhelmed",
+    "hmm", "hm", "alright", "thanks", "meh", "mehh", "mehhh", "ugh", "argh",
+    "don", "what", "why", "how", "help", "blank", "stuck", "bored",
+    "worried", "scared", "nervous", "anxious", "stressed", "drained",
+    "feel", "feeling", "think", "know", "just", "still", "going", "done",
+    "been", "want", "need", "like", "get", "am", "right", "said",
+    # Self-doubt / exam anxiety words
+    "understand", "regardless", "will", "fail", "pass", "dumb", "stupid",
+    "behind", "cope", "hopeless", "useless", "worthless",
+])
+
+# Conversational filler — must NEVER be interpreted as academic topics.
+# These return intent="confirmation" with no interpreted_topic.
+CONVERSATIONAL_FILLER: frozenset[str] = frozenset([
+    "sure", "are you sure", "are u sure", "you sure", "u sure",
+    "really", "for real",
+    "okay", "ok", "yes", "yeah", "yep", "no", "nah",
+    "hmm", "hm",
+    "alright", "alright then",
+    "what do you mean", "what does that mean", "what do u mean",
+    "then what", "and then", "what next", "what happens next",
+    "how", "why",
+    "explain that", "explain more",
+    "so what should i do", "so what do i do",
+    "okay but how", "ok but how", "yes but how", "but how",
+    "how do i do that", "how do i start",
+    "what should i do", "what can i do",
+    "is that right", "is this right", "are you certain",
+])
+
 
 INTENT_PATTERNS = {
     "practice": re.compile(
@@ -359,6 +406,61 @@ def _is_greeting(query: str) -> bool:
     return cleaned in GREETING_WORDS
 
 
+def _is_conversational_filler(query: str) -> bool:
+    """True for short conversational phrases that are NOT academic topics.
+    These must never be interpreted as study queries or produce an interpreted_topic.
+    """
+    cleaned = re.sub(r"[!.,?…\s]+$", "", _normalize(query)).strip()
+    return cleaned in CONVERSATIONAL_FILLER
+
+
+def _is_emotional_expression(query: str) -> bool:
+    """Detect emotional/confused/frustrated expressions not covered by exact markers.
+    Catches: expressive sounds (mehhh), intensified emotions (so lost), Pidgin variants,
+    and self-doubt / exam anxiety expressions.
+    """
+    lower = query.lower()
+    # Expressive frustration sounds
+    if re.search(r"\bmeh{2,}\b|\bugh+\b|\bargh+\b|\bsigh{2,}\b", lower):
+        return True
+    # "so/very/really + emotion" intensifiers
+    if re.search(
+        r"\b(so|very|really|extremely|just)\s+(lost|confused|blank|frustrated|overwhelmed|tired|drained)\b",
+        lower,
+    ):
+        return True
+    # "I am / I'm + emotion"
+    if re.search(
+        r"\b(i'?m|i\s+am)\s+(so\s+)?(lost|confused|blank|frustrated|overwhelmed|tired|drained)\b",
+        lower,
+    ):
+        return True
+    # "don't know where/what" confusion
+    if re.search(
+        r"\b(don'?t|do not|cant|cannot|can'?t)\s+know\s+(where|what\s+course|what\s+topic|which)\b",
+        lower,
+    ):
+        return True
+    # Self-doubt / exam anxiety
+    if re.search(r"\b(will\s+not|won'?t)\s+(understand|pass|cope|learn)\b", lower):
+        return True
+    if re.search(r"\bi\s+feel(\s+like)?\s+i\s+(will\s+not|won'?t|can'?t|cannot)\b", lower):
+        return True
+    if re.search(r"\bi\s+(don'?t|do\s+not)\s+think\s+i\s+(will|can|could)\b", lower):
+        return True
+    if re.search(r"\b(i\s+will|i'?m\s+going\s+to|i'll)\s+(fail|never\s+(pass|understand|cope))\b", lower):
+        return True
+    if re.search(r"\b(i'?m|i\s+am|i\s+feel)\s+(so\s+)?(dumb|stupid|hopeless|useless|worthless)\b", lower):
+        return True
+    if re.search(r"\b(this|it)\s+is\s+too\s+(much|hard|difficult|confusing)\b", lower):
+        return True
+    if re.search(r"\b(i\s+)?(can'?t|cannot)\s+cope\b", lower):
+        return True
+    if re.search(r"\b(will\s+not|won'?t)\s+\w+\s+regardless\b", lower):
+        return True
+    return False
+
+
 def _is_unsure(query: str) -> bool:
     return any(p.search(query.strip()) for p in UNSURE_PHRASES)
 
@@ -389,7 +491,9 @@ def _extract_lecturer_references(raw_query: str) -> list[str]:
 def _intent(query: str, meaningful_tokens: list[str]) -> str:
     if _is_greeting(query):
         return "greeting"
-    if _is_unsure(query) or _needs_guidance(query):
+    if _is_conversational_filler(query):
+        return "confirmation"
+    if _is_unsure(query) or _needs_guidance(query) or _is_emotional_expression(query):
         return "guidance_needed"
     if LECTURER_QUERY_PATTERN.search(query):
         return "lecturer_pattern"
@@ -469,8 +573,8 @@ def understand_query(raw_query: str, available_courses: Any = None) -> dict:
 
     possible_lecturers = _extract_lecturer_references(original)
 
-    # Greetings and guidance queries have no academic topic — skip synonym/metadata work
-    if intent in ("greeting", "guidance_needed"):
+    # Non-academic intents have no interpreted_topic — skip synonym/metadata work entirely
+    if intent in ("greeting", "guidance_needed", "confirmation"):
         return {
             "original_query": original,
             "cleaned_query": cleaned,
@@ -491,6 +595,13 @@ def understand_query(raw_query: str, available_courses: Any = None) -> dict:
     interpreted_topic = synonym_topic or (metadata_topics[0] if metadata_topics else None)
     if not interpreted_topic and meaningful:
         interpreted_topic = " ".join(meaningful[:5])
+
+    # Guard: never return a topic that consists only of conversational non-topic words.
+    # This prevents "lost", "don lost mehhh", "meant", "sure" from becoming search topics.
+    if interpreted_topic:
+        topic_tokens = set(re.findall(r"[a-z]+", interpreted_topic.lower()))
+        if topic_tokens and topic_tokens.issubset(CONVERSATIONAL_NONTOPICS):
+            interpreted_topic = None
 
     related_terms = _dedupe([
         *(synonym_terms or []),
