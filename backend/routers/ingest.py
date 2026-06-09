@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from io import BytesIO
 from typing import Any, Dict, Optional
@@ -11,17 +12,19 @@ import auth
 import models
 from database import get_db
 
-try:
-    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-
-    embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
-    metadata_llm = ChatOpenAI(model="gpt-4o", temperature=0)
-except Exception as e:
-    embeddings_model = None
-    metadata_llm = None
-    print(f"Warning: OpenAI Langchain integrations not fully configured. {e}")
+from ai_clients import embeddings_model, metadata_llm
 
 router = APIRouter(prefix="/ingest", tags=["ingestion"])
+
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "40"))
+
+
+def missing_ai_error(feature: str):
+    return HTTPException(
+        status_code=503,
+        detail=f"{feature} is not available. Check DEEPSEEK_API_KEY and that fastembed is installed (pip install fastembed).",
+    )
 
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200):
@@ -39,7 +42,13 @@ def extract_pdf_text(file: UploadFile) -> str:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
-    content = file.file.read()
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"PDF is too large. Maximum upload size is {MAX_UPLOAD_BYTES} bytes.",
+        )
+
     try:
         pdf_reader = PyPDF2.PdfReader(BytesIO(content))
         extracted_text = "\n".join((page.extract_text() or "") for page in pdf_reader.pages)
@@ -166,7 +175,7 @@ def find_duplicate(db: Session, metadata: Dict[str, Any]):
 
 def embed_or_fail(text: str):
     if not embeddings_model:
-        raise HTTPException(status_code=500, detail="Embeddings model not configured. Set OPENAI_API_KEY.")
+        raise missing_ai_error("Embeddings model")
     return embeddings_model.embed_query(text)
 
 
@@ -196,6 +205,11 @@ def upload_document(
 
     course = match_course(db, metadata)
     chunks = [chunk for chunk in chunk_text(extracted_text) if len(chunk.strip()) >= 50]
+    if len(chunks) > MAX_INDEX_CHUNKS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"PDF produced {len(chunks)} chunks, which exceeds MAX_INDEX_CHUNKS={MAX_INDEX_CHUNKS}. Upload a smaller document.",
+        )
 
     if metadata.get("document_type") == "lecture_note":
         note = models.LectureNote(

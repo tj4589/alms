@@ -1,17 +1,38 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { apiFormPost, apiPost } from '../lib/api';
 
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  background: 'var(--bg3)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--r)',
+  padding: '10px 12px',
+  color: 'var(--text)',
+  fontFamily: 'var(--font)',
+  fontSize: 13,
+  outline: 'none',
+  transition: 'border-color .2s',
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text3)',
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '.5px',
+};
+
 export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     setLoading(true);
     setError('');
     setSuccess('');
@@ -31,12 +52,18 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
         return;
       }
 
-      await apiPost('/auth/register', { name, email, password, role: 'student' });
+      await apiPost('/auth/register', { name, username: username.toLowerCase(), email, password, role: 'student' });
 
-      setIsLogin(true);
-      setPassword('');
-      setName('');
-      setSuccess('Account created. Sign in with your new details.');
+      const body = new URLSearchParams();
+      body.set('username', email);
+      body.set('password', password);
+
+      const data = await apiFormPost('/auth/login', body);
+      if (!data.access_token) {
+        throw new Error('Account created, but automatic sign-in failed. Please sign in with your new details.');
+      }
+
+      onLogin(data.access_token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed.');
     } finally {
@@ -51,88 +78,153 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
   };
 
   return (
-    <div className="container animate-fade-in" style={{ padding: '4rem 1.5rem', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="glass-panel" style={{ padding: '3rem', maxWidth: '450px', width: '100%' }}>
-        <h2 style={{ textAlign: 'center', marginBottom: '2rem', color: 'var(--accent-primary)' }}>
-          {isLogin ? 'Welcome Back' : 'Create Account'}
-        </h2>
+    <div style={{
+      minHeight: '100vh',
+      background: 'var(--bg)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    }}>
+      <div style={{
+        width: '100%',
+        maxWidth: 420,
+        background: 'var(--bg2)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--rlg)',
+        padding: '36px 32px',
+      }}>
 
-        {error && <div style={{ marginBottom: '1rem', color: 'var(--coral)', fontSize: '0.9rem', textAlign: 'center' }}>{error}</div>}
-        {success && <div style={{ marginBottom: '1rem', color: 'var(--teal)', fontSize: '0.9rem', textAlign: 'center' }}>{success}</div>}
-        
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        {/* Branding */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{
+            width: 42,
+            height: 42,
+            background: 'var(--gold)',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--serif)',
+            fontSize: 24,
+            color: '#0c0d11',
+            fontStyle: 'italic',
+            margin: '0 auto 12px',
+          }}>E</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 22, letterSpacing: '-.2px' }}>
+            Exam<span style={{ color: 'var(--gold)' }}>Mind</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--text3)', marginTop: 4 }}>
+            {isLogin ? 'Sign in to your account' : 'Create your upload account'}
+          </div>
+        </div>
+
+        {error && (
+          <div className="upload-alert" style={{ marginBottom: 16 }}>{error}</div>
+        )}
+        {success && (
+          <div style={{
+            background: 'var(--teal2)',
+            border: '1px solid rgba(62,207,178,0.25)',
+            color: 'var(--teal)',
+            borderRadius: 'var(--r)',
+            padding: '10px 14px',
+            marginBottom: 16,
+            fontSize: 12.5,
+          }}>{success}</div>
+        )}
+
+        <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {!isLogin && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Full Name</label>
-              <input 
-                type="text" 
-                value={name} 
-                onChange={(e) => setName(e.target.value)}
-                style={{
-                  padding: '0.75rem', 
-                  borderRadius: 'var(--radius-md)', 
-                  border: '1px solid var(--border-color)',
-                  background: 'var(--surface-color)',
-                  color: 'var(--text-primary)'
-                }}
-                required
-              />
-            </div>
+            <>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <span style={labelStyle}>Full Name</span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  style={inputStyle}
+                  placeholder="Your full name"
+                  required
+                  minLength={2}
+                />
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <span style={labelStyle}>Username</span>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  style={inputStyle}
+                  placeholder="e.g. vera_csc301"
+                  required
+                  minLength={3}
+                  maxLength={24}
+                />
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                  3-24 characters - lowercase letters, numbers, underscores
+                </span>
+              </label>
+            </>
           )}
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Email Address</label>
-            <input 
-              type="email" 
-              value={email} 
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span style={labelStyle}>{isLogin ? 'Email Address' : 'School Email'}</span>
+            <input
+              type="email"
+              value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={{
-                padding: '0.75rem', 
-                borderRadius: 'var(--radius-md)', 
-                border: '1px solid var(--border-color)',
-                background: 'var(--surface-color)',
-                color: 'var(--text-primary)'
-              }}
+              style={inputStyle}
+              placeholder={isLogin ? 'your@email.com' : 'yourname@stu.cu.edu.ng'}
               required
             />
-          </div>
+            {!isLogin && (
+              <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                Use your school email. ExamMind is currently available for Covenant University students.
+              </span>
+            )}
+          </label>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Password</label>
-            <input 
-              type="password" 
-              value={password} 
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span style={labelStyle}>Password</span>
+            <input
+              type="password"
+              value={password}
               onChange={(e) => setPassword(e.target.value)}
-              style={{
-                padding: '0.75rem', 
-                borderRadius: 'var(--radius-md)', 
-                border: '1px solid var(--border-color)',
-                background: 'var(--surface-color)',
-                color: 'var(--text-primary)'
-              }}
+              style={inputStyle}
+              placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'}
               required
+              minLength={8}
             />
-          </div>
+          </label>
 
-          <button type="submit" className="btn-primary" style={{ marginTop: '1rem', width: '100%' }} disabled={loading}>
-            {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Sign Up'}
+          <button
+            type="submit"
+            className="cta"
+            style={{ width: '100%', justifyContent: 'center', padding: 12, fontSize: 13.5, marginTop: 4 }}
+            disabled={loading}
+          >
+            {loading ? 'Please wait...' : isLogin ? 'Sign In ->' : 'Create Account ->'}
           </button>
         </form>
 
-        <div style={{ marginTop: '2rem', textAlign: 'center', fontSize: '0.9rem' }}>
-          <span style={{ color: 'var(--text-secondary)' }}>
-            {isLogin ? "Don't have an account? " : "Already have an account? "}
-          </span>
-          <button 
+        <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13, color: 'var(--text3)' }}>
+          {isLogin ? "Don't have an account? " : 'Already have an account? '}
+          <button
             onClick={switchMode}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              color: 'var(--accent-primary)', 
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--gold)',
               cursor: 'pointer',
-              fontWeight: '500'
-            }}>
-            {isLogin ? 'Sign up here' : 'Sign in here'}
+              fontWeight: 600,
+              fontFamily: 'var(--font)',
+              fontSize: 13,
+              padding: 0,
+            }}
+          >
+            {isLogin ? 'Sign up' : 'Sign in'}
           </button>
         </div>
       </div>

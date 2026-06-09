@@ -20,6 +20,7 @@ export type PendingUpload = {
   fileSize: number;
   queuedAt: string;
   status: 'waiting_to_sync';
+  fileData: ArrayBuffer; // actual bytes so sync can re-POST the file
 };
 
 function openDb(): Promise<IDBDatabase> {
@@ -58,8 +59,46 @@ export async function saveStudyPack(pack: OfflineStudyPack) {
   await writeRecord('studyPacks', pack);
 }
 
-export async function queuePendingUpload(upload: PendingUpload) {
-  await writeRecord('pendingUploads', upload);
+export async function queuePendingUpload(meta: Omit<PendingUpload, 'fileData'>, file: File) {
+  const fileData = await file.arrayBuffer();
+  await writeRecord('pendingUploads', { ...meta, fileData });
+}
+
+export type PendingPracticeAttempt = {
+  id: string;
+  queuedAt: string;
+  course_id: number | undefined;
+  topic: string | undefined;
+  score: number;
+  total_questions: number;
+};
+
+export async function queuePracticeAttempt(attempt: Omit<PendingPracticeAttempt, 'id' | 'queuedAt'>) {
+  await writeRecord('practiceAttempts', {
+    ...attempt,
+    id: `attempt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    queuedAt: new Date().toISOString(),
+  });
+}
+
+export async function removePracticeAttempt(id: string) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('practiceAttempts', 'readwrite');
+    tx.objectStore('practiceAttempts').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function removePendingUpload(id: string) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('pendingUploads', 'readwrite');
+    tx.objectStore('pendingUploads').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 export async function countRecords(storeName: 'studyPacks' | 'pendingUploads' | 'practiceAttempts') {
