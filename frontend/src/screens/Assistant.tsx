@@ -72,16 +72,56 @@ type ConversationState = {
   awaitingUserDetail: boolean;
 };
 
+type DecisionIntent =
+  | 'greeting'
+  | 'emotional_confusion'
+  | 'self_doubt'
+  | 'confirmation_or_followup'
+  | 'pending_slot_reply'
+  | 'correction_or_complaint'
+  | 'academic_search'
+  | 'academic_explanation'
+  | 'lecturer_pattern'
+  | 'practice_request'
+  | 'acknowledgement'
+  | 'upload_help'
+  | 'campus_social'
+  | 'unclear';
+
+type DecisionStudentState = 'neutral' | 'confused' | 'anxious' | 'overwhelmed' | 'focused';
+type DecisionAction = 'local_reply' | 'ask_for_detail' | 'search' | 'rag' | 'practice' | 'clarify';
+
+type AssistantDecision = {
+  intent: DecisionIntent;
+  student_state: DecisionStudentState;
+  action: DecisionAction;
+  should_search: boolean;
+  should_call_rag: boolean;
+  should_show_understood_as: boolean;
+  interpreted_topic: string | null;
+  related_terms: string[];
+  response_goal: string;
+};
+
+type NaturalReplyContext = {
+  user: User | null;
+  userMessage: string;
+  messages: ChatMessage[];
+  pendingSlot: ConversationState['pendingSlot'];
+  previousAssistant?: ChatMessage;
+  currentPage: 'assistant';
+};
+
 // ── Thinking phases ───────────────────────────────────────────────────────────
 
 type ThinkingPhase = 'idle' | 'understanding' | 'searching' | 'context' | 'support' | 'empathy';
 
 const PHASE_TEXT: Record<Exclude<ThinkingPhase, 'idle'>, string> = {
-  understanding: 'Understanding what you mean…',
-  searching: 'Searching the ExamMind library…',
-  context: 'Checking the context…',
-  support: "Understanding where you're stuck…",
-  empathy: 'Understanding how to help…',
+  understanding: 'Understanding what you mean...',
+  searching: 'Checking uploaded materials...',
+  context: 'Thinking through the best next step...',
+  support: "Understanding where you're stuck...",
+  empathy: 'Checking the context...',
 };
 
 // ── Pre-gate constants ────────────────────────────────────────────────────────
@@ -139,6 +179,12 @@ function classifyConversationFunction(
     'good morning', 'good afternoon', 'good evening',
   ]);
   if (GREETING_SET.has(stripped)) return bypass('greeting', 1.0);
+
+  const READINESS_FOLLOWUP_RE =
+    /\b(are\s+(you|u)\s+sure|you\s+sure|u\s+sure|will\s+i|can\s+i)\b.*\b(ready|prepared|pass|make\s+it|understand|cope)\b/i;
+  if (READINESS_FOLLOWUP_RE.test(stripped)) {
+    return bypass('confirmation_or_followup', 0.97, 'anxious');
+  }
 
   const FOLLOWUP_SET = new Set([
     'are u sure', 'are you sure', 'you sure', 'u sure',
@@ -411,12 +457,278 @@ function buildFollowUpReply(question: string, lastAssistantMsg: ChatMessage | un
   return "Is there a specific course, topic, or exam you want to focus on? You can describe it in plain language.";
 }
 
+function normalizeStudentState(state: string): DecisionStudentState {
+  if (state === 'anxious') return 'anxious';
+  if (state === 'confused') return 'confused';
+  if (state === 'overwhelmed' || state === 'frustrated') return 'overwhelmed';
+  if (state === 'focused') return 'focused';
+  return 'neutral';
+}
+
+function previousAssistant(messages: ChatMessage[]): ChatMessage | undefined {
+  return [...messages].reverse().find(m => m.role === 'assistant');
+}
+
+function firstNameForGreeting(user: User | null, messages: ChatMessage[]): string {
+  const name = user?.name?.trim().split(/\s+/)[0] || '';
+  if (!name) return '';
+  const hasAlreadyGreeted = messages.some(m => m.role === 'assistant' && m.msgType === 'greeting');
+  return hasAlreadyGreeted ? '' : name;
+}
+
+function pickVariant(variants: string[], seed: string): string {
+  if (variants.length === 0) return '';
+  let hash = 0;
+  const mixed = `${seed}|${Date.now()}|${Math.random()}`;
+  for (let i = 0; i < mixed.length; i += 1) hash = (hash * 31 + mixed.charCodeAt(i)) >>> 0;
+  return variants[hash % variants.length];
+}
+
+function decisionFromPrecheck(
+  precheck: ConversationPrecheck,
+  question: string,
+): AssistantDecision {
+  const studentState = normalizeStudentState(precheck.studentState);
+  const intentMap: Record<ConversationFunction, DecisionIntent> = {
+    greeting: 'greeting',
+    self_doubt_or_anxiety: 'self_doubt',
+    emotional_confusion: 'emotional_confusion',
+    correction_or_complaint: 'correction_or_complaint',
+    confirmation_or_followup: 'confirmation_or_followup',
+    acknowledgement: 'acknowledgement',
+    academic_or_search_intent: 'academic_explanation',
+  };
+  const intent = intentMap[precheck.intent];
+  const needsDetail = ['self_doubt', 'emotional_confusion', 'confirmation_or_followup', 'acknowledgement', 'unclear'].includes(intent);
+
+  return {
+    intent,
+    student_state: studentState,
+    action: needsDetail ? 'ask_for_detail' : 'local_reply',
+    should_search: false,
+    should_call_rag: false,
+    should_show_understood_as: false,
+    interpreted_topic: null,
+    related_terms: [],
+    response_goal: question.trim() ? 'Respond naturally and ask for the smallest useful study clue.' : 'Invite a study starting point.',
+  };
+}
+
+function decisionFromIntentResult(result: IntentResult): AssistantDecision {
+  const intentMap: Record<string, DecisionIntent> = {
+    greeting: 'greeting',
+    guidance_needed: normalizeStudentState(result.student_state) === 'neutral' ? 'unclear' : 'emotional_confusion',
+    self_doubt_or_anxiety: 'self_doubt',
+    emotional_confusion: 'emotional_confusion',
+    correction_or_complaint: 'correction_or_complaint',
+    confirmation_or_followup: 'confirmation_or_followup',
+    confirmation: 'confirmation_or_followup',
+    acknowledgement: 'acknowledgement',
+    help: 'upload_help',
+    upload_help: 'upload_help',
+    practice_request: 'practice_request',
+    campus_social: 'campus_social',
+    lecturer_pattern: 'lecturer_pattern',
+    academic_search: 'academic_search',
+    academic_explanation: 'academic_explanation',
+    unclear: 'unclear',
+  };
+  const intent = intentMap[result.intent] || 'unclear';
+  const action: DecisionAction =
+    result.should_call_rag ? 'rag'
+    : intent === 'practice_request' ? 'practice'
+    : intent === 'unclear' ? 'clarify'
+    : intent === 'academic_search' ? 'search'
+    : ['emotional_confusion', 'self_doubt', 'confirmation_or_followup'].includes(intent) ? 'ask_for_detail'
+    : 'local_reply';
+
+  return {
+    intent,
+    student_state: normalizeStudentState(result.student_state),
+    action,
+    should_search: result.should_search,
+    should_call_rag: result.should_call_rag,
+    should_show_understood_as: false,
+    interpreted_topic: result.interpreted_topic,
+    related_terms: result.related_terms || [],
+    response_goal: result.response_strategy || 'Respond naturally with the next useful action.',
+  };
+}
+
+function composeNaturalAssistantReply(decision: AssistantDecision, context: NaturalReplyContext): string {
+  const name = decision.intent === 'greeting' ? firstNameForGreeting(context.user, context.messages) : '';
+  const userMessage = context.userMessage.trim().toLowerCase();
+  const prevType = context.previousAssistant?.msgType;
+  const seed = `${decision.intent}|${decision.student_state}|${userMessage}|${context.previousAssistant?.content ?? ''}`;
+  const cluePrompt = 'Give me one clue: a course, topic, lecturer, exam, or even a rough phrase from class.';
+
+  if (decision.intent === 'greeting') {
+    return pickVariant([
+      `Hey${name ? ` ${name}` : ''}. What are we studying today?`,
+      `Hi${name ? ` ${name}` : ''}. Send me a course, topic, lecturer, or past-question clue and I will take it from there.`,
+      `I am ready. What topic, course, or exam should we look at first?`,
+      `Hello${name ? ` ${name}` : ''}. What do you want to prepare for right now?`,
+    ], seed);
+  }
+
+  if (decision.intent === 'self_doubt') {
+    return pickVariant([
+      `That worry makes sense, but it does not mean you are stuck. We can make the next step small. ${cluePrompt}`,
+      `You do not have to feel ready before you start. Pick one small area and we will build from there. Which course or topic is making you most nervous?`,
+      `I hear you. Let us reduce the pressure: one topic, one past question, or one lecturer clue is enough to begin.`,
+      `You can still get more ready than you feel right now. Tell me the part that feels heaviest and I will help you break it down.`,
+      `That sounds stressful. Start with the smallest thing you remember from class, and I will help turn it into a plan.`,
+    ], seed);
+  }
+
+  if (decision.intent === 'emotional_confusion') {
+    const overwhelmed = decision.student_state === 'overwhelmed';
+    return pickVariant([
+      `${overwhelmed ? 'That is a lot to carry.' : 'I get you.'} We do not need a perfect topic name yet. ${cluePrompt}`,
+      `No need to force the exact words. Send whatever you remember, even something vague, and I will help connect it to the right material.`,
+      `Let us make it simpler. What is the nearest clue you have: course code, lecturer, exam, phrase, or topic area?`,
+      `You are not behind for being unsure. Start with one clue and I will help narrow it down.`,
+      `Okay, we can start messy. Type the little bit you remember and I will help shape it into something useful.`,
+    ], seed);
+  }
+
+  if (decision.intent === 'confirmation_or_followup') {
+    const asksReadiness = /\b(ready|prepared|pass|make it|understand|cope)\b/i.test(userMessage);
+    if (asksReadiness || decision.student_state === 'anxious') {
+      return pickVariant([
+        `You can be more ready than you feel right now. I cannot promise the exam will be easy, but I can help you focus. What course or topic should we start with?`,
+        `Yes, there is still a way to prepare. Let us not try to cover everything at once. Which topic or course worries you most?`,
+        `You do not need total confidence first. Give me one course, topic, or past-question area and I will help you make the next step concrete.`,
+        `I believe we can make progress from here. What is the first area you want to feel steadier on?`,
+      ], seed);
+    }
+    if (prevType === 'guidance' || prevType === 'unsure_support') {
+      return pickVariant([
+        `Yes. A vague clue is enough. Type the course, lecturer, phrase, or exam you have in mind.`,
+        `That is enough to begin. What is the clue you are thinking of?`,
+        `Exactly. You do not need the perfect keyword. Send the rough version and I will interpret it.`,
+        `Yes, we can work from a small clue. What should I use?`,
+      ], seed);
+    }
+    return pickVariant([
+      `Yes. What course, topic, or exam should we focus on next?`,
+      `That is right. Send me the next thing you want to study.`,
+      `Yes. What should I check for you?`,
+      buildFollowUpReply(context.userMessage, context.previousAssistant),
+    ], seed);
+  }
+
+  if (decision.intent === 'pending_slot_reply') {
+    return pickVariant([
+      'Great. What is it?',
+      'Okay, send it to me.',
+      'Nice. Type the course, topic, lecturer, exam, or rough description.',
+      'Good. What clue should I use?',
+      'I am with you. What do you have in mind?',
+    ], seed);
+  }
+
+  if (decision.intent === 'correction_or_complaint') {
+    const prevWasSearch =
+      context.previousAssistant?.wasStudyQuery ||
+      (context.previousAssistant?.content ?? '').toLowerCase().includes('i think you mean');
+    return pickVariant(prevWasSearch ? [
+      `You are right. I read that too much like a search. Let us reset: what did you want me to focus on?`,
+      `Got it. I jumped ahead there. Send the course, topic, lecturer, or clue you meant.`,
+      `Thanks for correcting me. I will slow down. What should I use as the actual clue?`,
+      `Fair point. Let us take it again from your meaning. What are you trying to study?`,
+    ] : [
+      `Got it. Tell me the version you meant and I will follow that.`,
+      `Okay, I will not assume. What should I focus on?`,
+      `Understood. Send the course, topic, lecturer, or rough clue you want me to use.`,
+      `Thanks for clarifying. What do you want to do next?`,
+    ], seed);
+  }
+
+  if (decision.intent === 'acknowledgement') {
+    return pickVariant([
+      'Alright. Send me the course, topic, lecturer, exam, or clue when you are ready.',
+      'Okay. What should we look at next?',
+      'Got it. Give me the next study clue.',
+      'Sure. What do you want to focus on?',
+      'I am ready when you are. Send any rough clue.',
+    ], seed);
+  }
+
+  if (decision.intent === 'upload_help') {
+    return pickVariant([
+      'You can upload lecture notes, past questions, course outlines, tutorial sheets, assignment questions, revision slides, or exam-prep PDFs. After that, ask in plain language and I will search them.',
+      'Upload anything that represents the course: notes, past questions, outlines, slides, tutorial sheets, or assignments. The more grounded the material, the better the answers.',
+      'For best results, upload the actual course materials first: past questions, notes, outlines, slides, or tutorial sheets. Then tell me what you want explained or searched.',
+      'I can work with notes, past questions, course outlines, assignments, slides, and exam-prep PDFs. Upload what you have, then ask naturally.',
+    ], seed);
+  }
+
+  if (decision.intent === 'practice_request') {
+    return pickVariant([
+      'I can help with practice. Send the course or topic, or open Generate Practice for a full quiz.',
+      'Sure. What topic should the practice questions cover?',
+      'Give me the course or topic and I will help you drill it.',
+      'We can practice that. What area should I test you on?',
+    ], seed);
+  }
+
+  if (decision.intent === 'lecturer_pattern') {
+    const lecturer = decision.interpreted_topic || 'that lecturer';
+    return pickVariant([
+      `If materials connected to ${lecturer} are uploaded, I can look for patterns. Send the lecturer name, course, or upload the related notes and past questions.`,
+      `I can check ${lecturer} once there are notes or past questions tied to them. Upload the material or give me the course clue.`,
+      `For lecturer patterns, I need the lecturer name plus uploaded notes or past questions. What course is this for?`,
+      `Yes, we can look at lecturer style. Give me the lecturer and course, or upload the relevant material first.`,
+    ], seed);
+  }
+
+  if (decision.intent === 'campus_social') {
+    return pickVariant([
+      'For reading rooms and study groups, open Study Groups from the navigation and look for an active room around your topic.',
+      'You can use Study Groups for reading rooms. Pick a room tied to your course or topic, then come back here when you want materials explained.',
+      'Study Groups is the best place for rooms and group study. What topic are you trying to revise with others?',
+      'Open Study Groups to find rooms. If you already have a course or topic, send it here and I can help you prepare before joining.',
+    ], seed);
+  }
+
+  if (decision.intent === 'academic_search' || decision.intent === 'academic_explanation') {
+    const topic = decision.interpreted_topic || 'that topic';
+    return `You are asking about ${topic}. I will check your uploaded materials and related past questions first.`;
+  }
+
+  if (context.pendingSlot) {
+    return composeNaturalAssistantReply({ ...decision, intent: 'pending_slot_reply' }, context);
+  }
+
+  if (decision.response_goal && decision.response_goal !== 'Respond naturally with the next useful action.') {
+    return decision.response_goal;
+  }
+
+  return pickVariant([
+    'Tell me the course, topic, lecturer, exam, or rough clue you want to work on.',
+    'What should we focus on first?',
+    'Send any small study clue and I will help from there.',
+    'Give me the nearest topic, course, or lecturer name you remember.',
+  ], seed);
+}
+
 function buildConversationReply(
   precheck: ConversationPrecheck,
   question: string,
   user: User | null,
   messages: ChatMessage[],
 ): string {
+  const decision = decisionFromPrecheck(precheck, question);
+  return composeNaturalAssistantReply(decision, {
+    user,
+    userMessage: question,
+    messages,
+    pendingSlot: null,
+    previousAssistant: previousAssistant(messages),
+    currentPage: 'assistant',
+  });
+
   const name = user?.name?.trim().split(/\s+/)[0] || '';
   const prevAssistant = [...messages].reverse().find(m => m.role === 'assistant');
 
@@ -510,6 +822,16 @@ function intentToMsgType(intent: string, studentState: string): MsgType {
 }
 
 function buildLocalReply(result: IntentResult, user: User | null, messages: ChatMessage[]): string {
+  const decision = decisionFromIntentResult(result);
+  return composeNaturalAssistantReply(decision, {
+    user,
+    userMessage: result.interpreted_topic || '',
+    messages,
+    pendingSlot: null,
+    previousAssistant: previousAssistant(messages),
+    currentPage: 'assistant',
+  });
+
   const name = user?.name?.trim().split(/\s+/)[0] || '';
   const { intent, student_state, clarifying_question } = result;
 
@@ -578,7 +900,7 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
   }
 
   if (intent === 'unclear') {
-    if (clarifying_question) return clarifying_question;
+    if (clarifying_question) return clarifying_question || '';
     return 'Which course, topic, or lecturer do you want to study?';
   }
 
@@ -602,11 +924,57 @@ function buildContext(msgs: ChatMessage[]): string {
     .join('\n');
 }
 
+function normalizeForComparison(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isVagueAcademicInput(original: string): boolean {
+  const norm = normalizeForComparison(original);
+  return [
+    /\b(thingy|thing|stuff|something|that one|the one)\b/,
+    /\b(what we did|what they taught|from class|in class)\b/,
+    /\b(i forgot|cannot remember|cant remember|not sure what it is called)\b/,
+    /\b(topic|part|area)\s+(about|on)\b/,
+  ].some(pattern => pattern.test(norm));
+}
+
+function shouldShowUnderstoodAs(
+  understanding: Pick<QueryUnderstanding, 'interpreted_topic' | 'related_terms'> | Pick<IntentResult, 'interpreted_topic' | 'related_terms'> | null | undefined,
+  original: string,
+): boolean {
+  const topic = understanding?.interpreted_topic?.trim();
+  if (!topic) return false;
+
+  const normalizedTopic = normalizeForComparison(topic);
+  const normalizedOriginal = normalizeForComparison(original);
+  if (!normalizedTopic || normalizedTopic === normalizedOriginal) return false;
+
+  const topicWords = normalizedTopic.split(/\s+/).filter(Boolean);
+  if (topicWords.length === 1 && normalizedTopic.length <= 5) return false;
+  if (topicWords.every(w => CONVERSATIONAL_TOKENS.has(w))) return false;
+
+  const originalWords = new Set(normalizedOriginal.split(/\s+/).filter(Boolean));
+  const topicAlreadyPresent = topicWords.length > 0 && topicWords.every(w => originalWords.has(w));
+  return isVagueAcademicInput(original) || !topicAlreadyPresent;
+}
+
+function buildVagueInterpretationMessage(result: IntentResult, original: string): string {
+  if (!shouldShowUnderstoodAs(result, original) || !result.interpreted_topic) return '';
+  const related = result.related_terms.slice(0, 3);
+  return `I think you may mean "${result.interpreted_topic}"${related.length ? `; I will also check ${related.join(', ')}` : ''}. I will check uploaded materials and related past questions first.`;
+}
+
 // Only show interpretation when the topic is meaningfully different from the input
 // and doesn't consist entirely of conversational filler words.
 function buildInterpretationMsg(result: IntentResult, original: string): string {
+  return buildVagueInterpretationMessage(result, original);
+
   if (!result.interpreted_topic) return '';
-  const topic = result.interpreted_topic;
+  const topic = result.interpreted_topic || '';
   if (topic.toLowerCase().trim() === original.toLowerCase().trim()) return '';
 
   const topicWords = topic.trim().split(/\s+/);
@@ -626,6 +994,14 @@ function missingMaterialsReply(question: string, understanding?: QueryUnderstand
   const related = (understanding?.related_terms || [])
     .filter(t => t.toLowerCase() !== topic.toLowerCase())
     .slice(0, 5);
+  const relatedText = related.length ? ` I also checked related terms like ${related.slice(0, 3).join(', ')}.` : '';
+  return pickVariant([
+    `I did not find uploaded materials for "${topic}" yet.${relatedText} You can upload lecture notes, past questions, course outlines, tutorial sheets, assignment questions, revision slides, or exam-prep PDFs, then ask again. If you want, I can still give a general explanation from the topic name.`,
+    `There is not enough uploaded ExamMind material on "${topic}" yet.${relatedText} The best next step is to add the course notes or past questions. Slides, outlines, tutorials, assignments, and exam-prep PDFs also help.`,
+    `I could not ground this in your uploaded materials yet.${relatedText} Upload anything tied to "${topic}" - notes, past questions, outlines, slides, tutorials, or assignments - and I will use that first next time.`,
+    `I checked, but "${topic}" is not in the uploaded library yet.${relatedText} Add the related lecture notes or past questions when you have them. A course outline, tutorial sheet, revision slide, or exam-prep PDF is useful too.`,
+    `I do not have uploaded material for "${topic}" to lean on yet.${relatedText} Upload the closest course file you have, or ask me to explain it generally while you gather the notes.`,
+  ], `${topic}|${related.join(',')}`);
 
   return [
     'I could not find this topic in the uploaded ExamMind materials yet. To improve answers, upload lecture notes, past questions, course outlines, tutorial sheets, revision slides, or exam prep PDFs for this topic.',
@@ -767,7 +1143,7 @@ export default function Assistant({
 
   // Only path that calls /rag/ask
   const callRag = useCallback(
-    async (question: string) => {
+    async (question: string, originalQuestion = question) => {
       setLoading(true);
       setThinkingPhase('searching');
       try {
@@ -785,6 +1161,7 @@ export default function Assistant({
             wasStudyQuery: true,
             msgType: noSources ? 'missing_materials' : 'academic_answer',
             understanding: data.understanding || null,
+            showUnderstoodAs: shouldShowUnderstoodAs(data.understanding, originalQuestion),
           },
         ]);
       } catch (err) {
@@ -820,10 +1197,28 @@ export default function Assistant({
           console.debug('[Assistant slot check]', { question, slotClass, pendingSlot: convState.pendingSlot });
         }
         if (slotClass === 'affirmed_but_no_detail') {
+          const slotDecision: AssistantDecision = {
+            intent: 'pending_slot_reply',
+            student_state: 'focused',
+            action: 'ask_for_detail',
+            should_search: false,
+            should_call_rag: false,
+            should_show_understood_as: false,
+            interpreted_topic: null,
+            related_terms: [],
+            response_goal: 'Ask for the specific study clue they have in mind.',
+          };
           // User confirmed they have a topic but hasn't typed it yet — ask again
           await localReplyWithAnim(
             'context', 360,
-            "Great. What is it? You can type the course, topic, lecturer, exam, or even a rough description.",
+            composeNaturalAssistantReply(slotDecision, {
+              user,
+              userMessage: question,
+              messages,
+              pendingSlot: convState.pendingSlot,
+              previousAssistant: previousAssistant(messages),
+              currentPage: 'assistant',
+            }),
             'guidance',
           );
           // Keep slot open so next reply is also checked
@@ -831,9 +1226,27 @@ export default function Assistant({
           return;
         }
         if (slotClass === 'declined_or_unsure') {
+          const slotDecision: AssistantDecision = {
+            intent: 'emotional_confusion',
+            student_state: 'confused',
+            action: 'ask_for_detail',
+            should_search: false,
+            should_call_rag: false,
+            should_show_understood_as: false,
+            interpreted_topic: null,
+            related_terms: [],
+            response_goal: 'Help them start from any small clue.',
+          };
           await localReplyWithAnim(
             'context', 360,
-            "No problem. Start with any clue you remember — a lecturer, course code, exam date, class phrase, or something vague.",
+            composeNaturalAssistantReply(slotDecision, {
+              user,
+              userMessage: question,
+              messages,
+              pendingSlot: convState.pendingSlot,
+              previousAssistant: previousAssistant(messages),
+              currentPage: 'assistant',
+            }),
             'guidance',
           );
           conversationStateRef.current = { pendingSlot: 'material_clue', lastAssistantMsgType: 'guidance', awaitingUserDetail: true };
@@ -951,7 +1364,7 @@ export default function Assistant({
         ]);
       }
 
-      await callRag(ragQuery);
+      await callRag(ragQuery, question);
       conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: 'academic_answer', awaitingUserDetail: false };
     },
     [input, loading, messages, onMessagesChange, user, callRag, localReplyWithAnim],
@@ -987,7 +1400,7 @@ export default function Assistant({
                 <div className={`bubble ${message.role === 'user' ? 'usr' : 'ai'}`}>
                   <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>
                   {/* "Understood as" only for real academic search results — never for conversation */}
-                  {message.wasStudyQuery && message.understanding?.interpreted_topic && (
+                  {message.wasStudyQuery && message.showUnderstoodAs && message.understanding?.interpreted_topic && (
                     <div className="pq-ref-row">
                       <div className="pq-ref">
                         <div className="pq-ref-yr">Understood as</div>

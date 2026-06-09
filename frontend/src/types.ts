@@ -22,6 +22,7 @@ export type ChatMessage = {
   noPastQuestionsFound?: boolean;
   noLectureNotesFound?: boolean;
   wasStudyQuery?: boolean;
+  showUnderstoodAs?: boolean;
   understanding?: {
     interpreted_topic: string | null;
     related_terms: string[];
