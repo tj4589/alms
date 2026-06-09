@@ -25,197 +25,39 @@ type QueryUnderstanding = {
   clarifying_question: string | null;
 };
 
+type IntentResult = {
+  intent: string;
+  student_state: string;
+  should_call_rag: boolean;
+  should_search: boolean;
+  should_ask_clarifying_question: boolean;
+  interpreted_topic: string | null;
+  related_terms: string[];
+  possible_course: string | null;
+  possible_lecturer: string | null;
+  confidence: number;
+  response_strategy: string;
+  clarifying_question: string | null;
+};
+
 type Course = {
   id: number;
   code: string;
   name: string;
 };
 
-/**
- * Message intent categories.
- *
- * GUARD: Only 'academic' and 'vague_academic' call /rag/ask.
- * Every other intent is handled LOCALLY with no API call.
- */
-type MessageIntent =
-  | 'greeting'       // hey, hi, hello
-  | 'help'           // what can you do, show me examples
-  | 'unsure'         // I don't know, not sure, what should I study
-  | 'thinking'       // I'm thinking about it, let me think
-  | 'confirmation'   // are you sure?, really?
-  | 'vague'          // ok, yes, thanks, hmm
-  | 'practice_req'   // test me, quiz me, generate practice
-  | 'campus_social'  // who is reading this, is there a reading room
-  | 'lecturer_q'     // what did Iheanetu teach, how does she set questions
-  | 'vague_academic' // the human relations thingy, computer stuffs, motivation thing
-  | 'academic';      // everything else → calls /rag/ask
+type ThinkingPhase = 'idle' | 'understanding' | 'searching';
 
-// ── Intent patterns ───────────────────────────────────────────────────────────
+const PHASE_TEXT: Record<Exclude<ThinkingPhase, 'idle'>, string> = {
+  understanding: 'Understanding what you mean…',
+  searching: 'Searching the ExamMind library…',
+};
 
-const greetingPattern =
-  /^(hi|hey|hello|yo|good morning|good afternoon|good evening|morning|evening|sup|hiya|heyy+)[!., ]*$/i;
-
-const helpPattern =
-  /^(help|what can you do\??|how does this work\??|what should i ask\??|what can i ask\??|show me examples\??|examples\??)$/i;
-
-const thinkingPattern =
-  /^(i'?m thinking( about it)?|thinking about it|let me think|give me a sec(ond)?|i'?m still thinking)[!., ]*$/i;
-
-const confirmationPattern =
-  /^(are you sure\??|you sure\??|really\??|are you certain\??|is that right\??|is this right\??|you confident\??)[!., ]*$/i;
-
-const unsurePattern =
-  /^(i\s+)?(do\s+not|don'?t|dont)?\s*(know|no idea)(\s+yet)?[!., ]*$|^not sure[!., ]*$|^nothing yet[!., ]*$|^i'?m confused[!., ]*$|^i\s+(do\s+not|don'?t|dont)\s+know\s+what\s+to\s+(read|study)[!., ]*$|^what topic\??$|^what should i study\??$|^what should i revise\??$|^i have no topic yet[!., ]*$|^no topic yet[!., ]*$|^i'?m not sure what to ask[!., ]*$/i;
-
-const vaguePattern =
-  /^(ok|okay|hmm+|hm+|yes|yeah|yep|no|nah|what|why|how|sure|alright|cool|fine|thanks|thank you|i see|got it|i understand|understood|noted)[!., ]*$/i;
-
-const localActionPattern =
-  /^(explain a topic|find past questions|generate practice|generate practice questions|search uploaded notes|upload course material|search uploaded materials)$/i;
-
-const practiceReqPattern =
-  /\b(test me|quiz me|give me questions|create a quiz|make practice|build a quiz|drill me|start a quiz|generate a quiz)\b/i;
-
-const campusSocialPattern =
-  /\b(reading room|study group|who is (studying|reading)|join (people|others|a group)|is there a (group|room)|find (others|people) (studying|reading)|others studying|who else is studying)\b/i;
-
-// Lecturer-context queries: "what did X teach", "how does she set", "madam X"
-const lecturerQPattern =
-  /what\s+(did|does)\s+\w+\s+(teach|cover|explain|ask|focus|like\s+to\s+ask)|how\s+(does|did)\s+(she|he|they|the\s+lecturer|madam|sir|\w+)\s+(set|ask|make|write|structure)\s*(the|her|his|their)?\s*(question|exam|test)?|what\s+topic\s+did\s+\w+\s+(teach|cover)|give\s+me\s+questions\s+from\s+what\s+\w+\s+(explained|taught)|from\s+what\s+(madam|sir|the\s+lecturer)\s+explained|(madam|sir|dr\.?|prof\.?|professor)\s+\w+/i;
-
-// Vague marker words that signal the student is describing a topic imprecisely
-const VAGUE_MARKERS =
-  /\b(thingy|stuffs?|that\s+topic|the\s+topic\s+about|the\s+thing\s+about|that\s+thing\s+about|something\s+about|the\s+concept\s+of|the\s+chapter\s+on|that\s+concept|that\s+chapter|what\s+we\s+did|what\s+they\s+teach)\b/i;
-
-// Words to strip when counting content tokens
-const FILLER = new Set([
-  'the', 'a', 'an', 'that', 'this', 'thing', 'thingy', 'stuff', 'stuffs',
-  'topic', 'about', 'on', 'we', 'did', 'last', 'week', 'give', 'find',
-  'explain', 'from', 'what', 'i', 'remember', 'dont', 'know', 'was',
-  'for', 'my', 'and', 'or', 'in', 'of', 'to', 'with',
+// Pure single-word greetings handled locally without any API call
+const TRIVIAL_GREETINGS = new Set([
+  'hi', 'hey', 'hello', 'yo', 'sup', 'hiya',
+  'good morning', 'good afternoon', 'good evening',
 ]);
-
-function contentWordCount(text: string): number {
-  return text.toLowerCase().split(/\W+/).filter((w) => w.length > 2 && !FILLER.has(w)).length;
-}
-
-// ── Local topic interpretation (mirrors backend synonym map) ─────────────────
-
-const TOPIC_HINTS: Array<{ triggers: string[]; topic: string; related: string[] }> = [
-  {
-    triggers: ['human relations', 'human relation'],
-    topic: 'Human Relations Theory',
-    related: ['Elton Mayo', 'Hawthorne Studies', 'employee motivation', 'organizational behaviour'],
-  },
-  {
-    triggers: ['hawthorne', 'observed workers', 'workers watched', 'people being watched', 'being watched'],
-    topic: 'Hawthorne Studies',
-    related: ['Elton Mayo', 'Human Relations Theory', 'observer effect', 'employee productivity'],
-  },
-  {
-    triggers: ['workers motivation', 'worker motivation', 'employees motivation', 'motivation workers'],
-    topic: 'Motivation Theory',
-    related: ['Maslow hierarchy of needs', 'Herzberg two factor theory', 'employee motivation'],
-  },
-  {
-    triggers: ['maslow', 'hierarchy of needs', 'hierarchy needs'],
-    topic: "Maslow's Hierarchy of Needs",
-    related: ['motivation theory', 'self-actualization', 'physiological needs', 'employee motivation'],
-  },
-  {
-    triggers: ['herzberg', 'two factor', 'hygiene factor'],
-    topic: 'Herzberg Two Factor Theory',
-    related: ['motivators', 'hygiene factors', 'job satisfaction', 'motivation theory'],
-  },
-  {
-    triggers: ['leadership style', 'leadership theory', 'leadership types', 'leadership thing'],
-    topic: 'Leadership Theory',
-    related: ['transformational leadership', 'transactional leadership', 'autocratic leadership', 'democratic leadership'],
-  },
-  {
-    triggers: ['demand supply', 'supply demand', 'demand and supply'],
-    topic: 'Demand and Supply',
-    related: ['market equilibrium', 'price mechanism', 'elasticity', 'economics'],
-  },
-  {
-    triggers: ['communication organization', 'communication in organization', 'organizational communication'],
-    topic: 'Organizational Communication',
-    related: ['formal communication', 'informal communication', 'management communication'],
-  },
-  {
-    triggers: ['scientific management', 'taylor management'],
-    topic: 'Scientific Management (Taylor)',
-    related: ['time and motion study', 'classical management', 'Frederick Taylor'],
-  },
-  {
-    triggers: ['bureaucracy', 'weber'],
-    topic: 'Bureaucracy Theory (Weber)',
-    related: ['classical management', 'organization theory', 'Max Weber'],
-  },
-  {
-    triggers: ['computer stuff', 'computer thing', 'programming thing', 'coding stuff', 'computer stuffs'],
-    topic: 'Computer Science / Programming',
-    related: ['algorithms', 'data structures', 'software engineering'],
-  },
-  {
-    triggers: ['accounting stuff', 'accounting thing', 'accounting thingy'],
-    topic: 'Accounting',
-    related: ['financial accounting', 'cost accounting', 'auditing', 'bookkeeping'],
-  },
-  {
-    triggers: ['management stuff', 'management thing', 'management thingy'],
-    topic: 'Management Theory',
-    related: ['classical management', 'scientific management', 'organization theory'],
-  },
-  {
-    triggers: ['motivation'],
-    topic: 'Motivation Theory',
-    related: ['Maslow hierarchy of needs', 'Herzberg two factor theory', 'employee motivation'],
-  },
-  {
-    triggers: ['leadership'],
-    topic: 'Leadership',
-    related: ['leadership styles', 'management', 'transformational leadership'],
-  },
-];
-
-function interpretVagueTopic(text: string): { topic: string; related: string[] } | null {
-  const lower = text.toLowerCase();
-  for (const hint of TOPIC_HINTS) {
-    if (hint.triggers.some((t) => lower.includes(t))) return hint;
-  }
-  return null;
-}
-
-// ── Classifier ────────────────────────────────────────────────────────────────
-
-function meaningfulLength(text: string) {
-  return text.replace(/[^a-z0-9]/gi, '').length;
-}
-
-/**
- * Classify a user message.
- *
- * ONLY 'academic' and 'vague_academic' call /rag/ask.
- * All other intents are handled locally — no API call is made.
- */
-function classifyMessage(text: string): MessageIntent {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized || meaningfulLength(normalized) < 3) return 'vague';
-  if (greetingPattern.test(normalized)) return 'greeting';
-  if (thinkingPattern.test(normalized)) return 'thinking';
-  if (confirmationPattern.test(normalized)) return 'confirmation';
-  if (unsurePattern.test(normalized)) return 'unsure';
-  if (helpPattern.test(normalized)) return 'help';
-  if (localActionPattern.test(normalized)) return 'help';
-  if (practiceReqPattern.test(normalized)) return 'practice_req';
-  if (campusSocialPattern.test(normalized)) return 'campus_social';
-  if (lecturerQPattern.test(text)) return 'lecturer_q';  // use original for case
-  if (vaguePattern.test(normalized)) return 'vague';
-  // vague_academic: has vague markers but also real content words
-  if (VAGUE_MARKERS.test(text) && contentWordCount(text) >= 1) return 'vague_academic';
-  return 'academic';
-}
 
 // ── Local reply helpers ───────────────────────────────────────────────────────
 
@@ -223,35 +65,49 @@ function firstName(user: User | null) {
   return user?.name?.trim().split(/\s+/)[0] || '';
 }
 
-function extractLecturerName(text: string): string | null {
-  const match =
-    text.match(/what\s+(?:did|does)\s+([A-Z][a-z]+)\s+(?:teach|cover|explain|ask)/i) ||
-    text.match(/(?:madam|sir|dr\.?|prof\.?|professor|mr\.?|mrs\.?)\s+([A-Za-z]+)/i) ||
-    text.match(/how\s+does\s+([A-Z][a-z]+)\s+(?:set|ask|make|write)/i);
-  return match ? match[1] : null;
+function buildContext(msgs: ChatMessage[]): string {
+  return msgs
+    .slice(-4)
+    .map((m) => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.content.slice(0, 150)}`)
+    .join('\n');
 }
 
-function localAssistantReply(
-  intent: Exclude<MessageIntent, 'academic' | 'vague_academic'>,
-  question: string,
+function buildLocalReply(
+  result: IntentResult,
   user: User | null,
-  repeatedVague: boolean,
-  previousAssistantMessage: string,
+  messages: ChatMessage[],
 ): string {
+  const name = firstName(user);
+  const { intent, student_state, clarifying_question } = result;
+
   if (intent === 'greeting') {
-    const name = firstName(user);
     return `Hey${name ? ` ${name}` : ''}. What course, topic, lecturer, or exam are you preparing for today?`;
   }
 
-  if (intent === 'thinking') {
-    return 'No problem. You can start with any course, topic, exam, or something you vaguely remember from class. You do not need exact keywords.';
+  if (intent === 'guidance_needed') {
+    if (student_state === 'frustrated' || student_state === 'overwhelmed') {
+      return [
+        `${name ? `Hey ${name}, it` : 'It'}'s okay — feeling overwhelmed before exams is normal.`,
+        '',
+        'Start with whatever feels most familiar: a course, a topic, a lecturer, or just an exam date. You do not need to know the exact topic name.',
+        '',
+        'You can also:',
+        '- Search the ExamMind library',
+        '- Upload lecture notes or past questions',
+        '- Generate practice questions',
+        '- Join a reading room',
+      ].join('\n');
+    }
+    return [
+      `No problem${name ? `, ${name}` : ''}. Start with a course, a topic from class, a lecturer, or an upcoming exam.`,
+      '',
+      'If ExamMind does not have materials for it yet, upload lecture notes, past questions, course outlines, tutorial sheets, assignment questions, revision slides, or exam prep material.',
+      '',
+      'You can describe what you remember from class, even if you do not know the exact topic name.',
+    ].join('\n');
   }
 
-  if (intent === 'confirmation') {
-    return 'Yes. You do not need to know the exact topic name. Describe what you remember, and ExamMind will try to connect it to uploaded materials, past questions, discussions, and practice.';
-  }
-
-  if (intent === 'help') {
+  if (intent === 'help' || intent === 'upload_help') {
     return [
       'I can help you:',
       '- Search uploaded course materials (lecture notes, past questions, course outlines)',
@@ -265,21 +121,11 @@ function localAssistantReply(
     ].join('\n');
   }
 
-  if (intent === 'unsure') {
-    return [
-      'No problem. You can start with a course, a topic from class, a lecturer, or an upcoming exam.',
-      'If ExamMind does not have materials for it yet, upload lecture notes, past questions, course outlines, tutorial sheets, assignment questions, revision slides, or exam prep material.',
-      '',
-      'You can also:',
-      '- Search the ExamMind library',
-      '- Upload lecture notes or past questions',
-      '- Generate practice',
-      '- Join a reading room',
-      '- Ask about any course topic in plain language',
-    ].join('\n');
+  if (intent === 'confirmation') {
+    return 'Yes. You do not need to know the exact topic name. Describe what you remember, and ExamMind will try to connect it to uploaded materials, past questions, and practice.';
   }
 
-  if (intent === 'practice_req') {
+  if (intent === 'practice_request') {
     return 'I can generate practice for you. Tell me the topic or course, or go to Generate Practice from the navigation to build a full quiz.';
   }
 
@@ -287,13 +133,12 @@ function localAssistantReply(
     return 'You can find reading rooms and study groups from the Study Groups section in the navigation. Look for active rooms on topics you are studying.';
   }
 
-  if (intent === 'lecturer_q') {
-    const name = extractLecturerName(question);
-    const whom = name ? `${name}'s` : "that lecturer's";
+  if (intent === 'lecturer_pattern') {
+    const whom = result.possible_lecturer ? `${result.possible_lecturer}'s` : "that lecturer's";
     return [
       `If ${whom} materials have been uploaded, I can analyze them.`,
       '',
-      `To identify topics, question style, and patterns, upload materials connected to that lecturer:`,
+      'To identify topics, question style, and patterns, upload materials connected to that lecturer:',
       '- Lecture notes or slides',
       '- Past questions from their course',
       '- Course outlines',
@@ -303,19 +148,35 @@ function localAssistantReply(
     ].join('\n');
   }
 
-  // vague fallback
-  const prevLower = previousAssistantMessage.toLowerCase();
+  if (intent === 'academic_search') {
+    return 'I can search for past questions and exam materials. Go to the Questions section to search uploaded materials, or upload new past questions first.';
+  }
+
+  if (intent === 'unclear') {
+    if (clarifying_question) return clarifying_question;
+    return 'Which course, topic, or lecturer do you want to study?';
+  }
+
+  // Generic fallback
+  const prevAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  const prevLower = (prevAssistant?.content ?? '').toLowerCase();
   const prevAskedForTopic =
     prevLower.includes('what course') ||
     prevLower.includes('which course') ||
     prevLower.includes('what topic') ||
     prevLower.includes('which topic');
-
-  if (repeatedVague || prevAskedForTopic) {
+  if (prevAskedForTopic) {
     return 'Try typing a course, topic, or upcoming exam. You can search the ExamMind library or upload course materials if you are not sure where to begin.';
   }
+  return `Which course, topic, or lecturer do you want to study${name ? `, ${name}` : ''}?`;
+}
 
-  return 'Which course, topic, or lecturer do you want to study?';
+function buildInterpretationMsg(result: IntentResult, original: string): string {
+  const topic = result.interpreted_topic!;
+  const isSame = topic.toLowerCase().trim() === original.toLowerCase().trim();
+  if (isSame) return '';
+  const related = result.related_terms.slice(0, 3);
+  return `I think you mean "${topic}"${related.length ? ` — also searching: ${related.join(', ')}` : ''}. Searching the ExamMind library.`;
 }
 
 // ── RAG response helpers ──────────────────────────────────────────────────────
@@ -369,13 +230,6 @@ const GENERIC_PROMPTS = [
   'Upload course material',
 ];
 
-const THINKING_STEPS_ACADEMIC = [
-  'Understanding what you mean…',
-  'Searching the ExamMind library…',
-  'Checking lecture notes and past questions…',
-  'Preparing a grounded answer…',
-];
-
 function ThinkingBubble({ text }: { text: string }) {
   return (
     <div className="msg">
@@ -411,10 +265,9 @@ export default function Assistant({
 }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [thinkingText, setThinkingText] = useState(THINKING_STEPS_ACADEMIC[0]);
+  const [thinkingPhase, setThinkingPhase] = useState<ThinkingPhase>('idle');
   const [courses, setCourses] = useState<Course[]>([]);
   const msgsEndRef = useRef<HTMLDivElement>(null);
-  const thinkingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const latestStudyAssistant = useMemo(
     () => [...messages].reverse().find((m) => m.role === 'assistant' && m.wasStudyQuery),
@@ -448,35 +301,13 @@ export default function Assistant({
 
   useEffect(() => {
     msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loading, thinkingPhase]);
 
-  // Cycle thinking steps while an API call is in progress
-  useEffect(() => {
-    if (loading) {
-      let step = 0;
-      setThinkingText(THINKING_STEPS_ACADEMIC[0]);
-      thinkingIntervalRef.current = setInterval(() => {
-        step = (step + 1) % THINKING_STEPS_ACADEMIC.length;
-        setThinkingText(THINKING_STEPS_ACADEMIC[step]);
-      }, 1500);
-    } else {
-      if (thinkingIntervalRef.current) {
-        clearInterval(thinkingIntervalRef.current);
-        thinkingIntervalRef.current = null;
-      }
-    }
-    return () => {
-      if (thinkingIntervalRef.current) clearInterval(thinkingIntervalRef.current);
-    };
-  }, [loading]);
-
-  /**
-   * Core RAG call — shared by 'academic' and 'vague_academic' intents.
-   * This is the ONLY path that calls apiPost('/rag/ask').
-   */
+  // Only path that calls /rag/ask
   const callRag = useCallback(
     async (question: string) => {
       setLoading(true);
+      setThinkingPhase('searching');
       try {
         const data = (await apiPost('/rag/ask', { question })) as AskResponse;
         const noSources = data.no_past_questions_found && data.no_lecture_notes_found;
@@ -507,89 +338,105 @@ export default function Assistant({
         ]);
       } finally {
         setLoading(false);
+        setThinkingPhase('idle');
       }
     },
     [onMessagesChange],
   );
 
-  /**
-   * GUARD: handleSend only calls /rag/ask when intent is 'academic' or 'vague_academic'.
-   * Every other intent is handled locally with no API call.
-   */
   const handleSend = useCallback(
     async (prompt?: string) => {
       const question = (prompt ?? input).trim();
       if (!question || loading) return;
 
-      const intent = classifyMessage(question);
-
-      // Add user message to chat
       onMessagesChange((current) => [
         ...current,
         { id: `user-${Date.now()}`, role: 'user', content: question },
       ]);
       setInput('');
 
-      // ── Local intents (no API call) ──────────────────────────────────────
-      if (intent !== 'academic' && intent !== 'vague_academic') {
-        const recentVagueCount = [...messages]
-          .reverse()
-          .filter((m) => m.role === 'user')
-          .slice(0, 2)
-          .filter((m) => classifyMessage(m.content) === 'vague').length;
-        const prevAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-        const prevContent = prevAssistant?.content ?? '';
-        const content = localAssistantReply(
-          intent,
-          question,
-          user,
-          intent === 'vague' && recentVagueCount >= 1,
-          prevContent,
-        );
+      // Trivial guard — pure greeting words handled locally, no API call
+      const norm = question.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (TRIVIAL_GREETINGS.has(norm)) {
+        const name = firstName(user);
         onMessagesChange((current) => [
           ...current,
           {
             id: `assistant-local-${Date.now()}`,
             role: 'assistant',
-            content,
-            sources: [],
+            content: `Hey${name ? ` ${name}` : ''}. What course, topic, lecturer, or exam are you preparing for today?`,
             wasStudyQuery: false,
           },
         ]);
         return;
       }
 
-      // ── vague_academic: show interpretation, then call /rag/ask ─────────
-      if (intent === 'vague_academic') {
-        const hint = interpretVagueTopic(question);
-        const interpMsg = hint
-          ? `I think you may mean ${hint.topic}${
-              hint.related.length > 0
-                ? `, possibly linked to ${hint.related.slice(0, 3).join(', ')}`
-                : ''
-            }. I'll search the ExamMind library for those.`
-          : "I'll try to understand what you mean and search the ExamMind library. Give me a moment.";
+      // Phase 1 — call /understand for semantic intent classification
+      setLoading(true);
+      setThinkingPhase('understanding');
 
+      let result: IntentResult;
+      try {
+        result = (await apiPost('/understand', {
+          message: question,
+          conversation_context: buildContext(messages),
+        })) as IntentResult;
+      } catch (err) {
+        setLoading(false);
+        setThinkingPhase('idle');
+        onMessagesChange((current) => [
+          ...current,
+          {
+            id: `assistant-error-${Date.now()}`,
+            role: 'assistant',
+            content: friendlyError(err),
+            wasStudyQuery: false,
+          },
+        ]);
+        return;
+      }
+
+      // Non-RAG intents — reply locally, never call /rag/ask
+      if (!result.should_call_rag) {
+        setLoading(false);
+        setThinkingPhase('idle');
+        onMessagesChange((current) => [
+          ...current,
+          {
+            id: `assistant-local-${Date.now()}`,
+            role: 'assistant',
+            content: buildLocalReply(result, user, messages),
+            wasStudyQuery: false,
+          },
+        ]);
+        return;
+      }
+
+      // Phase 2 — academic intent with topic: show interpretation if topic expanded from vague
+      const ragQuery = result.interpreted_topic || question;
+      const interpMsg = buildInterpretationMsg(result, question);
+      if (interpMsg) {
         onMessagesChange((current) => [
           ...current,
           {
             id: `assistant-interp-${Date.now()}`,
             role: 'assistant',
             content: interpMsg,
-            sources: [],
             wasStudyQuery: false,
           },
         ]);
-        // fall through to callRag
       }
 
-      // ── academic / vague_academic: call /rag/ask ─────────────────────────
-      await callRag(question);
+      // callRag transitions phase to 'searching' and back to 'idle' when done
+      await callRag(ragQuery);
     },
     [input, loading, messages, onMessagesChange, user, callRag],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  const headerSub =
+    thinkingPhase !== 'idle' ? PHASE_TEXT[thinkingPhase] : 'Ready for your questions';
 
   return (
     <div className="page" id="s-assistant">
@@ -608,7 +455,7 @@ export default function Assistant({
           <div className="ai-hd">
             <div className="ai-dot"></div>
             <div className="ai-hd-title">ExamMind AI</div>
-            <div className="ai-hd-sub">{loading ? thinkingText : 'Ready for your questions'}</div>
+            <div className="ai-hd-sub">{headerSub}</div>
           </div>
 
           <div className="ai-msgs">
@@ -653,8 +500,7 @@ export default function Assistant({
               </div>
             ))}
 
-            {/* Thinking animation — only shown during /rag/ask calls */}
-            {loading && <ThinkingBubble text={thinkingText} />}
+            {thinkingPhase !== 'idle' && <ThinkingBubble text={PHASE_TEXT[thinkingPhase]} />}
             <div ref={msgsEndRef} />
           </div>
 
@@ -741,7 +587,6 @@ export default function Assistant({
             </div>
           )}
 
-          {/* Warning cards only appear after a real academic query (wasStudyQuery === true) */}
           {latestStudyAssistant?.noLectureNotesFound && (
             <div className="note-absent">
               <div className="note-absent-lbl">No lecture notes found</div>

@@ -249,6 +249,37 @@ SYNONYM_MAP: dict[str, list[str]] = {
 }
 
 
+# Exported — used by the /understand endpoint's rule-based fallback
+GUIDANCE_NEEDED_MARKERS: frozenset[str] = frozenset([
+    # English confusion / frustration
+    "i'm lost", "im lost", "i am lost",
+    "i'm confused", "im confused", "i am confused",
+    "i'm blank", "im blank", "i am blank",
+    "i'm frustrated", "im frustrated",
+    "i'm overwhelmed", "im overwhelmed",
+    "i'm thinking about it", "im thinking about it",
+    "nothing is entering", "nothing entering",
+    "don't know where to start", "dont know where to start",
+    "don't even know where", "dont even know where",
+    "don't know what to read", "dont know what to read",
+    "don't know what course", "dont know what course",
+    "can't remember the course", "cannot remember the course",
+    "can't place it", "can't place the", "cannot place",
+    "can't think of", "cannot think of",
+    "don't even know", "dont even know",
+    "i can't place", "i can't think",
+    "i'm just tired", "im just tired",
+    "no idea what", "no clue what",
+    # Nigerian Pidgin
+    "no sabi wetin", "i no sabi", "no know wetin",
+    "dey lost", "i dey lost",
+    "dey blank", "i dey blank",
+    "e no dey enter", "nothing dey enter",
+    "wetin to read", "wetin i wan read",
+    "i dey confused", "i dey tire",
+    "e don tire me",
+])
+
 INTENT_PATTERNS = {
     "practice": re.compile(
         r"\b(practice|quiz|test me|questions for practice|generate|exercise|drill)\b", re.I
@@ -332,6 +363,12 @@ def _is_unsure(query: str) -> bool:
     return any(p.search(query.strip()) for p in UNSURE_PHRASES)
 
 
+def _needs_guidance(query: str) -> bool:
+    """True when the student is confused/frustrated/overwhelmed — guidance_needed intent."""
+    lower = query.lower()
+    return any(marker in lower for marker in GUIDANCE_NEEDED_MARKERS)
+
+
 def _extract_lecturer_references(raw_query: str) -> list[str]:
     """Extract potential lecturer names from the query."""
     lecturers: list[str] = []
@@ -352,8 +389,8 @@ def _extract_lecturer_references(raw_query: str) -> list[str]:
 def _intent(query: str, meaningful_tokens: list[str]) -> str:
     if _is_greeting(query):
         return "greeting"
-    if _is_unsure(query):
-        return "unsure"
+    if _is_unsure(query) or _needs_guidance(query):
+        return "guidance_needed"
     if LECTURER_QUERY_PATTERN.search(query):
         return "lecturer_pattern"
     for intent_name, pattern in INTENT_PATTERNS.items():
@@ -432,8 +469,8 @@ def understand_query(raw_query: str, available_courses: Any = None) -> dict:
 
     possible_lecturers = _extract_lecturer_references(original)
 
-    # Greetings and unsure queries have no academic topic — skip synonym/metadata work
-    if intent in ("greeting", "unsure"):
+    # Greetings and guidance queries have no academic topic — skip synonym/metadata work
+    if intent in ("greeting", "guidance_needed"):
         return {
             "original_query": original,
             "cleaned_query": cleaned,

@@ -2,7 +2,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, ingest, mvp, rag, search, sessions
+from routers import auth, ingest, mvp, rag, search, sessions, understand
 import models as _models  # noqa: F401 — registers all ORM classes with Base
 from database import Base, engine
 
@@ -39,6 +39,7 @@ app.include_router(rag.router)
 app.include_router(mvp.router)
 app.include_router(search.router)
 app.include_router(sessions.router)
+app.include_router(understand.router)
 
 @app.get("/")
 def read_root():
