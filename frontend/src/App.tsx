@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
-import type { ChatMessage, ScreenType, User } from './types';
+import type {
+  ChatMessage,
+  GlobalSearchResult,
+  LectureNote,
+  PastQuestion,
+  ScreenType,
+  SearchSuggestedAction,
+  User,
+} from './types';
 
 const INITIAL_CHAT: ChatMessage[] = [
   {
@@ -31,6 +39,42 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+const SEARCH_GUIDANCE = 'Try searching for a course, topic, lecturer, past question, note, or exam phrase.';
+const SEARCH_NONTOPICS = new Set([
+  'hey', 'hi', 'hello', 'okay', 'ok', 'sure', 'yes', 'yeah', 'yep', 'no', 'nah',
+  'lost', 'tired', 'confused', 'meant', 'thanks', 'thank', 'hmm', 'hm',
+]);
+
+function isConversationOnlySearch(query: string): boolean {
+  const words = query.toLowerCase().match(/[a-z]+/g) || [];
+  return words.length > 0 && words.every(word => SEARCH_NONTOPICS.has(word));
+}
+
+function hasUsefulInterpretation(result: GlobalSearchResult | null): boolean {
+  const topic = result?.understanding?.interpreted_topic?.trim();
+  if (!topic) return false;
+  const query = (result?.query || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalizedTopic = topic.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return Boolean(normalizedTopic && normalizedTopic !== query && !query.includes(normalizedTopic));
+}
+
+function resultCount(result: GlobalSearchResult | null): number {
+  if (!result) return 0;
+  return (
+    result.past_questions.length +
+    result.lecture_notes.length +
+    result.threads.length +
+    result.study_groups.length +
+    result.study_sessions.length +
+    result.related_topics.length
+  );
+}
+
+function textPreview(value: string | null | undefined, fallback: string, max = 92): string {
+  const text = (value || fallback).replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max).trim()}...` : text;
+}
+
 export default function App() {
   const [token, setToken] = useState(() => {
     if (!localStorage.getItem(AUTH_RESET_KEY)) {
@@ -48,11 +92,15 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
   const [practiceInitialTopic, setPracticeInitialTopic] = useState('');
 
-  type SearchResult = { id: number; content_text: string | null; year: number | null; metadata_json: Record<string, unknown> | null };
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchResult, setSearchResult] = useState<GlobalSearchResult | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [searchGuidance, setSearchGuidance] = useState('');
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchSeq = useRef(0);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
 
   // Hydrate user info from a stored token on first load
   useEffect(() => {
@@ -99,21 +147,77 @@ export default function App() {
     window.setTimeout(() => setToast(''), 3600);
   };
 
+  const runGlobalSearch = async (query: string, forceOpen = true) => {
+    const trimmed = query.trim();
+    const seq = ++searchSeq.current;
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+
+    if (trimmed.length < 2) {
+      setSearchResult(null);
+      setSearchError('');
+      setSearchGuidance('');
+      setSearchLoading(false);
+      setSearchOpen(false);
+      return;
+    }
+
+    if (isConversationOnlySearch(trimmed)) {
+      setSearchResult(null);
+      setSearchError('');
+      setSearchGuidance(SEARCH_GUIDANCE);
+      setSearchLoading(false);
+      setSearchOpen(true);
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError('');
+    setSearchGuidance('');
+    if (forceOpen) setSearchOpen(true);
+    try {
+      const data = await apiGet(`/search?q=${encodeURIComponent(trimmed)}`) as GlobalSearchResult;
+      if (seq !== searchSeq.current) return;
+      setSearchResult(data);
+      setSearchOpen(true);
+    } catch {
+      if (seq !== searchSeq.current) return;
+      setSearchResult(null);
+      setSearchError('Cannot reach ExamMind search. Check that the backend is running and VITE_API_BASE_URL matches the backend port.');
+      setSearchOpen(true);
+    } finally {
+      if (seq === searchSeq.current) setSearchLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
-    if (searchQuery.length < 2) { setSearchResults([]); setSearchOpen(false); return; }
-    searchDebounce.current = setTimeout(async () => {
-      try {
-        const data = await apiGet(`/past-questions?topic=${encodeURIComponent(searchQuery)}`) as SearchResult[];
-        setSearchResults(data.slice(0, 6));
-        setSearchOpen(data.length > 0);
-      } catch {
-        setSearchResults([]);
-        setSearchOpen(false);
-      }
-    }, 300);
+    if (searchQuery.trim().length < 2) {
+      setSearchResult(null);
+      setSearchOpen(false);
+      setSearchGuidance('');
+      setSearchError('');
+      return;
+    }
+    searchDebounce.current = setTimeout(() => {
+      void runGlobalSearch(searchQuery, true);
+    }, 420);
     return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current); };
   }, [searchQuery]);
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!searchBoxRef.current?.contains(event.target as Node)) setSearchOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSearchOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
 
   const askQuestion = (questionText: string) => {
     setSelectedQuestion(questionText);
@@ -125,6 +229,52 @@ export default function App() {
     go('practice');
   };
 
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  };
+
+  const askAIFromSearch = (question: string) => {
+    askQuestion(question);
+    closeSearch();
+  };
+
+  const handleSearchAction = (action: SearchSuggestedAction) => {
+    const payload = action.payload || {};
+    const topic = String(payload.topic || searchResult?.understanding?.interpreted_topic || searchQuery || '');
+    const question = String(payload.question || `Explain ${topic || searchQuery}`);
+    if (action.action === 'ask_ai') askAIFromSearch(question);
+    if (action.action === 'practice') {
+      handleGoToPractice(topic || searchQuery);
+      closeSearch();
+    }
+    if (action.action === 'upload') {
+      go('upload');
+      closeSearch();
+    }
+    if (action.action === 'discussion') {
+      go('collab');
+      closeSearch();
+    }
+    if (action.action === 'study_group' || action.action === 'reading_room') {
+      go('groups');
+      closeSearch();
+    }
+  };
+
+  const handlePastQuestionSearchClick = (question: PastQuestion) => {
+    askAIFromSearch(question.content_text || `Explain ${searchResult?.understanding?.interpreted_topic || searchQuery}`);
+  };
+
+  const handleLectureNoteSearchClick = (note: LectureNote) => {
+    askAIFromSearch(`Explain: ${note.title}`);
+  };
+
+  const runRelatedTopicSearch = (topic: string) => {
+    setSearchQuery(topic);
+    void runGlobalSearch(topic, true);
+  };
+
   if (!token) {
     return <Auth onLogin={handleLogin} />;
   }
@@ -133,6 +283,7 @@ export default function App() {
   const userRole = user?.role
     ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
     : 'Loading...';
+  const searchResults = searchResult?.past_questions || [];
 
   return (
     <div className="shell">
@@ -176,17 +327,148 @@ export default function App() {
       <main className="main">
         <div className="topbar">
           <button className="mob-menu" onClick={() => setSidebarOpen(!sidebarOpen)}>Menu</button>
-          <div className="search" style={{ position: 'relative' }}>
+          <div className="search global-search" ref={searchBoxRef}>
             <span className="search-ico">Search</span>
             <input
               type="text"
-              placeholder="Search past questions, topics, courses..."
+              placeholder="Search topics, notes, past questions, groups, rooms..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => { if (searchResults.length > 0) setSearchOpen(true); }}
-              onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+              onFocus={() => { if (searchQuery.trim().length >= 2) setSearchOpen(true); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void runGlobalSearch(searchQuery, true);
+                }
+                if (e.key === 'Escape') setSearchOpen(false);
+              }}
             />
-            {searchOpen && searchResults.length > 0 && (
+            {searchOpen && (
+              <div className="global-search-panel">
+                {searchLoading && (
+                  <div className="gs-loading"><span className="ai-dot"></span>Searching ExamMind...</div>
+                )}
+                {!searchLoading && searchGuidance && (
+                  <div className="gs-empty">
+                    <div className="gs-empty-title">Search needs an academic clue</div>
+                    <div>{searchGuidance}</div>
+                  </div>
+                )}
+                {!searchLoading && searchError && (
+                  <div className="gs-empty">
+                    <div className="gs-empty-title">Search is offline</div>
+                    <div>{searchError}</div>
+                    <button className="gs-action" onMouseDown={(e) => { e.preventDefault(); void runGlobalSearch(searchQuery, true); }}>Retry</button>
+                  </div>
+                )}
+                {!searchLoading && !searchGuidance && !searchError && searchResult && (
+                  <>
+                    {hasUsefulInterpretation(searchResult) && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Interpretation</div>
+                        <div className="gs-interpret">
+                          <div>Understood as: <strong>{searchResult.understanding?.interpreted_topic}</strong></div>
+                          {(searchResult.understanding?.related_terms || []).length > 0 && (
+                            <div className="gs-muted">Also searched: {(searchResult.understanding?.related_terms || []).slice(0, 5).join(', ')}</div>
+                          )}
+                        </div>
+                      </section>
+                    )}
+                    {(searchResult.suggested_actions || []).length > 0 && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Best Next Actions</div>
+                        <div className="gs-actions">
+                          {(searchResult.suggested_actions || []).slice(0, 5).map(action => (
+                            <button className="gs-action" key={`${action.action}-${action.label}`} onMouseDown={(e) => { e.preventDefault(); handleSearchAction(action); }}>{action.label}</button>
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                    {searchResult.past_questions.length > 0 && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Past Questions</div>
+                        {searchResult.past_questions.slice(0, 3).map(item => {
+                          const meta = item.metadata_json as { course_code?: string; topics_covered?: string[] } | null;
+                          return (
+                            <button className="gs-row" key={`pq-${item.id}`} onMouseDown={(e) => { e.preventDefault(); handlePastQuestionSearchClick(item); }}>
+                              <span className="gs-row-main">{textPreview(item.content_text, 'Past question')}</span>
+                              <span className="gs-row-meta">{meta?.course_code || 'Past question'}{item.year ? ` · ${item.year}` : ''}{meta?.topics_covered?.[0] ? ` · ${meta.topics_covered[0]}` : ''}</span>
+                            </button>
+                          );
+                        })}
+                      </section>
+                    )}
+                    {searchResult.lecture_notes.length > 0 && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Lecture Notes</div>
+                        {searchResult.lecture_notes.slice(0, 3).map(note => (
+                          <button className="gs-row" key={`note-${note.id}`} onMouseDown={(e) => { e.preventDefault(); handleLectureNoteSearchClick(note); }}>
+                            <span className="gs-row-main">{note.title}</span>
+                            <span className="gs-row-meta">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</span>
+                          </button>
+                        ))}
+                      </section>
+                    )}
+                    {searchResult.threads.length > 0 && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Discussions</div>
+                        {searchResult.threads.slice(0, 2).map(thread => (
+                          <button className="gs-row" key={`thread-${thread.id}`} onMouseDown={(e) => { e.preventDefault(); go('collab'); closeSearch(); }}>
+                            <span className="gs-row-main">{thread.title}</span>
+                            <span className="gs-row-meta">{thread.created_by_username ? `@${thread.created_by_username}` : 'Discussion'}</span>
+                          </button>
+                        ))}
+                      </section>
+                    )}
+                    {searchResult.study_groups.length > 0 && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Study Groups</div>
+                        {searchResult.study_groups.slice(0, 2).map(group => (
+                          <button className="gs-row" key={`group-${group.id}`} onMouseDown={(e) => { e.preventDefault(); go('groups'); closeSearch(); }}>
+                            <span className="gs-row-main">{group.name}</span>
+                            <span className="gs-row-meta">{group.topic || 'Study group'} · {group.member_count || 0} members</span>
+                          </button>
+                        ))}
+                      </section>
+                    )}
+                    {searchResult.study_sessions.length > 0 && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Reading Rooms</div>
+                        {searchResult.study_sessions.slice(0, 2).map(room => (
+                          <button className="gs-row" key={`room-${room.id}`} onMouseDown={(e) => { e.preventDefault(); go('groups'); closeSearch(); }}>
+                            <span className="gs-row-main">{room.title}</span>
+                            <span className="gs-row-meta">{room.topic || room.exam_goal || 'Active room'} · {room.participant_count || 0} active</span>
+                          </button>
+                        ))}
+                      </section>
+                    )}
+                    {searchResult.related_topics.length > 0 && (
+                      <section className="gs-section">
+                        <div className="gs-section-title">Related Topics</div>
+                        <div className="gs-chips">
+                          {searchResult.related_topics.slice(0, 8).map(topic => (
+                            <button className="gs-chip" key={topic} onMouseDown={(e) => { e.preventDefault(); runRelatedTopicSearch(topic); }}>{topic}</button>
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                    {resultCount(searchResult) === 0 && (
+                      <div className="gs-empty">
+                        <div className="gs-empty-title">No strong matches yet</div>
+                        <div>No strong matches yet for this. You can upload lecture notes, past questions, course outlines, tutorial sheets, assignment questions, revision slides, or exam prep PDFs.</div>
+                        <div className="gs-actions">
+                          <button className="gs-action" onMouseDown={(e) => { e.preventDefault(); askAIFromSearch(`Explain ${searchResult.understanding?.interpreted_topic || searchQuery}`); }}>Ask AI anyway</button>
+                          <button className="gs-action" onMouseDown={(e) => { e.preventDefault(); go('upload'); closeSearch(); }}>Upload material</button>
+                          <button className="gs-action" onMouseDown={(e) => { e.preventDefault(); go('collab'); closeSearch(); }}>Start discussion</button>
+                          <button className="gs-action" onMouseDown={(e) => { e.preventDefault(); go('groups'); closeSearch(); }}>Create study group</button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            {false && searchOpen && searchResults.length > 0 && (
               <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 12px 30px rgba(0,0,0,0.22)', zIndex: 200, overflow: 'hidden' }}>
                 {searchResults.map((r) => {
                   const meta = r.metadata_json as { course_code?: string; topics_covered?: string[] } | null;
@@ -234,7 +516,7 @@ export default function App() {
       <nav className="mob-nav">
         <div className="mob-tabs">
           <div className={`mob-tab ${activeScreen === 'dashboard' ? 'on' : ''}`} onClick={() => go('dashboard')}><div className="mob-tab-ico">*</div>Home</div>
-          <div className={`mob-tab ${activeScreen === 'questions' ? 'on' : ''}`} onClick={() => go('questions')}><div className="mob-tab-ico">Q</div>Questions</div>
+          <div className={`mob-tab ${activeScreen === 'upload' ? 'on' : ''}`} onClick={() => go('upload')}><div className="mob-tab-ico">+</div>Upload</div>
           <div className={`mob-tab ${activeScreen === 'assistant' ? 'on' : ''}`} onClick={() => go('assistant')}><div className="mob-tab-ico">AI</div>AI</div>
           <div className={`mob-tab ${activeScreen === 'offline' ? 'on' : ''}`} onClick={() => go('offline')}><div className="mob-tab-ico">D</div>Offline</div>
           <div className={`mob-tab ${activeScreen === 'collab' ? 'on' : ''}`} onClick={() => go('collab')}><div className="mob-tab-ico">C</div>Community</div>

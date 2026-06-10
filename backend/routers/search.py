@@ -1,5 +1,5 @@
 from collections import Counter
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import Text, func, or_
@@ -43,6 +43,7 @@ def smart_search(
         "related_topics": [],
         "study_groups": [],
         "study_sessions": [],
+        "suggested_actions": _suggested_actions(understand_query(q), q, False),
     }
     if not q or (_q_tokens and _q_tokens.issubset(CONVERSATIONAL_NONTOPICS)):
         return _empty_response
@@ -101,6 +102,22 @@ def smart_search(
         if course_id:
             ln_q = ln_q.filter(models.LectureNote.course_id == course_id)
         lecture_notes = [_ln(r) for r in ln_q.limit(limit).all()]
+        if len(lecture_notes) < limit:
+            chunk_q = db.query(models.LectureNoteChunk).filter(_lecture_note_chunk_filter(terms))
+            if course_id:
+                chunk_q = chunk_q.filter(models.LectureNoteChunk.course_id == course_id)
+            chunk_note_ids = [
+                row.lecture_note_id for row in chunk_q.limit(limit * 3).all()
+                if row.lecture_note_id
+            ]
+            seen_note_ids = {note["id"] for note in lecture_notes}
+            for note_id in chunk_note_ids:
+                if note_id in seen_note_ids or len(lecture_notes) >= limit:
+                    continue
+                note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
+                if note:
+                    seen_note_ids.add(note_id)
+                    lecture_notes.append(_ln(note))
 
     # ── Threads: always keyword ───────────────────────────────
     thread_rows = (
@@ -250,7 +267,46 @@ def smart_search(
         "related_topics": related_topics,
         "study_groups": study_groups,
         "study_sessions": study_sessions,
+        "suggested_actions": _suggested_actions(
+            understanding,
+            q,
+            bool(past_questions or lecture_notes or threads or study_groups or study_sessions),
+        ),
     }
+
+
+def _suggested_actions(understanding: dict, query: str, has_results: bool) -> list[dict[str, Any]]:
+    topic = (
+        understanding.get("interpreted_topic")
+        or understanding.get("course_code")
+        or understanding.get("lecturer_name")
+        or query
+    )
+    actions: list[dict[str, Any]] = []
+    if topic:
+        actions.append({
+            "label": f"Ask AI to explain {topic}",
+            "action": "ask_ai",
+            "payload": {"question": f"Explain {topic}"},
+        })
+        actions.append({
+            "label": f"Generate practice on {topic}",
+            "action": "practice",
+            "payload": {"topic": topic},
+        })
+    actions.extend([
+        {"label": "Upload materials for this topic", "action": "upload", "payload": {"query": query}},
+        {"label": "Start discussion", "action": "discussion", "payload": {"query": query}},
+        {"label": "Create study group", "action": "study_group", "payload": {"topic": topic or query}},
+        {"label": "Join a reading room", "action": "reading_room", "payload": {"topic": topic or query}},
+    ])
+    if not has_results and understanding.get("needs_course") and understanding.get("lecturer_name"):
+        actions.insert(0, {
+            "label": f"Add a course for {understanding.get('lecturer_name')}",
+            "action": "ask_ai",
+            "payload": {"question": f"What course should I analyze for {understanding.get('lecturer_name')}?"},
+        })
+    return actions[:6]
 
 
 def _metadata_context(db: Session) -> list[dict]:
@@ -284,6 +340,10 @@ def _past_question_filter(terms: list[str]):
 
 def _lecture_note_filter(terms: list[str]):
     return or_(*_term_conditions(terms, models.LectureNote.title, models.LectureNote.topic, models.LectureNote.metadata_json.cast(Text)))
+
+
+def _lecture_note_chunk_filter(terms: list[str]):
+    return or_(*_term_conditions(terms, models.LectureNoteChunk.chunk_text, models.LectureNoteChunk.topic_tag, models.LectureNoteChunk.metadata_json.cast(Text)))
 
 
 def _thread_filter(terms: list[str]):
