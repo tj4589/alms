@@ -19,6 +19,11 @@ type QueryUnderstanding = {
   related_terms: string[];
   possible_courses: string[];
   possible_lecturers: string[];
+  lecturer_name?: string | null;
+  course_code?: string | null;
+  topic?: string | null;
+  needs_course?: boolean;
+  needs_lecturer?: boolean;
   intent: string;
   confidence: number;
   needs_clarification: boolean;
@@ -35,6 +40,11 @@ type IntentResult = {
   related_terms: string[];
   possible_course: string | null;
   possible_lecturer: string | null;
+  lecturer_name?: string | null;
+  course_code?: string | null;
+  topic?: string | null;
+  needs_course?: boolean;
+  needs_lecturer?: boolean;
   confidence: number;
   response_strategy: string;
   clarifying_question: string | null;
@@ -99,6 +109,10 @@ type AssistantDecision = {
   should_call_rag: boolean;
   should_show_understood_as: boolean;
   interpreted_topic: string | null;
+  lecturer_name?: string | null;
+  course_code?: string | null;
+  needs_course?: boolean;
+  needs_lecturer?: boolean;
   related_terms: string[];
   response_goal: string;
 };
@@ -515,6 +529,8 @@ function decisionFromPrecheck(
 }
 
 function decisionFromIntentResult(result: IntentResult): AssistantDecision {
+  const lecturerName = result.lecturer_name || result.possible_lecturer || null;
+  const courseCode = result.course_code || result.possible_course || null;
   const intentMap: Record<string, DecisionIntent> = {
     greeting: 'greeting',
     guidance_needed: normalizeStudentState(result.student_state) === 'neutral' ? 'unclear' : 'emotional_confusion',
@@ -550,6 +566,10 @@ function decisionFromIntentResult(result: IntentResult): AssistantDecision {
     should_call_rag: result.should_call_rag,
     should_show_understood_as: false,
     interpreted_topic: result.interpreted_topic,
+    lecturer_name: lecturerName,
+    course_code: courseCode,
+    needs_course: result.needs_course ?? (intent === 'lecturer_pattern' && Boolean(lecturerName) && !courseCode),
+    needs_lecturer: result.needs_lecturer ?? (intent === 'lecturer_pattern' && !lecturerName),
     related_terms: result.related_terms || [],
     response_goal: result.response_strategy || 'Respond naturally with the next useful action.',
   };
@@ -674,13 +694,15 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
   }
 
   if (decision.intent === 'lecturer_pattern') {
-    const lecturer = decision.interpreted_topic || 'that lecturer';
-    return pickVariant([
-      `If materials connected to ${lecturer} are uploaded, I can look for patterns. Send the lecturer name, course, or upload the related notes and past questions.`,
-      `I can check ${lecturer} once there are notes or past questions tied to them. Upload the material or give me the course clue.`,
-      `For lecturer patterns, I need the lecturer name plus uploaded notes or past questions. What course is this for?`,
-      `Yes, we can look at lecturer style. Give me the lecturer and course, or upload the relevant material first.`,
-    ], seed);
+    const lecturer = decision.lecturer_name || decision.interpreted_topic;
+    const course = decision.course_code;
+    if (!lecturer || decision.needs_lecturer) {
+      return 'Which lecturer should I analyze?';
+    }
+    if (!course || decision.needs_course) {
+      return `I can see the lecturer is ${lecturer}. What course should I analyze for them? If you've uploaded past questions or notes, I'll check repeated topics, question style, difficulty, and patterns.`;
+    }
+    return `I'll analyze ${lecturer}'s pattern for ${course} using uploaded past questions and notes.`;
   }
 
   if (decision.intent === 'campus_social') {
@@ -963,9 +985,22 @@ function shouldShowUnderstoodAs(
 }
 
 function buildVagueInterpretationMessage(result: IntentResult, original: string): string {
+  if (result.intent === 'lecturer_pattern') return '';
   if (!shouldShowUnderstoodAs(result, original) || !result.interpreted_topic) return '';
   const related = result.related_terms.slice(0, 3);
   return `I think you may mean "${result.interpreted_topic}"${related.length ? `; I will also check ${related.join(', ')}` : ''}. I will check uploaded materials and related past questions first.`;
+}
+
+function buildLecturerAnalysisIntro(result: IntentResult): string {
+  const lecturer = result.lecturer_name || result.possible_lecturer;
+  const course = result.course_code || result.possible_course;
+  if (lecturer && course) {
+    return `I'll analyze ${lecturer}'s pattern for ${course} using uploaded past questions and notes.`;
+  }
+  if (lecturer) {
+    return `I can see the lecturer is ${lecturer}. What course should I analyze for them? If you've uploaded past questions or notes, I'll check repeated topics, question style, difficulty, and patterns.`;
+  }
+  return 'Which lecturer should I analyze?';
 }
 
 // Only show interpretation when the topic is meaningfully different from the input
@@ -1356,7 +1391,10 @@ export default function Assistant({
 
       // ── Academic with RAG ────────────────────────────────────────────────
       const ragQuery = result.interpreted_topic || question;
-      const interpMsg = buildInterpretationMsg(result, question);
+      const interpMsg =
+        result.intent === 'lecturer_pattern'
+          ? buildLecturerAnalysisIntro(result)
+          : buildInterpretationMsg(result, question);
       if (interpMsg) {
         onMessagesChange(current => [
           ...current,

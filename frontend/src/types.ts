@@ -28,6 +28,11 @@ export type ChatMessage = {
     related_terms: string[];
     possible_courses: string[];
     possible_lecturers: string[];
+    lecturer_name?: string | null;
+    course_code?: string | null;
+    topic?: string | null;
+    needs_course?: boolean;
+    needs_lecturer?: boolean;
     intent: string;
     confidence: number;
     needs_clarification: boolean;

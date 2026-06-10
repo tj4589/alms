@@ -76,6 +76,11 @@ class IntentResult(BaseModel):
     related_terms: list[str] = []
     possible_course: str | None = None
     possible_lecturer: str | None = None
+    lecturer_name: str | None = None
+    course_code: str | None = None
+    topic: str | None = None
+    needs_course: bool = False
+    needs_lecturer: bool = False
     confidence: float
     response_strategy: str
     clarifying_question: str | None = None
@@ -203,6 +208,11 @@ def _llm_classify(message: str, context: str) -> IntentResult:
             related_terms=[str(t) for t in (data.get("related_terms") or [])[:8]],
             possible_course=data.get("possible_course") or None,
             possible_lecturer=data.get("possible_lecturer") or None,
+            lecturer_name=data.get("lecturer_name") or data.get("possible_lecturer") or None,
+            course_code=data.get("course_code") or data.get("possible_course") or None,
+            topic=data.get("topic") or None,
+            needs_course=bool(data.get("needs_course", False)),
+            needs_lecturer=bool(data.get("needs_lecturer", False)),
             confidence=max(0.0, min(1.0, float(data.get("confidence", 0.5)))),
             response_strategy=str(data.get("response_strategy", "")),
             clarifying_question=data.get("clarifying_question") or None,
@@ -242,17 +252,24 @@ def _rule_fallback(message: str, db: Session | None = None) -> IntentResult:
     has_topic = bool(understanding.get("interpreted_topic"))
     possible_courses: list[str] = understanding.get("possible_courses") or []
     possible_lecturers: list[str] = understanding.get("possible_lecturers") or []
+    lecturer_name = understanding.get("lecturer_name") or (possible_lecturers[0] if possible_lecturers else None)
+    course_code = understanding.get("course_code") or (possible_courses[0] if possible_courses else None)
 
     return IntentResult(
         intent=intent,
         student_state="neutral",
         should_call_rag=(intent == "academic_explanation" and has_topic),
-        should_search=(intent == "academic_search"),
+        should_search=(intent == "academic_search" or intent == "lecturer_pattern"),
         should_ask_clarifying_question=bool(understanding.get("needs_clarification")),
         interpreted_topic=understanding.get("interpreted_topic"),
         related_terms=understanding.get("related_terms") or [],
-        possible_course=possible_courses[0] if possible_courses else None,
-        possible_lecturer=possible_lecturers[0] if possible_lecturers else None,
+        possible_course=course_code,
+        possible_lecturer=lecturer_name,
+        lecturer_name=lecturer_name,
+        course_code=course_code,
+        topic=understanding.get("topic"),
+        needs_course=bool(understanding.get("needs_course")),
+        needs_lecturer=bool(understanding.get("needs_lecturer")),
         confidence=float(understanding.get("confidence", 0.5)),
         response_strategy=f"handle {intent}",
         clarifying_question=understanding.get("clarifying_question"),
@@ -283,6 +300,38 @@ def understand_message(
 
     # Layer 3/4 — LLM (with rule-based fallback)
     result = _llm_classify(message, context)
+
+    lecturer_understanding = understand_query(message)
+    if lecturer_understanding.get("intent") == "lecturer_pattern":
+        lecturer_name = lecturer_understanding.get("lecturer_name")
+        course_code = lecturer_understanding.get("course_code")
+        result = IntentResult(
+            intent="lecturer_pattern",
+            student_state="focused",
+            should_call_rag=bool(lecturer_name and course_code),
+            should_search=True,
+            should_ask_clarifying_question=bool(lecturer_understanding.get("needs_lecturer")),
+            interpreted_topic=(
+                f"{lecturer_name} {course_code} question pattern"
+                if lecturer_name and course_code
+                else lecturer_name
+            ),
+            related_terms=lecturer_understanding.get("related_terms") or [],
+            possible_course=course_code,
+            possible_lecturer=lecturer_name,
+            lecturer_name=lecturer_name,
+            course_code=course_code,
+            topic=lecturer_understanding.get("topic"),
+            needs_course=bool(lecturer_understanding.get("needs_course")),
+            needs_lecturer=bool(lecturer_understanding.get("needs_lecturer")),
+            confidence=0.94,
+            response_strategy="analyze lecturer question pattern from uploaded materials",
+            clarifying_question=(
+                "Which lecturer should I analyze?"
+                if lecturer_understanding.get("needs_lecturer")
+                else None
+            ),
+        )
 
     # Post-process: if the LLM returned an interpreted_topic made entirely of
     # conversational non-topic words (e.g. "sure", "lost", "don lost mehhh"),

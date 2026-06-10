@@ -367,12 +367,30 @@ UNSURE_PHRASES: list[re.Pattern[str]] = [
 LECTURER_QUERY_PATTERN = re.compile(
     r"what\s+(?:did|does)\s+\w+\s+(?:teach|cover|explain|ask|focus\s+on|like\s+to\s+ask)"
     r"|how\s+does\s+(?:she|he|they|the\s+lecturer|the\s+professor)\s+(?:set|ask|make|write|structure)"
-    r"|how\s+(?:does|did)\s+\w+\s+(?:set|ask)\s+(?:the|her|his)?\s*question"
+    r"|how\s+(?:does|did)\s+(?:(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+)?\w+\s+(?:set|ask|make|write|structure)\s+(?:the|her|his|exam)?\s*questions?"
+    r"|what\s+does\s+(?:(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+)?\w+\s+(?:usually\s+)?(?:repeat|ask|focus\s+on)"
     r"|what\s+(?:topic|topics|course)\s+did\s+\w+\s+(?:teach|cover|take)"
+    r"|\w+'s\s+(?:questions?|exams?|past\s+questions?|style|pattern)"
+    r"|questions?\s+by\s+\w+"
+    r"|past\s+questions?\s+from\s+\w+"
     r"|give\s+me\s+questions\s+from\s+(?:what|the\s+one)\s+\w+\s+(?:explained|taught|covered)"
     r"|(?:madam|sir|dr\.?|prof\.?|professor|lecturer|mr\.?|mrs\.?|miss)\s+\w+",
     re.I,
 )
+
+CONVERSATIONAL_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:okay|ok|alright|yes|yeah|yep|pls|please|so|wait|hmm|hm)[,\s]+)+",
+    re.I,
+)
+
+COURSE_CODE_RE = re.compile(r"\b([A-Za-z]{2,4})\s*-?\s*(\d{2,4})\b")
+
+LECTURER_TITLES_RE = re.compile(r"^(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+", re.I)
+
+GENERIC_LECTURER_REFERENCES = {
+    "he", "she", "they", "this", "that", "lecturer", "professor", "teacher",
+    "questions", "question", "exam", "past", "course", "topic", "topics",
+}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -471,21 +489,73 @@ def _needs_guidance(query: str) -> bool:
     return any(marker in lower for marker in GUIDANCE_NEEDED_MARKERS)
 
 
+def _strip_conversational_prefixes(raw_query: str) -> str:
+    """Remove leading chat fillers without touching the entities after them."""
+    stripped = raw_query.strip()
+    previous = None
+    while previous != stripped:
+        previous = stripped
+        stripped = CONVERSATIONAL_PREFIX_RE.sub("", stripped).strip()
+    return stripped
+
+
+def _extract_course_code(raw_query: str) -> str | None:
+    match = COURSE_CODE_RE.search(raw_query)
+    if not match:
+        return None
+    return f"{match.group(1).upper()} {match.group(2)}"
+
+
+def _clean_lecturer_name(name: str) -> str | None:
+    cleaned = LECTURER_TITLES_RE.sub("", name.strip())
+    cleaned = re.sub(r"['’]s$", "", cleaned).strip(" .,?!;:")
+    if not cleaned:
+        return None
+    first = cleaned.split()[0]
+    if first.lower() in GENERIC_LECTURER_REFERENCES:
+        return None
+    return first[:1].upper() + first[1:]
+
+
 def _extract_lecturer_references(raw_query: str) -> list[str]:
-    """Extract potential lecturer names from the query."""
+    """Extract potential lecturer names from lecturer-pattern queries."""
     lecturers: list[str] = []
+    query = _strip_conversational_prefixes(raw_query)
     patterns = [
-        r"what\s+(?:did|does)\s+([A-Z][a-z]+)\s+(?:teach|cover|explain|ask)",
-        r"how\s+does\s+([A-Z][a-z]+)\s+(?:set|ask|make|write)",
-        r"(?:madam|sir|dr\.?|prof\.?|professor|mr\.?|mrs\.?|miss)\s+([A-Za-z]+)",
-        r"([A-Z][a-z]{2,})'s\s+(?:class|lecture|notes?|course|question|style|material)",
-        r"from\s+(?:what|the\s+one)\s+([A-Z][a-z]+)\s+(?:explained|taught|covered)",
+        r"\bhow\s+does\s+((?:(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+)?[A-Za-z][A-Za-z'-]{1,})\s+(?:usually\s+)?(?:set|ask|make|write|structure)\s+(?:exam\s+)?questions?",
+        r"\bwhat\s+(?:did|does)\s+((?:(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+)?[A-Za-z][A-Za-z'-]{1,})\s+(?:usually\s+)?(?:teach|cover|explain|ask|repeat|focus\s+on)",
+        r"\b(?:madam|sir|dr\.?|prof\.?|professor|mr\.?|mrs\.?|miss)\s+([A-Za-z][A-Za-z'-]{1,})",
+        r"\b([A-Za-z][A-Za-z'-]{2,})['’]s\s+(?:class|lecture|notes?|course|questions?|exams?|past\s+questions?|style|pattern|material)",
+        r"\bquestions?\s+by\s+((?:(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+)?[A-Za-z][A-Za-z'-]{1,})",
+        r"\bpast\s+questions?\s+from\s+((?:(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+)?[A-Za-z][A-Za-z'-]{1,})",
+        r"\bwhat\s+topics?\s+did\s+((?:(?:dr|prof|professor|mr|mrs|miss|madam|sir)\.?\s+)?[A-Za-z][A-Za-z'-]{1,})\s+teach",
+        r"from\s+(?:what|the\s+one)\s+([A-Za-z][A-Za-z'-]{1,})\s+(?:explained|taught|covered)",
     ]
     for pattern in patterns:
-        for match in re.finditer(pattern, raw_query):
+        for match in re.finditer(pattern, query, re.I):
             if match.lastindex:
-                lecturers.append(match.group(1))
+                lecturer = _clean_lecturer_name(match.group(1))
+                if lecturer:
+                    lecturers.append(lecturer)
     return _dedupe(lecturers)
+
+
+def _extract_lecturer_pattern_entities(raw_query: str) -> dict[str, Any]:
+    query = _strip_conversational_prefixes(raw_query)
+    lecturers = _extract_lecturer_references(query)
+    course_code = _extract_course_code(query)
+    is_lecturer_pattern = bool(LECTURER_QUERY_PATTERN.search(_normalize(query))) or bool(lecturers)
+    return {
+        "stripped_query": query,
+        "lecturer_name": lecturers[0] if lecturers else None,
+        "course_code": course_code,
+        "topic": None,
+        "should_search": is_lecturer_pattern,
+        "should_call_rag": False,
+        "needs_course": bool(is_lecturer_pattern and lecturers and not course_code),
+        "needs_lecturer": bool(is_lecturer_pattern and not lecturers),
+        "is_lecturer_pattern": is_lecturer_pattern,
+    }
 
 
 def _intent(query: str, meaningful_tokens: list[str]) -> str:
@@ -567,21 +637,33 @@ def _synonym_matches(query: str) -> tuple[str | None, list[str]]:
 
 def understand_query(raw_query: str, available_courses: Any = None) -> dict:
     original = raw_query or ""
-    cleaned = _normalize(original)
+    stripped = _strip_conversational_prefixes(original)
+    lecturer_entities = _extract_lecturer_pattern_entities(stripped)
+    cleaned = _normalize(stripped)
     meaningful = _tokens(cleaned)
     intent = _intent(cleaned, meaningful)
+    if lecturer_entities["is_lecturer_pattern"]:
+        intent = "lecturer_pattern"
 
-    possible_lecturers = _extract_lecturer_references(original)
+    possible_lecturers = [lecturer_entities["lecturer_name"]] if lecturer_entities["lecturer_name"] else []
 
     # Non-academic intents have no interpreted_topic — skip synonym/metadata work entirely
     if intent in ("greeting", "guidance_needed", "confirmation"):
         return {
             "original_query": original,
             "cleaned_query": cleaned,
+            "stripped_query": stripped,
             "interpreted_topic": None,
             "related_terms": [],
             "possible_courses": [],
             "possible_lecturers": possible_lecturers,
+            "lecturer_name": lecturer_entities["lecturer_name"],
+            "course_code": lecturer_entities["course_code"],
+            "topic": lecturer_entities["topic"],
+            "should_search": lecturer_entities["should_search"],
+            "should_call_rag": lecturer_entities["should_call_rag"],
+            "needs_course": lecturer_entities["needs_course"],
+            "needs_lecturer": lecturer_entities["needs_lecturer"],
             "intent": intent,
             "confidence": 1.0,
             "needs_clarification": False,
@@ -590,6 +672,8 @@ def understand_query(raw_query: str, available_courses: Any = None) -> dict:
 
     metadata = _metadata_strings(available_courses)
     metadata_topics, possible_courses = _metadata_matches(cleaned, metadata)
+    if lecturer_entities["course_code"]:
+        possible_courses = _dedupe([lecturer_entities["course_code"], *possible_courses], limit=5)
     synonym_topic, synonym_terms = _synonym_matches(cleaned)
 
     interpreted_topic = synonym_topic or (metadata_topics[0] if metadata_topics else None)
@@ -641,10 +725,18 @@ def understand_query(raw_query: str, available_courses: Any = None) -> dict:
     return {
         "original_query": original,
         "cleaned_query": cleaned,
+        "stripped_query": stripped,
         "interpreted_topic": interpreted_topic,
         "related_terms": related_terms,
         "possible_courses": possible_courses,
         "possible_lecturers": possible_lecturers,
+        "lecturer_name": lecturer_entities["lecturer_name"],
+        "course_code": lecturer_entities["course_code"],
+        "topic": lecturer_entities["topic"],
+        "should_search": lecturer_entities["should_search"],
+        "should_call_rag": lecturer_entities["should_call_rag"],
+        "needs_course": lecturer_entities["needs_course"],
+        "needs_lecturer": lecturer_entities["needs_lecturer"],
         "intent": intent,
         "confidence": confidence,
         "needs_clarification": needs_clarification,
@@ -658,6 +750,13 @@ def public_understanding(understanding: dict) -> dict:
         "related_terms": understanding.get("related_terms") or [],
         "possible_courses": understanding.get("possible_courses") or [],
         "possible_lecturers": understanding.get("possible_lecturers") or [],
+        "lecturer_name": understanding.get("lecturer_name"),
+        "course_code": understanding.get("course_code"),
+        "topic": understanding.get("topic"),
+        "should_search": bool(understanding.get("should_search")),
+        "should_call_rag": bool(understanding.get("should_call_rag")),
+        "needs_course": bool(understanding.get("needs_course")),
+        "needs_lecturer": bool(understanding.get("needs_lecturer")),
         "intent": understanding.get("intent") or "general_search",
         "confidence": understanding.get("confidence") or 0,
         "needs_clarification": bool(understanding.get("needs_clarification")),
