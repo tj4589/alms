@@ -1,4 +1,4 @@
-export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'analytics' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups';
+export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'analytics' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search';
 
 export type User = {
   id: number;
