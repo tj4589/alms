@@ -8,6 +8,30 @@ export type User = {
   role: string;
 };
 
+export type AcademicMetadata = {
+  document_type: 'past_question' | 'lecture_note' | 'course_outline' | 'tutorial' | 'assignment' | 'revision_slide' | 'exam_prep' | 'unknown';
+  document_title?: string;
+  course_code?: string;
+  course_title?: string;
+  lecturer_names?: string[];
+  academic_year?: string;
+  year?: number | null;
+  semester?: string;
+  department?: string;
+  faculty?: string;
+  college?: string;
+  exam_type?: 'quiz' | 'test' | 'midterm' | 'final' | 'unknown';
+  topics_covered?: string[];
+  source_file?: string;
+  extraction_method?: 'embedded_text' | 'ocr' | 'mixed' | 'manual' | 'failed';
+  extraction_confidence?: number;
+  extraction_failure_reason?: 'embedded_text_weak' | 'ocr_not_installed' | 'ocr_failed' | 'ocr_low_confidence' | 'file_too_blurry' | 'unsupported_pdf' | 'encrypted_pdf' | '';
+  indexed_status?: 'indexed' | 'unindexed';
+  searchable?: boolean;
+  needs_clearer_file?: boolean;
+  confidence_score?: number;
+};
+
 export type SearchUnderstanding = {
   interpreted_topic: string | null;
   related_terms: string[];
@@ -33,7 +57,7 @@ export type PastQuestion = {
   semester?: string | null;
   difficulty?: string | null;
   content_text?: string | null;
-  metadata_json?: Record<string, unknown> | null;
+  metadata_json?: AcademicMetadata | Record<string, unknown> | null;
   verified_status?: string | null;
 };
 
@@ -45,7 +69,7 @@ export type LectureNote = {
   year?: number | null;
   semester?: string | null;
   verified_status?: string | null;
-  metadata_json?: Record<string, unknown> | null;
+  metadata_json?: AcademicMetadata | Record<string, unknown> | null;
 };
 
 export type SearchThread = {

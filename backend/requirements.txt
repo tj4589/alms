@@ -13,5 +13,8 @@ passlib[bcrypt]
 bcrypt==4.0.1
 python-multipart
 PyPDF2
+PyMuPDF
+pytesseract
+Pillow
 alembic
 fastembed

@@ -10,38 +10,63 @@ type RecentUpload = {
     course_code?: string;
     document_type?: string;
     topics_covered?: string[];
+    indexed_status?: string;
+    needs_clearer_file?: boolean;
   } | null;
 };
 
-type UploadState = 'idle' | 'processing' | 'confirm' | 'duplicate' | 'success' | 'error';
+type UploadState = 'idle' | 'processing' | 'confirm' | 'manual_metadata_required' | 'duplicate' | 'success' | 'error';
 type UploadAction = 'analyze' | 'index';
 type StepStatus = 'pending' | 'active' | 'done' | 'error';
 type ProcessingStep = { label: string; status: StepStatus };
 
 type Metadata = {
   document_type: string;
+  document_title: string;
   course_code: string;
   course_title: string;
+  lecturer_names: string[];
+  academic_year: string;
   year: number | '';
   semester: string;
   department: string;
   faculty: string;
+  college: string;
+  exam_type: string;
   topics_covered: string[];
+  source_file?: string;
+  extraction_method: string;
+  extraction_confidence: number;
+  extraction_failure_reason?: string;
+  indexed_status?: string;
+  searchable?: boolean;
+  needs_clearer_file?: boolean;
   confidence_score?: number;
 };
 
 const emptyMetadata: Metadata = {
   document_type: 'past_question',
+  document_title: '',
   course_code: '',
   course_title: '',
+  lecturer_names: [],
+  academic_year: '',
   year: '',
   semester: '',
   department: '',
   faculty: '',
+  college: '',
+  exam_type: 'unknown',
   topics_covered: [],
+  extraction_method: 'embedded_text',
+  extraction_confidence: 0,
+  extraction_failure_reason: '',
+  indexed_status: 'indexed',
+  searchable: true,
+  needs_clearer_file: false,
 };
 
-const STEP_LABELS = ['Document received', 'AI reading document', 'Duplicate check', 'Chunking and embedding'];
+const STEP_LABELS = ['Document received', 'Text/OCR extraction', 'Metadata and duplicate check', 'Chunking and embedding'];
 
 const mkSteps = (activeIndex = 0): ProcessingStep[] =>
   STEP_LABELS.map((label, i) => ({ label, status: i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending' }));
@@ -55,7 +80,29 @@ const wait = (ms: number) => new Promise(r => window.setTimeout(r, ms));
 const DOC_TYPE_LABEL: Record<string, string> = {
   past_question: 'Past Question',
   lecture_note: 'Lecture Note',
+  course_outline: 'Course Outline',
+  tutorial: 'Tutorial',
+  assignment: 'Assignment',
+  revision_slide: 'Revision Slide',
+  exam_prep: 'Exam Prep',
+  unknown: 'Unknown',
 };
+
+const DOC_TYPES = Object.keys(DOC_TYPE_LABEL);
+const EXAM_TYPES = ['unknown', 'quiz', 'test', 'midterm', 'final'];
+
+function rescueMessage(reason?: string) {
+  if (reason === 'ocr_not_installed') {
+    return 'OCR is not installed on this server. Install Tesseract OCR or upload a text-based PDF.';
+  }
+  if (reason === 'ocr_failed' || reason === 'ocr_low_confidence' || reason === 'file_too_blurry') {
+    return 'ExamMind tried OCR, but the scan is too unclear to read confidently.';
+  }
+  if (reason === 'encrypted_pdf') {
+    return 'This PDF appears to be encrypted. Upload an unlocked PDF.';
+  }
+  return 'ExamMind could not extract enough readable text from this PDF.';
+}
 
 export default function Upload({ go, user }: { go: (s: ScreenType) => void; user: User | null }) {
   const [state, setState] = useState<UploadState>('idle');
@@ -63,6 +110,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [metadata, setMetadata] = useState<Metadata>(emptyMetadata);
   const [message, setMessage] = useState('');
   const [chunksIndexed, setChunksIndexed] = useState(0);
+  const [lastIndexed, setLastIndexed] = useState(true);
   const [recentUploads, setRecentUploads] = useState<RecentUpload[] | null>(null);
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>(mkSteps());
   const [lastAction, setLastAction] = useState<UploadAction>('analyze');
@@ -79,13 +127,18 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   }, [user?.id, state]);
 
   const fields = useMemo(() => [
+    ['document_title', 'Document title'],
     ['document_type', 'Document type'],
     ['course_code', 'Course code'],
     ['course_title', 'Course title'],
+    ['lecturer_names', 'Lecturer'],
+    ['academic_year', 'Academic year'],
     ['year', 'Year'],
     ['semester', 'Semester'],
     ['department', 'Department'],
     ['faculty', 'Faculty'],
+    ['college', 'College'],
+    ['exam_type', 'Exam type'],
   ] as const, []);
 
   const analyzeFile = async (selected: File) => {
@@ -123,18 +176,25 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         setProcessingSteps(doneSteps(2));
         setState('duplicate');
         setMessage(`Already uploaded as ${data.existing_document?.title || 'an existing document'}.`);
+      } else if (data.status === 'manual_metadata_required') {
+        setProcessingSteps(failSteps(1));
+        setState('manual_metadata_required');
+        setMessage(data.message || rescueMessage(data.metadata?.extraction_failure_reason));
       } else {
         setProcessingSteps(doneSteps(2));
         setState('confirm');
+        if (data.message) setMessage(data.message);
       }
     } catch (err) {
       setProcessingSteps(failSteps(2));
       setState('error');
-      setMessage(err instanceof Error ? err.message : 'Upload analysis failed.');
+      const fallback = 'Upload analysis failed.';
+      const errorMessage = err instanceof Error ? err.message : fallback;
+      setMessage(errorMessage.includes('scanned or image-based PDF') ? 'ExamMind could not read this scan clearly. Try a clearer PDF or enter metadata manually.' : errorMessage);
     }
   };
 
-  const confirmUpload = async () => {
+  const confirmUpload = async (saveUnindexed = false) => {
     if (!file) return;
     setState('processing');
     setMessage('');
@@ -144,7 +204,13 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     const formData = new FormData();
     formData.append('file', file);
     formData.append('confirm', 'true');
-    formData.append('confirmed_metadata', JSON.stringify(metadata));
+    formData.append('confirmed_metadata', JSON.stringify(saveUnindexed ? {
+      ...metadata,
+      extraction_method: 'manual',
+      indexed_status: 'unindexed',
+      searchable: false,
+      needs_clearer_file: true,
+    } : metadata));
 
     try {
       await wait(200); setProcessingSteps(mkSteps(1));
@@ -159,6 +225,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       } else {
         setProcessingSteps(doneSteps(3));
         setChunksIndexed(data.chunks_indexed || 0);
+        setLastIndexed(data.indexed !== false);
+        setMetadata({ ...metadata, ...data.metadata });
         setState('success');
       }
     } catch (err) {
@@ -205,6 +273,10 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setMetadata(c => ({ ...c, [key]: key === 'year' ? Number(value) || '' : value }));
   };
 
+  const updateListField = (key: 'topics_covered' | 'lecturer_names', value: string) => {
+    setMetadata(c => ({ ...c, [key]: value.split(',').map(t => t.trim()).filter(Boolean) }));
+  };
+
   // Drag-and-drop handlers
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
   const onDragLeave = (e: React.DragEvent) => { if (!dropRef.current?.contains(e.relatedTarget as Node)) setDragOver(false); };
@@ -212,6 +284,16 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
 
   const hasQueue = queue.length > 1;
   const queueLabel = hasQueue ? ` (${queueIndex + 1} of ${queue.length})` : '';
+  const extractionMethod = metadata.extraction_method || 'embedded_text';
+  const extractionConfidence = Math.round((metadata.extraction_confidence || 0) * 100);
+  const extractionBadge =
+    extractionMethod === 'ocr' || extractionMethod === 'mixed'
+      ? 'Read using OCR'
+      : extractionMethod === 'manual'
+        ? 'Manual metadata'
+        : 'Text-based PDF';
+  const lowConfidence = extractionMethod === 'failed' || extractionMethod === 'manual' || (metadata.extraction_confidence || 0) < 0.45;
+  const rescueReason = rescueMessage(metadata.extraction_failure_reason);
 
   return (
     <div className="page" id="s-upload">
@@ -255,9 +337,14 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
               {[
                 ['Document type', 'Past Question or Lecture Note — auto-detected'],
                 ['Course code', 'e.g. CSC301, MTH201'],
+                ['Course title', 'Detected from headers and cover pages'],
+                ['Lecturer', 'Only when explicitly written in the PDF'],
                 ['Year & semester', 'e.g. 2023 / Second semester'],
-                ['Department & faculty', 'From document header'],
+                ['Department', 'From document header'],
+                ['Faculty / College', 'School, faculty, or college names'],
                 ['Topics covered', 'Key subject areas indexed for search'],
+                ['Extraction method', 'Text-based PDF or OCR scan reading'],
+                ['Confidence', 'How sure ExamMind is about the extraction'],
               ].map(([item, desc]) => (
                 <div className="upload-read" key={item}>
                   <span>◆</span>
@@ -312,12 +399,12 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         </div>
       )}
 
-      {state === 'confirm' && (
+      {(state === 'confirm' || state === 'manual_metadata_required') && (
         <div className="card confirm-card">
           <div className="card-hd">
             <div>
               <div className="card-ttl" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                AI-detected metadata
+                {state === 'manual_metadata_required' ? 'Manual metadata rescue' : 'AI-detected metadata'}
                 <span style={{
                   fontSize: 12, padding: '2px 10px', borderRadius: 20, fontWeight: 600,
                   background: metadata.document_type === 'lecture_note' ? 'rgba(62,207,178,0.12)' : 'rgba(155,135,245,0.12)',
@@ -332,29 +419,77 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
                   </span>
                 )}
               </div>
-              <div className="confirm-sub">Correct anything wrong, then index.</div>
+              <div className="confirm-sub">
+                {state === 'manual_metadata_required'
+                  ? 'ExamMind could not extract enough readable text from this PDF. You can still save the document record manually, but the content will not be searchable until a clearer file is uploaded.'
+                  : 'Correct anything wrong, then index.'}
+              </div>
             </div>
           </div>
+          <div className="upload-badges">
+            {state === 'manual_metadata_required' && <span className="upload-badge warn">Not indexed</span>}
+            <span className={`upload-badge ${lowConfidence ? 'warn' : ''}`}>{lowConfidence ? 'Low confidence scan' : extractionBadge}</span>
+            <span className="upload-badge">{extractionConfidence}% extraction confidence</span>
+            {state === 'manual_metadata_required' && <span className="upload-badge">{rescueReason}</span>}
+            {metadata.source_file && <span className="upload-badge">{metadata.source_file}</span>}
+          </div>
+          {state === 'manual_metadata_required' && (
+            <div className="upload-rescue-note">
+              This file will be stored, but it will not appear in AI answers or semantic search until readable text is available.
+            </div>
+          )}
           <div className="metadata-grid">
-            {fields.map(([key, label]) => (
-              <label className="meta-field" key={key}>
-                <span>{label}</span>
-                <input value={String(metadata[key] ?? '')} onChange={e => updateField(key, e.target.value)} />
-              </label>
-            ))}
+            {fields.map(([key, label]) => {
+              const value = key === 'lecturer_names' ? metadata.lecturer_names.join(', ') : String(metadata[key] ?? '');
+              return (
+                <label className="meta-field" key={key}>
+                  <span>{label}</span>
+                  {key === 'document_type' ? (
+                    <select value={metadata.document_type} onChange={e => updateField(key, e.target.value)}>
+                      {DOC_TYPES.map(type => <option value={type} key={type}>{DOC_TYPE_LABEL[type]}</option>)}
+                    </select>
+                  ) : key === 'exam_type' ? (
+                    <select value={metadata.exam_type} onChange={e => updateField(key, e.target.value)}>
+                      {EXAM_TYPES.map(type => <option value={type} key={type}>{type}</option>)}
+                    </select>
+                  ) : key === 'lecturer_names' ? (
+                    <input value={value} onChange={e => updateListField('lecturer_names', e.target.value)} />
+                  ) : (
+                    <input value={value} onChange={e => updateField(key, e.target.value)} />
+                  )}
+                </label>
+              );
+            })}
             <label className="meta-field wide">
               <span>Topics covered</span>
               <input
                 value={metadata.topics_covered.join(', ')}
-                onChange={e => setMetadata(c => ({ ...c, topics_covered: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }))}
+                onChange={e => updateListField('topics_covered', e.target.value)}
               />
+            </label>
+            <label className="meta-field">
+              <span>Extraction method</span>
+              <input value={extractionMethod} readOnly />
+            </label>
+            <label className="meta-field">
+              <span>Extraction confidence</span>
+              <input value={`${extractionConfidence}%`} readOnly />
             </label>
           </div>
           <div className="confirm-actions">
             <button className="cta cta-ghost" onClick={() => hasQueue ? nextInQueue() : setState('idle')}>
               {hasQueue ? 'Skip this file' : 'Cancel'}
             </button>
-            <button className="cta" onClick={() => void confirmUpload()}>Confirm and index</button>
+            {state === 'manual_metadata_required' && file && (
+              <>
+                <button className="cta cta-ghost" onClick={() => { setMessage(''); setState('idle'); }}>Upload clearer PDF</button>
+                <button className="cta cta-ghost" onClick={() => void confirmUpload(true)}>Save as unindexed record</button>
+                <button className="cta" onClick={() => void analyzeFile(file)}>Retry OCR</button>
+              </>
+            )}
+            {state !== 'manual_metadata_required' && (
+              <button className="cta" onClick={() => void confirmUpload(false)}>Confirm and index</button>
+            )}
           </div>
         </div>
       )}
@@ -373,9 +508,9 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
 
       {state === 'success' && (
         <div className="success-card">
-          <div className="success-label">Indexed successfully</div>
+          <div className="success-label">{lastIndexed ? 'Indexed successfully' : 'Saved as unindexed record'}</div>
           <div className="success-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {metadata.course_code || 'Document'} is now searchable.
+            {lastIndexed ? `${metadata.course_code || 'Document'} is now searchable.` : `${metadata.course_code || 'Document'} needs a readable file.`}
             <span style={{
               fontSize: 12, padding: '2px 10px', borderRadius: 20, fontWeight: 600,
               background: metadata.document_type === 'lecture_note' ? 'rgba(62,207,178,0.12)' : 'rgba(155,135,245,0.12)',
@@ -384,7 +519,11 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
               {DOC_TYPE_LABEL[metadata.document_type] ?? metadata.document_type}
             </span>
           </div>
-          <div className="success-body">{chunksIndexed} chunks embedded and indexed.</div>
+          <div className="success-body">
+            {lastIndexed
+              ? `${chunksIndexed} chunks embedded and indexed.`
+              : 'The document record was saved, but it will not appear in AI answers or semantic search until a clearer PDF is uploaded.'}
+          </div>
           <div className="empty-actions">
             {hasQueue && queueIndex + 1 < queue.length && (
               <button className="cta" onClick={nextInQueue}>
