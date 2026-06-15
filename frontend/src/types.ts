@@ -26,8 +26,9 @@ export type AcademicMetadata = {
   extraction_method?: 'embedded_text' | 'ocr' | 'mixed' | 'manual' | 'failed';
   extraction_confidence?: number;
   extraction_failure_reason?: 'embedded_text_weak' | 'ocr_not_installed' | 'ocr_failed' | 'ocr_low_confidence' | 'file_too_blurry' | 'unsupported_pdf' | 'encrypted_pdf' | '';
-  indexed_status?: 'indexed' | 'unindexed';
+  indexed_status?: 'indexed' | 'indexed_review_required' | 'unindexed';
   searchable?: boolean;
+  needs_review?: boolean;
   needs_clearer_file?: boolean;
   confidence_score?: number;
 };

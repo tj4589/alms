@@ -16,5 +16,6 @@ PyPDF2
 PyMuPDF
 pytesseract
 Pillow
+opencv-python
 alembic
 fastembed

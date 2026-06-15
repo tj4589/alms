@@ -19,6 +19,22 @@ type UploadState = 'idle' | 'processing' | 'confirm' | 'manual_metadata_required
 type UploadAction = 'analyze' | 'index';
 type StepStatus = 'pending' | 'active' | 'done' | 'error';
 type ProcessingStep = { label: string; status: StepStatus };
+type PreviewItem = { label: string; text: string };
+type PreviewSection = { title: string; items: PreviewItem[] };
+type ContentPreview = {
+  instruction?: string;
+  scenario?: string;
+  questions?: { number: string; preview: string }[];
+};
+
+type ExtractionInfo = {
+  page_count?: number;
+  method?: string;
+  extraction_confidence?: number;
+  indexed_status?: string;
+  searchable?: boolean;
+  needs_review?: boolean;
+};
 
 type Metadata = {
   document_type: string;
@@ -40,8 +56,10 @@ type Metadata = {
   extraction_failure_reason?: string;
   indexed_status?: string;
   searchable?: boolean;
+  needs_review?: boolean;
   needs_clearer_file?: boolean;
   confidence_score?: number;
+  pages_read?: number;
 };
 
 const emptyMetadata: Metadata = {
@@ -63,10 +81,18 @@ const emptyMetadata: Metadata = {
   extraction_failure_reason: '',
   indexed_status: 'indexed',
   searchable: true,
+  needs_review: false,
   needs_clearer_file: false,
+  pages_read: 0,
 };
 
-const STEP_LABELS = ['Document received', 'Text/OCR extraction', 'Metadata and duplicate check', 'Chunking and embedding'];
+const STEP_LABELS = [
+  'Reading document',
+  'Extracting text / running OCR if needed',
+  'Understanding academic metadata',
+  'Checking duplicates',
+  'Preparing for indexing',
+];
 
 const mkSteps = (activeIndex = 0): ProcessingStep[] =>
   STEP_LABELS.map((label, i) => ({ label, status: i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending' }));
@@ -85,23 +111,368 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   assignment: 'Assignment',
   revision_slide: 'Revision Slide',
   exam_prep: 'Exam Prep',
-  unknown: 'Unknown',
+  unknown: 'Academic Document',
 };
 
 const DOC_TYPES = Object.keys(DOC_TYPE_LABEL);
 const EXAM_TYPES = ['unknown', 'quiz', 'test', 'midterm', 'final'];
 
 function rescueMessage(reason?: string) {
-  if (reason === 'ocr_not_installed') {
-    return 'OCR is not installed on this server. Install Tesseract OCR or upload a text-based PDF.';
+  if (reason === 'ocr_not_installed') return 'OCR is not installed on this server. Install Tesseract OCR or upload a text-based PDF.';
+  if (reason === 'ocr_failed' || reason === 'ocr_low_confidence' || reason === 'file_too_blurry') return 'ExamMind tried OCR, but the scan is too unclear to read confidently.';
+  if (reason === 'encrypted_pdf') return 'This PDF appears to be encrypted. Upload an unlocked PDF.';
+  return 'ExamMind could not read this file clearly.';
+}
+
+function displayValue(value?: string | number | null, fallback = 'Not found') {
+  if (value === null || value === undefined || value === '') return fallback;
+  return String(value);
+}
+
+function cleanPreviewLines(raw: string, snippets: string[]) {
+  const sourceLines = snippets.length > 0 ? snippets : raw.split(/\r?\n/);
+  const seen = new Set<string>();
+  return sourceLines
+    .map(line => line.replace(/[_=*#~]{3,}/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(line => line.length >= 12 && /[A-Za-z]{4,}/.test(line))
+    .filter(line => {
+      const key = line.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 6);
+}
+
+function normalizePreviewSections(sections: PreviewSection[], fallbackLines: string[]) {
+  if (sections.length > 0) {
+    return sections
+      .map(section => ({
+        title: section.title,
+        items: section.items
+          .map(item => ({
+            label: item.label || 'Snippet',
+            text: item.text.replace(/[_=*#~|]{2,}/g, ' ').replace(/\s+/g, ' ').trim(),
+          }))
+          .filter(item => item.text.length >= 12),
+      }))
+      .filter(section => section.items.length > 0);
   }
-  if (reason === 'ocr_failed' || reason === 'ocr_low_confidence' || reason === 'file_too_blurry') {
-    return 'ExamMind tried OCR, but the scan is too unclear to read confidently.';
-  }
-  if (reason === 'encrypted_pdf') {
-    return 'This PDF appears to be encrypted. Upload an unlocked PDF.';
-  }
-  return 'ExamMind could not extract enough readable text from this PDF.';
+  return fallbackLines.length > 0
+    ? [{ title: 'Document preview', items: fallbackLines.slice(0, 5).map((text, index) => ({ label: `Snippet ${index + 1}`, text })) }]
+    : [];
+}
+
+function confidenceLabel(metadata: Metadata) {
+  const confidence = metadata.extraction_confidence || 0;
+  if (metadata.indexed_status === 'indexed_review_required' || metadata.needs_review || confidence < 0.65) return 'Review Recommended';
+  if (confidence >= 0.8) return 'High';
+  return 'Medium';
+}
+
+function methodLabel(method: string) {
+  if (method === 'ocr') return 'OCR';
+  if (method === 'mixed') return 'Mixed';
+  if (method === 'manual') return 'Manual';
+  if (method === 'failed') return 'Failed';
+  return 'Embedded Text';
+}
+
+function UploadProcessingState({ fileName, queueLabel, steps }: { fileName: string; queueLabel: string; steps: ProcessingStep[] }) {
+  return (
+    <div className="upload-processing-panel">
+      <div className="upload-processing-kicker">ExamMind is preparing your material</div>
+      <div className="upload-file">{fileName || 'PDF'}{queueLabel}</div>
+      <div className="upload-step-list">
+        {steps.map((step, i) => (
+          <div className={`upload-step ${step.status}`} key={step.label}>
+            <span className="upload-step-dot">{i + 1}</span>
+            <span>{step.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DetectedMetadataSummary({ metadata }: { metadata: Metadata }) {
+  const rows = [
+    ['Course', metadata.course_code || metadata.course_title ? <>{displayValue(metadata.course_code)} {metadata.course_title && <>&mdash; {metadata.course_title}</>}</> : 'Not found'],
+    ['Academic session', displayValue(metadata.academic_year)],
+    ['Semester', displayValue(metadata.semester)],
+    ['Department', displayValue(metadata.department)],
+    ['Pages read', displayValue(metadata.pages_read || 0)],
+    ['Reading method', methodLabel(metadata.extraction_method)],
+  ];
+
+  return (
+    <div className="detected-summary">
+      {rows.map(([label, value]) => (
+        <div className="detected-row" key={label as string}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExtractedContentPreview({
+  contentPreview,
+  sections,
+  rawText,
+  previewQuality,
+}: {
+  contentPreview: ContentPreview | null;
+  sections: PreviewSection[];
+  rawText: string;
+  previewQuality: 'high' | 'medium' | 'low';
+}) {
+  const [showFullText, setShowFullText] = useState(false);
+  const status = previewQuality === 'high'
+    ? 'ExamMind read this document successfully.'
+    : previewQuality === 'medium'
+      ? 'ExamMind read this document, but some scanned text may require review.'
+      : 'ExamMind found readable text, but the preview may require review.';
+  const questions = contentPreview?.questions ?? [];
+  const hasStructuredPreview = Boolean(contentPreview?.instruction || contentPreview?.scenario || questions.length > 0);
+  return (
+    <div className="content-preview">
+      <div className="content-preview-bar">
+        <div>
+          <div className="content-preview-head">Content preview</div>
+          <div className={`preview-read-status ${previewQuality === 'high' ? 'good' : 'review'}`}>{status}</div>
+        </div>
+        {rawText && (
+          <button className="upload-link-btn" onClick={() => setShowFullText(v => !v)}>
+            {showFullText ? 'Hide raw OCR text' : 'View raw OCR text'}
+          </button>
+        )}
+      </div>
+      {!hasStructuredPreview && sections.length === 0 && <div className="preview-empty">No clean preview was available, but the extracted text can still be indexed.</div>}
+      {hasStructuredPreview ? (
+        <div className="structured-preview">
+          {contentPreview?.instruction && (
+            <div className="preview-block">
+              <div className="preview-page-title">Instruction</div>
+              <p>{contentPreview.instruction}</p>
+            </div>
+          )}
+          {contentPreview?.scenario && (
+            <div className="preview-block">
+              <div className="preview-page-title">Scenario</div>
+              <p>{contentPreview.scenario}</p>
+            </div>
+          )}
+          {questions.length > 0 && (
+            <div className="preview-block">
+              <div className="preview-page-title">Detected Questions</div>
+              {questions.map(question => (
+                <div className="preview-line" key={question.number}>
+                  <span>{question.number}</span>
+                  <p>{question.preview}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        sections.map(section => (
+          <div className="preview-section" key={section.title}>
+            <div className="preview-page-title">{section.title}</div>
+            {section.items.map((item, index) => (
+              <div className="preview-line" key={`${section.title}-${item.label}-${index}`}>
+                <span>{item.label}</span>
+                <p>{item.text}</p>
+              </div>
+            ))}
+          </div>
+        ))
+      )}
+      {showFullText && <pre className="full-ocr-text">{rawText}</pre>}
+    </div>
+  );
+}
+
+function AdvancedMetadataEditor({
+  metadata,
+  updateField,
+  updateListField,
+}: {
+  metadata: Metadata;
+  updateField: (key: keyof Metadata, value: string) => void;
+  updateListField: (key: 'topics_covered' | 'lecturer_names', value: string) => void;
+}) {
+  const fields = [
+    ['document_title', 'Document title'],
+    ['document_type', 'Document type'],
+    ['course_code', 'Course code'],
+    ['course_title', 'Course title'],
+    ['lecturer_names', 'Lecturer'],
+    ['academic_year', 'Academic year'],
+    ['year', 'Year'],
+    ['semester', 'Semester'],
+    ['department', 'Department'],
+    ['faculty', 'Faculty'],
+    ['college', 'College'],
+    ['exam_type', 'Exam type'],
+  ] as const;
+
+  return (
+    <div className="advanced-editor">
+      <div className="advanced-editor-title">Advanced details</div>
+      <div className="metadata-grid">
+        {fields.map(([key, label]) => {
+          const value = key === 'lecturer_names' ? metadata.lecturer_names.join(', ') : String(metadata[key] ?? '');
+          return (
+            <label className="meta-field" key={key}>
+              <span>{label}</span>
+              {key === 'document_type' ? (
+                <select value={metadata.document_type} onChange={e => updateField(key, e.target.value)}>
+                  {DOC_TYPES.map(type => <option value={type} key={type}>{DOC_TYPE_LABEL[type]}</option>)}
+                </select>
+              ) : key === 'exam_type' ? (
+                <select value={metadata.exam_type} onChange={e => updateField(key, e.target.value)}>
+                  {EXAM_TYPES.map(type => <option value={type} key={type}>{type}</option>)}
+                </select>
+              ) : key === 'lecturer_names' ? (
+                <input value={value} onChange={e => updateListField('lecturer_names', e.target.value)} />
+              ) : (
+                <input value={value} onChange={e => updateField(key, e.target.value)} />
+              )}
+            </label>
+          );
+        })}
+        <label className="meta-field wide">
+          <span>Topics covered</span>
+          <input value={metadata.topics_covered.join(', ')} onChange={e => updateListField('topics_covered', e.target.value)} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function UploadConfirmationCard({
+  metadata,
+  previewSections,
+  contentPreview,
+  rawOcrText,
+  previewQuality,
+  advancedOpen,
+  setAdvancedOpen,
+  updateField,
+  updateListField,
+  onCancel,
+  onConfirm,
+  hasQueue,
+}: {
+  metadata: Metadata;
+  previewSections: PreviewSection[];
+  contentPreview: ContentPreview | null;
+  rawOcrText: string;
+  previewQuality: 'high' | 'medium' | 'low';
+  advancedOpen: boolean;
+  setAdvancedOpen: (value: boolean) => void;
+  updateField: (key: keyof Metadata, value: string) => void;
+  updateListField: (key: 'topics_covered' | 'lecturer_names', value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  hasQueue: boolean;
+}) {
+  const confidence = confidenceLabel(metadata);
+  const review = confidence === 'Review Recommended';
+
+  return (
+    <div className="upload-confirm-shell">
+      <div className="upload-confirm-card">
+        <div className="confirm-topline">
+          <span className="upload-badge primary">{DOC_TYPE_LABEL[metadata.document_type] ?? metadata.document_type}</span>
+          <span className={`upload-badge ${review ? 'review' : 'good'}`}>{confidence}</span>
+        </div>
+        <h2>{metadata.document_title || `${metadata.course_code || 'Academic'} Material`}</h2>
+        <p className="confirm-statement">ExamMind has read this document and prepared it for the knowledge base.</p>
+        <div className="confirm-subtitle">
+          {displayValue(metadata.course_code, 'Course pending')}
+          {metadata.course_title && <>&nbsp;&mdash;&nbsp;{metadata.course_title}</>}
+          {metadata.academic_year && <span> / {metadata.academic_year}</span>}
+          {metadata.semester && <span> / {metadata.semester}</span>}
+        </div>
+
+        <DetectedMetadataSummary metadata={metadata} />
+
+        {metadata.topics_covered.length > 0 && (
+          <div className="topic-block">
+            <div className="content-preview-head">Topics detected</div>
+            <div className="topic-chip-row">
+              {metadata.topics_covered.slice(0, 18).map(topic => <span className="topic-chip" key={topic}>{topic}</span>)}
+            </div>
+          </div>
+        )}
+
+        <ExtractedContentPreview
+          contentPreview={contentPreview}
+          sections={previewSections}
+          rawText={rawOcrText}
+          previewQuality={previewQuality}
+        />
+
+        <div className="confirm-caution">ExamMind can make mistakes. Check important info before confirming.</div>
+
+        <div className="advanced-toggle-row">
+          <button className="upload-link-btn" onClick={() => setAdvancedOpen(!advancedOpen)}>
+            {advancedOpen ? 'Hide advanced details' : 'Need to correct something? Advanced details'}
+          </button>
+        </div>
+
+        {advancedOpen && (
+          <AdvancedMetadataEditor
+            metadata={metadata}
+            updateField={updateField}
+            updateListField={updateListField}
+          />
+        )}
+
+        <div className="confirm-actions">
+          <button className="cta cta-ghost" onClick={onCancel}>{hasQueue ? 'Skip this file' : 'Cancel'}</button>
+          <button className="cta" onClick={onConfirm}>Confirm and Add to ExamMind</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContributionSuccessModal({
+  metadata,
+  chunksIndexed,
+  searchable,
+  onViewLibrary,
+  onUploadAnother,
+}: {
+  metadata: Metadata;
+  chunksIndexed: number;
+  searchable: boolean;
+  onViewLibrary: () => void;
+  onUploadAnother: () => void;
+}) {
+  return (
+    <div className="success-modal-backdrop">
+      <div className="success-modal">
+        <div className="success-label">Upload complete</div>
+        <h2>Thank you for contributing</h2>
+        <p>Your upload has strengthened ExamMind's knowledge base. Students can now discover this material through search, AI assistance, and practice tools.</p>
+        <div className="success-modal-meta">
+          <span>{metadata.course_code || 'Course pending'}</span>
+          <span>{DOC_TYPE_LABEL[metadata.document_type] ?? 'Document'}</span>
+          <span>{chunksIndexed} chunks</span>
+          <span>{searchable ? 'Searchable' : 'Record only'}</span>
+        </div>
+        <div className="empty-actions">
+          <button className="cta" onClick={onViewLibrary}>View in Library</button>
+          <button className="cta cta-ghost" onClick={onUploadAnother}>Upload Another</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Upload({ go, user }: { go: (s: ScreenType) => void; user: User | null }) {
@@ -117,6 +488,14 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [dragOver, setDragOver] = useState(false);
   const [queue, setQueue] = useState<File[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [preview, setPreview] = useState('');
+  const [previewSnippets, setPreviewSnippets] = useState<string[]>([]);
+  const [previewSections, setPreviewSections] = useState<PreviewSection[]>([]);
+  const [contentPreview, setContentPreview] = useState<ContentPreview | null>(null);
+  const [rawOcrText, setRawOcrText] = useState('');
+  const [previewQuality, setPreviewQuality] = useState<'high' | 'medium' | 'low'>('low');
+  const [extraction, setExtraction] = useState<ExtractionInfo | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -126,25 +505,24 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       .catch(() => setRecentUploads([]));
   }, [user?.id, state]);
 
-  const fields = useMemo(() => [
-    ['document_title', 'Document title'],
-    ['document_type', 'Document type'],
-    ['course_code', 'Course code'],
-    ['course_title', 'Course title'],
-    ['lecturer_names', 'Lecturer'],
-    ['academic_year', 'Academic year'],
-    ['year', 'Year'],
-    ['semester', 'Semester'],
-    ['department', 'Department'],
-    ['faculty', 'Faculty'],
-    ['college', 'College'],
-    ['exam_type', 'Exam type'],
-  ] as const, []);
+  const previewLines = useMemo(() => cleanPreviewLines(preview, previewSnippets), [preview, previewSnippets]);
+  const structuredPreview = useMemo(
+    () => normalizePreviewSections(previewSections, previewLines),
+    [previewSections, previewLines],
+  );
 
   const analyzeFile = async (selected: File) => {
     setFile(selected);
     setState('processing');
     setMessage('');
+    setAdvancedOpen(false);
+    setPreview('');
+    setPreviewSnippets([]);
+    setPreviewSections([]);
+    setContentPreview(null);
+    setRawOcrText('');
+    setPreviewQuality('low');
+    setExtraction(null);
     setProcessingSteps(mkSteps(0));
     setLastAction('analyze');
 
@@ -158,7 +536,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       }, selected);
       window.dispatchEvent(new Event('exammind-offline-updated'));
       setState('idle');
-      setMessage(`You are offline — "${selected.name}" was added to the sync queue.`);
+      setMessage(`You are offline. "${selected.name}" was added to the sync queue.`);
       return;
     }
 
@@ -166,14 +544,22 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     formData.append('file', selected);
 
     try {
-      await wait(250);
-      setProcessingSteps(mkSteps(1));
-      await wait(250);
-      setProcessingSteps(mkSteps(2));
+      await wait(220); setProcessingSteps(mkSteps(1));
+      await wait(220); setProcessingSteps(mkSteps(2));
+      await wait(220); setProcessingSteps(mkSteps(3));
       const data = await apiFormPost('/ingest/upload', formData);
-      setMetadata({ ...emptyMetadata, ...data.metadata });
+      const nextMetadata = { ...emptyMetadata, ...data.metadata };
+      setMetadata(nextMetadata);
+      setPreview(data.preview || '');
+      setPreviewSnippets(data.preview_snippets || []);
+      setPreviewSections(data.preview_sections || []);
+      setContentPreview(data.content_preview || null);
+      setRawOcrText(data.raw_ocr_text || data.raw_extracted_text || '');
+      setPreviewQuality(data.preview_quality || 'low');
+      setExtraction(data.extraction || null);
+
       if (data.status === 'duplicate') {
-        setProcessingSteps(doneSteps(2));
+        setProcessingSteps(doneSteps(3));
         setState('duplicate');
         setMessage(`Already uploaded as ${data.existing_document?.title || 'an existing document'}.`);
       } else if (data.status === 'manual_metadata_required') {
@@ -181,16 +567,15 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         setState('manual_metadata_required');
         setMessage(data.message || rescueMessage(data.metadata?.extraction_failure_reason));
       } else {
-        setProcessingSteps(doneSteps(2));
+        setProcessingSteps(doneSteps(4));
         setState('confirm');
-        if (data.message) setMessage(data.message);
       }
     } catch (err) {
       setProcessingSteps(failSteps(2));
       setState('error');
       const fallback = 'Upload analysis failed.';
       const errorMessage = err instanceof Error ? err.message : fallback;
-      setMessage(errorMessage.includes('scanned or image-based PDF') ? 'ExamMind could not read this scan clearly. Try a clearer PDF or enter metadata manually.' : errorMessage);
+      setMessage(errorMessage.includes('scanned or image-based PDF') ? 'ExamMind could not read this scan clearly. Try a clearer PDF.' : errorMessage);
     }
   };
 
@@ -213,30 +598,30 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     } : metadata));
 
     try {
-      await wait(200); setProcessingSteps(mkSteps(1));
-      await wait(200); setProcessingSteps(mkSteps(2));
-      await wait(200); setProcessingSteps(mkSteps(3));
+      await wait(180); setProcessingSteps(mkSteps(1));
+      await wait(180); setProcessingSteps(mkSteps(2));
+      await wait(180); setProcessingSteps(mkSteps(3));
+      await wait(180); setProcessingSteps(mkSteps(4));
       const data = await apiFormPost('/ingest/upload', formData);
 
       if (data.status === 'duplicate') {
-        setProcessingSteps(failSteps(2));
+        setProcessingSteps(failSteps(3));
         setState('duplicate');
         setMessage('A matching document already exists.');
       } else {
-        setProcessingSteps(doneSteps(3));
+        setProcessingSteps(doneSteps(4));
         setChunksIndexed(data.chunks_indexed || 0);
         setLastIndexed(data.indexed !== false);
         setMetadata({ ...metadata, ...data.metadata });
         setState('success');
       }
     } catch (err) {
-      setProcessingSteps(failSteps(3));
+      setProcessingSteps(failSteps(4));
       setState('error');
       setMessage(err instanceof Error ? err.message : 'Indexing failed.');
     }
   };
 
-  // Multi-file: when a queue is set up, auto-advance to next file after success/skip
   const startQueue = (files: File[]) => {
     if (files.length === 0) return;
     setQueue(files);
@@ -277,32 +662,24 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setMetadata(c => ({ ...c, [key]: value.split(',').map(t => t.trim()).filter(Boolean) }));
   };
 
-  // Drag-and-drop handlers
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
   const onDragLeave = (e: React.DragEvent) => { if (!dropRef.current?.contains(e.relatedTarget as Node)) setDragOver(false); };
   const onDrop = (e: React.DragEvent) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); };
 
   const hasQueue = queue.length > 1;
   const queueLabel = hasQueue ? ` (${queueIndex + 1} of ${queue.length})` : '';
-  const extractionMethod = metadata.extraction_method || 'embedded_text';
-  const extractionConfidence = Math.round((metadata.extraction_confidence || 0) * 100);
-  const extractionBadge =
-    extractionMethod === 'ocr' || extractionMethod === 'mixed'
-      ? 'Read using OCR'
-      : extractionMethod === 'manual'
-        ? 'Manual metadata'
-        : 'Text-based PDF';
-  const lowConfidence = extractionMethod === 'failed' || extractionMethod === 'manual' || (metadata.extraction_confidence || 0) < 0.45;
+  const reviewRequired = metadata.indexed_status === 'indexed_review_required' || Boolean(metadata.needs_review);
+  const extractionConfidence = Math.round((metadata.extraction_confidence || extraction?.extraction_confidence || 0) * 100);
   const rescueReason = rescueMessage(metadata.extraction_failure_reason);
 
   return (
     <div className="page" id="s-upload">
       <div className="pg-head">
         <div className="pg-title">Upload <em>Knowledge</em></div>
-        <div className="pg-sub">Drop one or more PDFs. ExamMind auto-detects whether each is a past question or lecture note, checks duplicates, then indexes for everyone.</div>
+        <div className="pg-sub">Drop a PDF. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
       </div>
 
-      {message && <div className="upload-alert" style={{ marginBottom: 16 }}>{message}</div>}
+      {message && <div className={`upload-alert${reviewRequired ? ' review' : ''}`} style={{ marginBottom: 16 }}>{message}</div>}
 
       {state === 'idle' && (
         <div className="upload-grid">
@@ -315,42 +692,21 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
             onClick={() => document.getElementById('file-input')?.click()}
             style={{ cursor: 'pointer' }}
           >
-            <input
-              id="file-input"
-              type="file"
-              accept="application/pdf"
-              multiple
-              style={{ display: 'none' }}
-              onChange={e => handleFiles(e.target.files)}
-            />
+            <input id="file-input" type="file" accept="application/pdf" multiple onChange={e => handleFiles(e.target.files)} />
             <div className="drop-icon">+</div>
-            <div className="drop-title">Drop past questions or lecture notes here</div>
-            <div className="drop-sub">
-              Drag &amp; drop one or multiple PDFs, or click to browse.
-              The AI auto-detects document type, course, year, and topics.
-            </div>
+            <div className="drop-title">Drop academic PDFs here</div>
+            <div className="drop-sub">ExamMind detects the document type, course, session, semester, department, topics, and reading confidence automatically.</div>
           </div>
 
           <div className="upload-side">
             <div className="card">
-              <div className="card-hd"><div className="card-ttl">What the AI reads</div></div>
-              {[
-                ['Document type', 'Past Question or Lecture Note — auto-detected'],
-                ['Course code', 'e.g. CSC301, MTH201'],
-                ['Course title', 'Detected from headers and cover pages'],
-                ['Lecturer', 'Only when explicitly written in the PDF'],
-                ['Year & semester', 'e.g. 2023 / Second semester'],
-                ['Department', 'From document header'],
-                ['Faculty / College', 'School, faculty, or college names'],
-                ['Topics covered', 'Key subject areas indexed for search'],
-                ['Extraction method', 'Text-based PDF or OCR scan reading'],
-                ['Confidence', 'How sure ExamMind is about the extraction'],
-              ].map(([item, desc]) => (
+              <div className="card-hd"><div className="card-ttl">Automated reading pipeline</div></div>
+              {STEP_LABELS.map(item => (
                 <div className="upload-read" key={item}>
-                  <span>◆</span>
+                  <span>+</span>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{item}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 1 }}>{desc}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 1 }}>Handled before you confirm indexing.</div>
                   </div>
                 </div>
               ))}
@@ -363,15 +719,9 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
                 <div className="upload-read" key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <span style={{ fontSize: 13 }}>{u.metadata_json?.course_code ?? 'Unknown'}</span>
-                    <span style={{
-                      marginLeft: 7, fontSize: 11, padding: '1px 6px', borderRadius: 4,
-                      background: u.metadata_json?.document_type === 'lecture_note' ? 'rgba(62,207,178,0.1)' : 'rgba(155,135,245,0.1)',
-                      color: u.metadata_json?.document_type === 'lecture_note' ? 'var(--teal)' : 'var(--purple)',
-                    }}>
-                      {DOC_TYPE_LABEL[u.metadata_json?.document_type ?? ''] ?? 'Document'}
-                    </span>
+                    <span className="recent-type-pill">{DOC_TYPE_LABEL[u.metadata_json?.document_type ?? ''] ?? 'Document'}</span>
                   </div>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{u.year ?? '—'}</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{u.year ?? '-'}</span>
                 </div>
               ))}
             </div>
@@ -381,17 +731,11 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
 
       {(state === 'processing' || state === 'error') && (
         <div className="card upload-processing">
-          <div className="upload-file">{file?.name || 'PDF'}{queueLabel} is being processed</div>
-          {processingSteps.map((step, i) => (
-            <div className={`upload-step ${step.status}`} key={step.label}>
-              <span className="upload-step-dot">{i + 1}</span>
-              <span>{step.label}</span>
-            </div>
-          ))}
+          <UploadProcessingState fileName={file?.name || 'PDF'} queueLabel={queueLabel} steps={processingSteps} />
           {state === 'error' && (
             <div className="confirm-actions">
               <button className="cta cta-ghost" onClick={() => setState(lastAction === 'index' ? 'confirm' : 'idle')}>
-                {lastAction === 'index' ? 'Back to metadata' : 'Choose another PDF'}
+                {lastAction === 'index' ? 'Back to confirmation' : 'Choose another PDF'}
               </button>
               {file && <button className="cta" onClick={() => void (lastAction === 'index' ? confirmUpload() : analyzeFile(file))}>Try again</button>}
             </div>
@@ -399,97 +743,37 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         </div>
       )}
 
-      {(state === 'confirm' || state === 'manual_metadata_required') && (
-        <div className="card confirm-card">
-          <div className="card-hd">
-            <div>
-              <div className="card-ttl" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {state === 'manual_metadata_required' ? 'Manual metadata rescue' : 'AI-detected metadata'}
-                <span style={{
-                  fontSize: 12, padding: '2px 10px', borderRadius: 20, fontWeight: 600,
-                  background: metadata.document_type === 'lecture_note' ? 'rgba(62,207,178,0.12)' : 'rgba(155,135,245,0.12)',
-                  color: metadata.document_type === 'lecture_note' ? 'var(--teal)' : 'var(--purple)',
-                  border: `1px solid ${metadata.document_type === 'lecture_note' ? 'rgba(62,207,178,0.3)' : 'rgba(155,135,245,0.3)'}`,
-                }}>
-                  {DOC_TYPE_LABEL[metadata.document_type] ?? metadata.document_type}
-                </span>
-                {metadata.confidence_score !== undefined && (
-                  <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                    {Math.round(metadata.confidence_score * 100)}% confidence
-                  </span>
-                )}
-              </div>
-              <div className="confirm-sub">
-                {state === 'manual_metadata_required'
-                  ? 'ExamMind could not extract enough readable text from this PDF. You can still save the document record manually, but the content will not be searchable until a clearer file is uploaded.'
-                  : 'Correct anything wrong, then index.'}
-              </div>
-            </div>
-          </div>
+      {state === 'confirm' && (
+        <UploadConfirmationCard
+          metadata={{ ...metadata, pages_read: metadata.pages_read || extraction?.page_count || 0, extraction_confidence: metadata.extraction_confidence || extraction?.extraction_confidence || 0 }}
+          previewSections={structuredPreview}
+          contentPreview={contentPreview}
+          rawOcrText={rawOcrText}
+          previewQuality={previewQuality}
+          advancedOpen={advancedOpen}
+          setAdvancedOpen={setAdvancedOpen}
+          updateField={updateField}
+          updateListField={updateListField}
+          onCancel={() => hasQueue ? nextInQueue() : setState('idle')}
+          onConfirm={() => void confirmUpload(false)}
+          hasQueue={hasQueue}
+        />
+      )}
+
+      {state === 'manual_metadata_required' && (
+        <div className="card confirm-card failure-card">
+          <div className="failure-title">ExamMind could not read this file clearly.</div>
+          <div className="failure-body">{rescueReason}</div>
           <div className="upload-badges">
-            {state === 'manual_metadata_required' && <span className="upload-badge warn">Not indexed</span>}
-            <span className={`upload-badge ${lowConfidence ? 'warn' : ''}`}>{lowConfidence ? 'Low confidence scan' : extractionBadge}</span>
-            <span className="upload-badge">{extractionConfidence}% extraction confidence</span>
-            {state === 'manual_metadata_required' && <span className="upload-badge">{rescueReason}</span>}
-            {metadata.source_file && <span className="upload-badge">{metadata.source_file}</span>}
+            <span className="upload-badge warn">Not indexed</span>
+            <span className="upload-badge warn">{extractionConfidence}% extraction confidence</span>
           </div>
-          {state === 'manual_metadata_required' && (
-            <div className="upload-rescue-note">
-              This file will be stored, but it will not appear in AI answers or semantic search until readable text is available.
-            </div>
-          )}
-          <div className="metadata-grid">
-            {fields.map(([key, label]) => {
-              const value = key === 'lecturer_names' ? metadata.lecturer_names.join(', ') : String(metadata[key] ?? '');
-              return (
-                <label className="meta-field" key={key}>
-                  <span>{label}</span>
-                  {key === 'document_type' ? (
-                    <select value={metadata.document_type} onChange={e => updateField(key, e.target.value)}>
-                      {DOC_TYPES.map(type => <option value={type} key={type}>{DOC_TYPE_LABEL[type]}</option>)}
-                    </select>
-                  ) : key === 'exam_type' ? (
-                    <select value={metadata.exam_type} onChange={e => updateField(key, e.target.value)}>
-                      {EXAM_TYPES.map(type => <option value={type} key={type}>{type}</option>)}
-                    </select>
-                  ) : key === 'lecturer_names' ? (
-                    <input value={value} onChange={e => updateListField('lecturer_names', e.target.value)} />
-                  ) : (
-                    <input value={value} onChange={e => updateField(key, e.target.value)} />
-                  )}
-                </label>
-              );
-            })}
-            <label className="meta-field wide">
-              <span>Topics covered</span>
-              <input
-                value={metadata.topics_covered.join(', ')}
-                onChange={e => updateListField('topics_covered', e.target.value)}
-              />
-            </label>
-            <label className="meta-field">
-              <span>Extraction method</span>
-              <input value={extractionMethod} readOnly />
-            </label>
-            <label className="meta-field">
-              <span>Extraction confidence</span>
-              <input value={`${extractionConfidence}%`} readOnly />
-            </label>
-          </div>
+          <div className="upload-rescue-note">Manual metadata rescue is available here because the PDF could not produce useful searchable text.</div>
+          <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} />
           <div className="confirm-actions">
-            <button className="cta cta-ghost" onClick={() => hasQueue ? nextInQueue() : setState('idle')}>
-              {hasQueue ? 'Skip this file' : 'Cancel'}
-            </button>
-            {state === 'manual_metadata_required' && file && (
-              <>
-                <button className="cta cta-ghost" onClick={() => { setMessage(''); setState('idle'); }}>Upload clearer PDF</button>
-                <button className="cta cta-ghost" onClick={() => void confirmUpload(true)}>Save as unindexed record</button>
-                <button className="cta" onClick={() => void analyzeFile(file)}>Retry OCR</button>
-              </>
-            )}
-            {state !== 'manual_metadata_required' && (
-              <button className="cta" onClick={() => void confirmUpload(false)}>Confirm and index</button>
-            )}
+            <button className="cta cta-ghost" onClick={() => setState('idle')}>Upload clearer file</button>
+            <button className="cta cta-ghost" onClick={() => void confirmUpload(true)}>Save record only</button>
+            {file && <button className="cta" onClick={() => void analyzeFile(file)}>Retry OCR</button>}
           </div>
         </div>
       )}
@@ -507,33 +791,21 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       )}
 
       {state === 'success' && (
-        <div className="success-card">
-          <div className="success-label">{lastIndexed ? 'Indexed successfully' : 'Saved as unindexed record'}</div>
-          <div className="success-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {lastIndexed ? `${metadata.course_code || 'Document'} is now searchable.` : `${metadata.course_code || 'Document'} needs a readable file.`}
-            <span style={{
-              fontSize: 12, padding: '2px 10px', borderRadius: 20, fontWeight: 600,
-              background: metadata.document_type === 'lecture_note' ? 'rgba(62,207,178,0.12)' : 'rgba(155,135,245,0.12)',
-              color: metadata.document_type === 'lecture_note' ? 'var(--teal)' : 'var(--purple)',
-            }}>
-              {DOC_TYPE_LABEL[metadata.document_type] ?? metadata.document_type}
-            </span>
-          </div>
-          <div className="success-body">
-            {lastIndexed
-              ? `${chunksIndexed} chunks embedded and indexed.`
-              : 'The document record was saved, but it will not appear in AI answers or semantic search until a clearer PDF is uploaded.'}
-          </div>
-          <div className="empty-actions">
-            {hasQueue && queueIndex + 1 < queue.length && (
-              <button className="cta" onClick={nextInQueue}>
-                Next file ({queueIndex + 2}/{queue.length})
-              </button>
-            )}
-            <button className="cta" onClick={() => go('assistant')}>Ask AI about it</button>
-            <button className="cta cta-ghost" onClick={() => setState('idle')}>Upload another</button>
-          </div>
-        </div>
+        <ContributionSuccessModal
+          metadata={metadata}
+          chunksIndexed={chunksIndexed}
+          searchable={lastIndexed}
+          onViewLibrary={() => go('questions')}
+          onUploadAnother={() => {
+            if (hasQueue && queueIndex + 1 < queue.length) {
+              nextInQueue();
+            } else {
+              setState('idle');
+              setQueue([]);
+              setQueueIndex(0);
+            }
+          }}
+        />
       )}
     </div>
   );
