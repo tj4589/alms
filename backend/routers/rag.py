@@ -10,7 +10,7 @@ import auth
 import models
 from database import get_db
 
-from ai_clients import embeddings_model, llm
+from ai_clients import AIProviderError, embeddings_model, generate_ai_response
 from query_understanding import expanded_search_terms, public_understanding, understand_query
 
 router = APIRouter(prefix="/rag", tags=["rag"])
@@ -36,9 +36,10 @@ class AskQuestionResponse(BaseModel):
 def source_from_metadata(prefix: str, year, metadata: dict | None):
     metadata = metadata or {}
     course_code = metadata.get("course_code", "Unknown course")
-    source_file = metadata.get("source_file", "Unknown file")
-    year_label = year or metadata.get("year") or "Unknown year"
-    return f"{prefix}: {course_code} {year_label} - {source_file}"
+    title = metadata.get("document_title") or metadata.get("course_title") or metadata.get("source_file") or "Unknown file"
+    year_label = year or metadata.get("academic_year") or metadata.get("year") or metadata.get("session") or "Unknown year"
+    document_type = str(metadata.get("document_type") or prefix).replace("_", " ")
+    return f"{course_code} {title} - {document_type} - {year_label}"
 
 
 def run_rag_query(
@@ -46,14 +47,9 @@ def run_rag_query(
     course_id: Optional[int],
     topic_id: Optional[int],
     db: Session,
+    room_context: Optional[str] = None,
 ) -> dict:
     """Core RAG pipeline — reusable across endpoints. Raises HTTPException on failure."""
-    if not llm:
-        raise HTTPException(
-            status_code=503,
-            detail="AI is not configured. Set DEEPSEEK_API_KEY in .env and restart.",
-        )
-
     understanding = understand_query(question, _metadata_context(db))
     public_view = public_understanding(understanding)
     if understanding.get("needs_clarification"):
@@ -142,7 +138,12 @@ def run_rag_query(
     prompt = (
         "You are ExamMind AI, an exam-intelligent tutor for Nigerian university students.\n"
         "Answer ONLY from the retrieved past questions and lecture notes below.\n"
-        "Explain clearly, cite the past-question years/course codes when available, and be honest about missing sources.\n\n"
+        "When the student asks about uploaded content, do not use outside knowledge except to explain terms that appear in the retrieved material.\n"
+        "Cite source names exactly as listed in the source metadata when possible, for example MIS415 Project Management Past Question 2022/2023.\n"
+        "If OCR quality or extraction looks imperfect, say so briefly and answer from the usable text.\n"
+        "If no relevant uploaded source was found, say that clearly and do not invent exam content.\n\n"
+        f"Room or workflow context:\n{room_context or 'No extra room context.'}\n\n"
+        f"Source metadata:\n{chr(10).join(past_sources + note_sources) or 'No source metadata available.'}\n\n"
         f"Student's original wording:\n{question}\n\n"
         f"Interpreted topic:\n{understanding.get('interpreted_topic') or question}\n\n"
         f"Related search terms:\n{', '.join((understanding.get('related_terms') or [])[:8])}\n\n"
@@ -155,10 +156,17 @@ def run_rag_query(
     )
 
     try:
-        response = llm.invoke(prompt)
-        answer = getattr(response, "content", str(response))
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Failed to generate AI answer: {str(e)}")
+        answer = generate_ai_response(prompt)
+    except AIProviderError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "AI answers are temporarily unavailable because the primary provider balance is low. "
+                "Uploaded materials, search, and practice data are still available."
+            ),
+        )
 
     if no_lecture_notes_found:
         answer += "\n\nNo lecture notes on this topic are uploaded yet. Be the first to upload them."

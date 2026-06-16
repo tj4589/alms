@@ -482,7 +482,31 @@ def ask_ai(
         raise HTTPException(status_code=413, detail="Question is too long.")
 
     course_id = req.course_id or session.course_id
-    rag_result = run_rag_query(question, course_id, None, db)
+    course = db.query(models.Course).filter(models.Course.id == course_id).first() if course_id else None
+    recent_messages = (
+        db.query(models.StudySessionMessage)
+        .filter(models.StudySessionMessage.session_id == session_id)
+        .order_by(models.StudySessionMessage.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    recent_messages.reverse()
+    recent_context = "\n".join(
+        f"- {msg.message_type}: {msg.content[:220]}"
+        for msg in recent_messages
+        if msg.content
+    )
+    room_context_parts = [
+        f"Reading room title: {session.title}",
+        f"Course: {course.code} - {course.name}" if course else "",
+        f"Room topic: {session.topic}" if session.topic else "",
+        f"Exam goal: {session.exam_goal}" if session.exam_goal else "",
+        f"Recent room messages:\n{recent_context}" if recent_context else "",
+        "Use uploaded materials for this room/course first.",
+    ]
+    room_context = "\n".join(part for part in room_context_parts if part)
+    contextual_question = f"{room_context}\n\nStudent question: {question}"
+    rag_result = run_rag_query(contextual_question, course_id, None, db, room_context=room_context)
 
     card = models.StudySessionAIQuestion(
         session_id=session_id,

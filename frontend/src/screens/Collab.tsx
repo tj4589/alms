@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ScreenType, User } from '../types';
+import type { ScreenType, SearchActionContext, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 
 type Thread = {
@@ -65,10 +65,12 @@ export default function Collab({
   go,
   user,
   notifyUnavailable: _notifyUnavailable,
+  initialContext = null,
 }: {
   go: (s: ScreenType) => void;
   user: User | null;
   notifyUnavailable: (feature: string) => void;
+  initialContext?: (SearchActionContext & { action?: 'discussion' }) | null;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
@@ -103,6 +105,25 @@ export default function Collab({
   }, []);
 
   useEffect(() => { void loadThreads(); }, [loadThreads]);
+
+  useEffect(() => {
+    if (!initialContext) return;
+    const topic =
+      initialContext.material_title ||
+      initialContext.course_title ||
+      initialContext.topic ||
+      initialContext.query;
+    setSelectedThread(null);
+    setNewTitle(`Discuss ${topic}`);
+    setShowForm(true);
+    setFormError('');
+  }, [
+    initialContext?.query,
+    initialContext?.topic,
+    initialContext?.course_title,
+    initialContext?.material_title,
+    initialContext?.course_id,
+  ]);
 
   // ── Open a thread ──────────────────────────────────────────
   const openThread = async (thread: Thread) => {
@@ -148,7 +169,10 @@ export default function Collab({
     setCreating(true);
     setFormError('');
     try {
-      await apiPost('/threads', { title });
+      await apiPost('/threads', {
+        title,
+        course_id: initialContext?.course_id ?? null,
+      });
       setNewTitle('');
       setShowForm(false);
       await loadThreads();

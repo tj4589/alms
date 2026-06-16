@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ScreenType } from '../types';
+import type { ScreenType, SearchActionContext } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 import { queuePracticeAttempt } from '../offline';
 
@@ -18,6 +18,7 @@ type GeneratedQuestion = {
 
 type GenerateResponse = {
   topic: string;
+  warning?: string | null;
   questions: GeneratedQuestion[];
 };
 
@@ -27,7 +28,16 @@ type SubmitResponse = {
   debrief: string;
 };
 
-const BASE_TOPICS = ['Mixed revision', 'Graph algorithms', 'Sorting algorithms', 'Tree structures', 'Dynamic programming'];
+const BASE_TOPICS = [
+  'Mixed revision',
+  'critical path',
+  'risk management',
+  'cost variance',
+  'stakeholder management',
+  'communication management',
+  'procurement management',
+  'earned value management',
+];
 
 const selectStyle = {
   width: '100%',
@@ -41,21 +51,31 @@ const selectStyle = {
   outline: 'none',
 };
 
-export default function Practice({ go, initialTopic = '' }: { go: (s: ScreenType) => void; initialTopic?: string }) {
-  const topics = initialTopic && !BASE_TOPICS.includes(initialTopic)
-    ? [initialTopic, ...BASE_TOPICS]
+export default function Practice({
+  go,
+  initialTopic = '',
+  initialContext = null,
+}: {
+  go: (s: ScreenType) => void;
+  initialTopic?: string;
+  initialContext?: SearchActionContext | null;
+}) {
+  const contextTopic = initialContext?.topic || initialTopic;
+  const topics = contextTopic && !BASE_TOPICS.includes(contextTopic)
+    ? [contextTopic, ...BASE_TOPICS]
     : BASE_TOPICS;
 
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<number | ''>('');
   const [selectedTopic, setSelectedTopic] = useState(
-    initialTopic && initialTopic !== 'Mixed revision' ? initialTopic : 'Mixed revision'
+    contextTopic && contextTopic !== 'Mixed revision' ? contextTopic : 'Mixed revision'
   );
   const [qCount, setQCount] = useState<number>(10);
   const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<number, boolean | null>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SubmitResponse | null>(null);
 
@@ -68,7 +88,11 @@ export default function Practice({ go, initialTopic = '' }: { go: (s: ScreenType
         if (!cancelled) {
           setCourses(data);
           if (data.length > 0) {
-            setSelectedCourseId(data[0].id);
+            const contextCourse = data.find(course =>
+              (initialContext?.course_id && course.id === initialContext.course_id) ||
+              (initialContext?.course_code && course.code.toLowerCase() === initialContext.course_code.toLowerCase())
+            );
+            setSelectedCourseId(contextCourse?.id ?? data[0].id);
           }
         }
       } catch (err) {
@@ -82,7 +106,14 @@ export default function Practice({ go, initialTopic = '' }: { go: (s: ScreenType
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialContext?.course_id, initialContext?.course_code]);
+
+  useEffect(() => {
+    const nextTopic = initialContext?.topic || initialTopic;
+    if (nextTopic && nextTopic !== selectedTopic) {
+      setSelectedTopic(nextTopic);
+    }
+  }, [initialContext?.topic, initialTopic]);
 
   const score = useMemo(() => {
     return Object.values(answers).filter(Boolean).length;
@@ -94,6 +125,7 @@ export default function Practice({ go, initialTopic = '' }: { go: (s: ScreenType
   const generateTest = async () => {
     setLoading(true);
     setError('');
+    setNotice('');
     setResult(null);
     setGeneratedQuestions([]);
     setAnswers({});
@@ -108,6 +140,9 @@ export default function Practice({ go, initialTopic = '' }: { go: (s: ScreenType
       const data = await apiPost('/practice/generate', requestBody) as GenerateResponse;
       setGeneratedQuestions(data.questions || []);
       setAnswers(Object.fromEntries((data.questions || []).map((question) => [question.id, null])));
+      if (data.warning) {
+        setNotice(data.warning);
+      }
       if (!data.questions || data.questions.length === 0) {
         setError('No past questions matched this practice setup yet. Upload and index past questions, then generate again.');
       }
@@ -162,6 +197,7 @@ export default function Practice({ go, initialTopic = '' }: { go: (s: ScreenType
         <div className="pg-sub">Generated from uploaded past questions · self-marked · readiness updated after submission</div>
       </div>
 
+      {notice && <div className="upload-alert" style={{ borderColor: 'rgba(232,162,58,0.35)', color: 'var(--text2)' }}>{notice}</div>}
       {error && <div className="upload-alert">{error}</div>}
 
       <div className="two-col">

@@ -65,9 +65,10 @@ def smart_search(
             pq_base = db.query(models.PastQuestion)
             if course_id:
                 pq_base = pq_base.filter(models.PastQuestion.course_id == course_id)
-            past_questions = [_pq(r) for r in pq_base.order_by(
+            past_question_rows = pq_base.order_by(
                 models.PastQuestion.embedding.l2_distance(vec)
-            ).limit(limit).all()]
+            ).limit(limit * 4).all()
+            past_questions = _group_past_questions(past_question_rows, limit)
 
             chunk_base = db.query(models.LectureNoteChunk)
             if course_id:
@@ -96,7 +97,7 @@ def smart_search(
         pq_q = db.query(models.PastQuestion).filter(_past_question_filter(terms))
         if course_id:
             pq_q = pq_q.filter(models.PastQuestion.course_id == course_id)
-        past_questions = [_pq(r) for r in pq_q.limit(limit).all()]
+        past_questions = _group_past_questions(pq_q.limit(limit * 4).all(), limit)
 
         ln_q = db.query(models.LectureNote).filter(_lecture_note_filter(terms))
         if course_id:
@@ -358,15 +359,113 @@ def _study_session_filter(terms: list[str]):
     return or_(*_term_conditions(terms, models.StudySession.title, models.StudySession.topic, models.StudySession.description, models.StudySession.exam_goal))
 
 
+def _document_key(r: models.PastQuestion) -> str:
+    metadata = r.metadata_json or {}
+    return "|".join(
+        str(part or "").strip().lower()
+        for part in (
+            metadata.get("document_title"),
+            metadata.get("source_file"),
+            metadata.get("course_code"),
+            metadata.get("academic_year") or r.year,
+            r.semester,
+            metadata.get("document_type"),
+        )
+    )
+
+
+def _clean_snippet(text: str | None, max_len: int = 280) -> str:
+    clean = (text or "").replace("\n", " ")
+    clean = re.sub(r"[_=*#~|]{2,}", " ", clean)
+    clean = re.sub(r"[^\w\s.,;:()/&%+-]", " ", clean)
+    clean = " ".join(clean.split())
+    alpha_count = sum(ch.isalpha() for ch in clean)
+    if len(clean) < 12 or alpha_count < 6:
+        return ""
+    return f"{clean[:max_len].strip()}..." if len(clean) > max_len else clean
+
+
+def _display_title(metadata: dict, fallback: str = "Past question") -> str:
+    title = str(metadata.get("document_title") or "").strip()
+    if title:
+        return title
+    course_code = str(metadata.get("course_code") or "").strip()
+    course_title = str(metadata.get("course_title") or "").strip()
+    document_type = str(metadata.get("document_type") or "").replace("_", " ").strip().title()
+    academic_year = str(metadata.get("academic_year") or metadata.get("year") or "").strip()
+    parts = [course_code, course_title, document_type, academic_year]
+    generated = " ".join(part for part in parts if part)
+    return generated or str(metadata.get("source_file") or fallback)
+
+
+def _metadata_snippets(metadata: dict) -> list[str]:
+    preview = metadata.get("content_preview") or {}
+    snippets: list[str] = []
+    if preview.get("instruction"):
+        cleaned = _clean_snippet(str(preview["instruction"]), 240)
+        if cleaned:
+            snippets.append(f"Instruction: {cleaned}")
+    if preview.get("scenario"):
+        cleaned = _clean_snippet(str(preview["scenario"]), 260)
+        if cleaned:
+            snippets.append(f"Scenario: {cleaned}")
+    for question in (preview.get("questions") or [])[:3]:
+        number = question.get("number") or "Question"
+        text = question.get("preview") or ""
+        cleaned = _clean_snippet(str(text), 260)
+        if cleaned:
+            snippets.append(f"{number}: {cleaned}")
+    return snippets
+
+
+def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        metadata = row.metadata_json or {}
+        key = _document_key(row) or f"row-{row.id}"
+        title = _display_title(metadata)
+        if key not in grouped:
+            snippets = _metadata_snippets(metadata)
+            fallback_snippet = _clean_snippet(row.content_text)
+            if not snippets and fallback_snippet:
+                snippets = [fallback_snippet]
+            grouped[key] = {
+                "id": row.id,
+                "course_id": row.course_id,
+                "year": row.year,
+                "semester": row.semester,
+                "difficulty": row.difficulty,
+                "title": title,
+                "content_text": snippets[0] if snippets else _clean_snippet(row.content_text),
+                "snippets": snippets,
+                "chunk_ids": [row.id],
+                "matching_sections": 1,
+                "metadata_json": metadata,
+                "verified_status": row.verified_status,
+            }
+        else:
+            grouped[key]["chunk_ids"].append(row.id)
+            grouped[key]["matching_sections"] = len(grouped[key]["chunk_ids"])
+            cleaned = _clean_snippet(row.content_text)
+            if cleaned and cleaned not in grouped[key]["snippets"] and len(grouped[key]["snippets"]) < 3:
+                grouped[key]["snippets"].append(cleaned)
+    return list(grouped.values())[:limit]
+
+
 def _pq(r: models.PastQuestion) -> dict:
+    metadata = r.metadata_json or {}
     return {
         "id": r.id,
         "course_id": r.course_id,
         "year": r.year,
         "semester": r.semester,
         "difficulty": r.difficulty,
-        "content_text": r.content_text,
-        "metadata_json": r.metadata_json,
+        "title": _display_title(metadata),
+        "content_text": _metadata_snippets(metadata)[0] if _metadata_snippets(metadata) else _clean_snippet(r.content_text),
+        "snippets": _metadata_snippets(metadata) or [_clean_snippet(r.content_text)],
+        "chunk_ids": [r.id],
+        "matching_sections": 1,
+        "metadata_json": metadata,
         "verified_status": r.verified_status,
     }
 

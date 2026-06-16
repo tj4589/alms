@@ -15,10 +15,26 @@ export function clearAuthToken() {
 async function readErrorMessage(response: Response, fallback: string) {
   try {
     const data = await response.json();
-    return data.detail || fallback;
+    return sanitizeErrorMessage(data.detail || fallback);
   } catch {
     return fallback;
   }
+}
+
+function sanitizeErrorMessage(message: string) {
+  const text = String(message || '');
+  const lowered = text.toLowerCase();
+  if (lowered.includes('402') || lowered.includes('insufficient balance')) {
+    return 'AI provider balance is currently unavailable. Search and uploaded materials are still working, but live AI answers require a valid API balance.';
+  }
+  if (
+    lowered.includes('deepseek') ||
+    lowered.includes('cohere') ||
+    lowered.includes('provider error')
+  ) {
+    return 'The primary AI provider is temporarily unavailable. ExamMind tried the fallback provider.';
+  }
+  return text;
 }
 
 async function request(path: string, init: RequestInit, fallbackError: string) {

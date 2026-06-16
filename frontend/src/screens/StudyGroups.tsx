@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ScreenType, User } from '../types';
+import type { ScreenType, SearchActionContext, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -653,10 +653,12 @@ export default function StudyGroups({
   go,
   notifyUnavailable: _notifyUnavailable,
   user,
+  initialContext = null,
 }: {
   go: (s: ScreenType) => void;
   notifyUnavailable: (feature: string) => void;
   user: User | null;
+  initialContext?: (SearchActionContext & { action?: 'study_group' | 'reading_room' }) | null;
 }) {
   const [mainTab, setMainTab] = useState<'groups' | 'rooms'>('groups');
   const [selectedSession, setSelectedSession] = useState<StudySession | null>(null);
@@ -728,6 +730,39 @@ export default function StudyGroups({
   useEffect(() => {
     if (mainTab === 'rooms') void loadSessions();
   }, [mainTab, loadSessions]);
+
+  useEffect(() => {
+    if (!initialContext) return;
+    const topic = initialContext.topic || initialContext.query;
+    const courseId = initialContext.course_id ?? '';
+    const coursePrefix = initialContext.course_code ? `${initialContext.course_code} ` : '';
+
+    setSelectedSession(null);
+    if (initialContext.action === 'reading_room') {
+      setMainTab('rooms');
+      setShowRoomForm(true);
+      setRoomTitle(`${coursePrefix}${topic} Reading Room`);
+      setRoomTopic(topic);
+      setRoomGoal(`Study ${initialContext.material_title || topic} using uploaded ExamMind materials.`);
+      setRoomCourseId(courseId);
+      setRoomFormError('');
+    } else {
+      setMainTab('groups');
+      setShowGroupForm(true);
+      setFormName(`${coursePrefix}${topic} Study Group`);
+      setFormTopic(topic);
+      setFormDesc(`Group for discussing ${initialContext.material_title || topic}.`);
+      setFormCourseId(courseId);
+      setGroupFormError('');
+    }
+  }, [
+    initialContext?.action,
+    initialContext?.query,
+    initialContext?.topic,
+    initialContext?.course_id,
+    initialContext?.course_code,
+    initialContext?.material_title,
+  ]);
 
   // ── Group actions ─────────────────────────────────────────────────────────
   const joinGroup = async (groupId: number) => {
@@ -822,7 +857,7 @@ export default function StudyGroups({
     <div className="page" id="s-groups">
       <div className="pg-head">
         <div className="pg-title">Study <em>Community</em></div>
-        <div className="pg-sub">Long-term study groups and live reading rooms for exam preparation</div>
+        <div className="pg-sub">Study Groups are long-term course communities. Reading Rooms are live revision sessions for a course or topic.</div>
       </div>
 
       {/* Tabs */}
@@ -841,7 +876,7 @@ export default function StudyGroups({
           <div className="card">
             <div className="card-hd">
               <div className="card-ttl">
-                All Groups
+                Study Groups
                 {groups.length > 0 && <span className="ni-badge" style={{ marginLeft: 7 }}>{groups.length}</span>}
               </div>
               <button
@@ -881,7 +916,7 @@ export default function StudyGroups({
             {!groupsLoading && !groupsError && groups.length === 0 && (
               <div className="empty-state" style={{ padding: '20px 0' }}>
                 <div className="empty-title">No study groups yet</div>
-                <div className="empty-body">Be the first to create one. Groups are open to all students.</div>
+                <div className="empty-body">Create a long-term group for a real course or topic from uploaded ExamMind materials.</div>
               </div>
             )}
 
@@ -1002,7 +1037,7 @@ export default function StudyGroups({
           <div className="card">
             <div className="card-hd">
               <div className="card-ttl">
-                Active Rooms
+                Live Reading Rooms
                 {sessions.filter(s => s.status === 'active').length > 0 && (
                   <span className="ni-badge" style={{ marginLeft: 7 }}>{sessions.filter(s => s.status === 'active').length}</span>
                 )}
@@ -1012,7 +1047,7 @@ export default function StudyGroups({
                 style={{ marginTop: 0, padding: '6px 14px', fontSize: 12 }}
                 onClick={() => { setShowRoomForm((v) => !v); setRoomFormError(''); }}
               >
-                {showRoomForm ? 'Cancel' : '+ Start Room'}
+                {showRoomForm ? 'Cancel' : '+ Start Reading Room'}
               </button>
             </div>
 
@@ -1021,16 +1056,16 @@ export default function StudyGroups({
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 10 }}>Start a Reading Room</div>
                 {roomFormError && <div className="upload-alert" style={{ marginBottom: 8 }}>{roomFormError}</div>}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input style={IS} type="text" placeholder="Room title (e.g. CSC 301 Exam Prep Tonight)" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus />
-                  <input style={IS} type="text" placeholder="Topic focus (e.g. Graph algorithms)" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} />
-                  <input style={IS} type="text" placeholder="Exam goal (e.g. Cover all graph topics before Friday)" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} />
+                  <input style={IS} type="text" placeholder="Room title (e.g. MIS415 Project Management Revision)" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus />
+                  <input style={IS} type="text" placeholder="Topic focus (e.g. critical path or cost variance)" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} />
+                  <input style={IS} type="text" placeholder="Exam goal (e.g. revise uploaded past-question topics tonight)" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} />
                   <select style={SS} value={roomCourseId} onChange={(e) => setRoomCourseId(e.target.value ? Number(e.target.value) : '')}>
                     <option value="">No specific course</option>
                     {courses.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
                   </select>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="cta" style={{ marginTop: 0, fontSize: 12 }} onClick={() => void createRoom()} disabled={creatingRoom || !roomTitle.trim()}>
-                      {creatingRoom ? 'Creating…' : 'Start Room & Enter'}
+                      {creatingRoom ? 'Creating…' : 'Start Reading Room'}
                     </button>
                     <button className="cta cta-ghost" style={{ marginTop: 0, fontSize: 12 }} onClick={() => { setShowRoomForm(false); setRoomFormError(''); }}>Cancel</button>
                   </div>
@@ -1044,15 +1079,20 @@ export default function StudyGroups({
             {!sessionsLoading && !sessionsError && sessions.length === 0 && (
               <div className="empty-state" style={{ padding: '20px 0' }}>
                 <div className="empty-title">No active reading rooms</div>
-                <div className="empty-body">Start one for tonight's exam prep. Everyone can join and study together with AI-powered study cards.</div>
+                <div className="empty-body">Start a live revision room for a course/topic. Everyone can discuss and turn AI answers into shared study cards.</div>
               </div>
             )}
 
-            {!sessionsLoading && sessions.map((room) => (
+            {!sessionsLoading && sessions.map((room) => {
+              const course = room.course_id ? courseMap.get(room.course_id) : null;
+              return (
               <div className="qd" style={{ cursor: 'default' }} key={room.id}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{room.title}</div>
+                    {course && (
+                      <div style={{ fontSize: 12.5, color: 'var(--text2)', marginBottom: 5 }}>{course.code} — {course.name}</div>
+                    )}
                     {room.exam_goal && (
                       <div style={{ fontSize: 12.5, color: 'var(--text2)', marginBottom: 5 }}>Goal: {room.exam_goal}</div>
                     )}
@@ -1078,7 +1118,7 @@ export default function StudyGroups({
                   )}
                 </div>
               </div>
-            ))}
+            )})}
           </div>
 
           {/* Right: info card */}

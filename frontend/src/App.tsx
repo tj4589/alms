@@ -3,6 +3,7 @@ import './App.css';
 import type {
   ChatMessage,
   GlobalSearchResult,
+  SearchActionContext,
   ScreenType,
   User,
 } from './types';
@@ -90,6 +91,8 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
   const [practiceInitialTopic, setPracticeInitialTopic] = useState('');
+  const [practiceContext, setPracticeContext] = useState<SearchActionContext | null>(null);
+  const [communityContext, setCommunityContext] = useState<(SearchActionContext & { action: 'discussion' | 'study_group' | 'reading_room' }) | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<GlobalSearchResult | null>(null);
@@ -231,8 +234,9 @@ export default function App() {
     go('assistant');
   };
 
-  const handleGoToPractice = (topic: string) => {
+  const handleGoToPractice = (topic: string, context?: SearchActionContext) => {
     setPracticeInitialTopic(topic);
+    setPracticeContext(context || { query: topic, topic });
     go('practice');
   };
 
@@ -244,6 +248,11 @@ export default function App() {
   const askAIFromSearch = (question: string) => {
     askQuestion(question);
     closeSearch();
+  };
+
+  const handleCommunityAction = (action: 'discussion' | 'study_group' | 'reading_room', context: SearchActionContext) => {
+    setCommunityContext({ ...context, action });
+    go(action === 'discussion' ? 'collab' : 'groups');
   };
 
   const handleGlobalSearchEnter = async () => {
@@ -281,6 +290,14 @@ export default function App() {
     ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
     : 'Loading...';
   const searchResults = searchResult?.past_questions || [];
+  const discussionContext =
+    communityContext?.action === 'discussion'
+      ? (communityContext as SearchActionContext & { action: 'discussion' })
+      : null;
+  const groupContext =
+    communityContext && communityContext.action !== 'discussion'
+      ? (communityContext as SearchActionContext & { action: 'study_group' | 'reading_room' })
+      : null;
 
   return (
     <div className="shell">
@@ -531,10 +548,10 @@ export default function App() {
         {activeScreen === 'upload' && <Upload go={go} user={user} />}
         {activeScreen === 'offline' && <Offline go={go} />}
         {activeScreen === 'analytics' && <Analytics go={go} notifyUnavailable={notifyUnavailable} user={user} />}
-        {activeScreen === 'collab' && <Collab go={go} user={user} notifyUnavailable={notifyUnavailable} />}
-        {activeScreen === 'practice' && <Practice go={go} initialTopic={practiceInitialTopic} />}
+        {activeScreen === 'collab' && <Collab go={go} user={user} notifyUnavailable={notifyUnavailable} initialContext={discussionContext} />}
+        {activeScreen === 'practice' && <Practice go={go} initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
-        {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} />}
+        {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
         {activeScreen === 'search' && (
           <SearchResults
@@ -543,7 +560,8 @@ export default function App() {
             loading={submittedLoading}
             onAskAI={askAIFromSearch}
             onUpload={() => go('upload')}
-            onPractice={(topic) => { handleGoToPractice(topic); }}
+            onPractice={(topic, context) => { handleGoToPractice(topic, context); }}
+            onCommunityAction={handleCommunityAction}
             go={go}
           />
         )}

@@ -1,4 +1,5 @@
 from collections import Counter, defaultdict
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 import auth
 import models
 from database import get_db
+from routers.rag import run_rag_query
 
 router = APIRouter(tags=["mvp"])
 
@@ -29,6 +31,17 @@ class PracticeSubmitRequest(BaseModel):
     topic: Optional[str] = None
     score: int
     total_questions: int
+
+
+def _topic_terms(topic: str | None) -> list[str]:
+    if not topic:
+        return []
+    words = re.findall(r"[A-Za-z0-9]+", topic.lower())
+    phrases = [topic.strip().lower()]
+    if len(words) > 1:
+        phrases.extend(" ".join(words[i : i + 2]) for i in range(len(words) - 1))
+    phrases.extend(word for word in words if len(word) >= 4)
+    return list(dict.fromkeys(term for term in phrases if term))
 
 
 class ThreadCreateRequest(BaseModel):
@@ -198,21 +211,48 @@ def generate_practice(
     query = db.query(models.PastQuestion)
     if req.course_id is not None:
         query = query.filter(models.PastQuestion.course_id == req.course_id)
+
+    warning = None
     if req.topic:
-        topic_pattern = f"%{req.topic.strip()}%"
-        query = query.filter(
+        topic_conditions = []
+        for term in _topic_terms(req.topic):
+            topic_pattern = f"%{term}%"
+            topic_conditions.extend(
+                [
+                    models.PastQuestion.content_text.ilike(topic_pattern),
+                    models.PastQuestion.metadata_json.cast(Text).ilike(topic_pattern),
+                ]
+            )
+        topic_query = query.filter(
             or_(
-                models.PastQuestion.content_text.ilike(topic_pattern),
-                models.PastQuestion.metadata_json.cast(Text).ilike(topic_pattern),
+                *(topic_conditions or [models.PastQuestion.content_text.ilike("%__never_match__%")])
             )
         )
-    questions = (
-        query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
+        questions = (
+            topic_query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
+            .limit(safe_count)
+            .all()
+        )
+        if not questions and req.course_id is not None:
+            warning = (
+                f"No exact topic match for '{req.topic}' yet, so ExamMind generated practice "
+                "from broader past questions in the selected course."
+            )
+            questions = (
+                query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
+                .limit(safe_count)
+                .all()
+            )
+    else:
+        questions = (
+            query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
         .limit(safe_count)
         .all()
-    )
+        )
+
     return {
         "topic": req.topic or "Mixed revision",
+        "warning": warning,
         "questions": [
             {
                 "id": question.id,
@@ -369,11 +409,49 @@ def post_thread_message(
     message = models.ThreadMessage(thread_id=thread_id, user_id=current_user.id, content=req.content)
     db.add(message)
     if "@ai" in req.content.lower():
+        ai_question = req.content.replace("@AI", "").replace("@ai", "").strip()
+        if not ai_question:
+            ai_question = thread.title
+        try:
+            course = db.query(models.Course).filter(models.Course.id == thread.course_id).first() if thread.course_id else None
+            recent_messages = (
+                db.query(models.ThreadMessage)
+                .filter(models.ThreadMessage.thread_id == thread_id)
+                .order_by(models.ThreadMessage.created_at.desc())
+                .limit(6)
+                .all()
+            )
+            recent_messages.reverse()
+            recent_context = "\n".join(
+                f"- {'AI' if msg.is_ai_response else 'Student'}: {msg.content[:220]}"
+                for msg in recent_messages
+                if msg.content
+            )
+            thread_context = "\n".join(
+                part
+                for part in [
+                    f"Discussion thread: {thread.title}",
+                    f"Course: {course.code} - {course.name}" if course else "",
+                    f"Recent thread messages:\n{recent_context}" if recent_context else "",
+                    "Use uploaded materials linked to this course/thread first.",
+                ]
+                if part
+            )
+            contextual_question = f"{thread_context}\n\nStudent message: {ai_question}"
+            rag_result = run_rag_query(contextual_question, thread.course_id, None, db, room_context=thread_context)
+            ai_content = rag_result["answer"]
+        except HTTPException as exc:
+            ai_content = str(exc.detail)
+        except Exception:
+            ai_content = (
+                "AI answers are temporarily unavailable because the primary provider balance is low. "
+                "Uploaded materials, search, and practice data are still available."
+            )
         db.add(
             models.ThreadMessage(
                 thread_id=thread_id,
                 user_id=None,
-                content="I can help from the uploaded past questions and notes. Ask a specific topic question for a grounded explanation with citations.",
+                content=ai_content,
                 is_ai_response=True,
             )
         )

@@ -22,9 +22,9 @@ from database import get_db
 from query_understanding import CONVERSATIONAL_NONTOPICS, GUIDANCE_NEEDED_MARKERS, understand_query
 
 try:
-    from ai_clients import metadata_llm as _llm
+    from ai_clients import generate_ai_response
 except ImportError:
-    _llm = None  # type: ignore[assignment]
+    generate_ai_response = None  # type: ignore[assignment]
 
 router = APIRouter(tags=["understand"])
 
@@ -181,7 +181,7 @@ def _guidance_scan(message: str) -> IntentResult | None:
 
 
 def _llm_classify(message: str, context: str) -> IntentResult:
-    if _llm is None:
+    if generate_ai_response is None:
         return _rule_fallback(message)
 
     prompt = _CLASSIFY_PROMPT.format(
@@ -189,8 +189,7 @@ def _llm_classify(message: str, context: str) -> IntentResult:
         context=json.dumps((context or "(none)")[:400]),
     )
     try:
-        response = _llm.invoke(prompt)
-        raw = getattr(response, "content", str(response)).strip()
+        raw = generate_ai_response(prompt, temperature=0).strip()
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw).strip()
         # Extract first JSON object if extra text present

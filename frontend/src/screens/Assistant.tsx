@@ -716,7 +716,7 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
 
   if (decision.intent === 'academic_search' || decision.intent === 'academic_explanation') {
     const topic = decision.interpreted_topic || 'that topic';
-    return `You are asking about ${topic}. I will check your uploaded materials and related past questions first.`;
+    return `Understood as: ${topic}.`;
   }
 
   if (context.pendingSlot) {
@@ -988,7 +988,7 @@ function buildVagueInterpretationMessage(result: IntentResult, original: string)
   if (result.intent === 'lecturer_pattern') return '';
   if (!shouldShowUnderstoodAs(result, original) || !result.interpreted_topic) return '';
   const related = result.related_terms.slice(0, 3);
-  return `I think you may mean "${result.interpreted_topic}"${related.length ? `; I will also check ${related.join(', ')}` : ''}. I will check uploaded materials and related past questions first.`;
+  return `Understood as "${result.interpreted_topic}"${related.length ? `; also checking ${related.join(', ')}` : ''}.`;
 }
 
 function buildLecturerAnalysisIntro(result: IntentResult): string {
@@ -1119,6 +1119,7 @@ export default function Assistant({
   const [thinkingPhase, setThinkingPhase] = useState<ThinkingPhase>('idle');
   const [courses, setCourses] = useState<{ id: number; code: string; name: string }[]>([]);
   const msgsEndRef = useRef<HTMLDivElement>(null);
+  const lastAutoSubmittedRef = useRef('');
   const conversationStateRef = useRef<ConversationState>({
     pendingSlot: null,
     lastAssistantMsgType: null,
@@ -1292,6 +1293,19 @@ export default function Assistant({
       }
 
       // ── HARD PRE-GATE: classify message function BEFORE any API call ──────
+      const followUpLooksContextual =
+        Boolean(latestStudyAssistant) &&
+        /\b(what did you find|what did u find|okay|ok|so what|continue|tell me more|more details|explain that)\b/i.test(question);
+      if (followUpLooksContextual) {
+        const previousTopic = latestStudyAssistant?.understanding?.interpreted_topic
+          || latestStudyAssistant?.understanding?.course_code
+          || latestStudyAssistant?.understanding?.topic
+          || 'the uploaded material we were discussing';
+        await callRag(`Continue the previous ExamMind answer about ${previousTopic}. The student asked: ${question}`, question);
+        conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: 'academic_answer', awaitingUserDetail: false };
+        return;
+      }
+
       const precheck = classifyConversationFunction(question);
 
       if (import.meta.env.DEV) {
@@ -1405,8 +1419,15 @@ export default function Assistant({
       await callRag(ragQuery, question);
       conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: 'academic_answer', awaitingUserDetail: false };
     },
-    [input, loading, messages, onMessagesChange, user, callRag, localReplyWithAnim],
+    [input, loading, messages, onMessagesChange, user, callRag, localReplyWithAnim, latestStudyAssistant],
   );
+
+  useEffect(() => {
+    const question = selectedQuestion?.trim();
+    if (!question || loading || lastAutoSubmittedRef.current === question) return;
+    lastAutoSubmittedRef.current = question;
+    void handleSend(question);
+  }, [selectedQuestion, loading, handleSend]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 

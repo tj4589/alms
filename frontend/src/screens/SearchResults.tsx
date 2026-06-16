@@ -1,4 +1,4 @@
-import type { GlobalSearchResult, PastQuestion, ScreenType } from '../types';
+import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext } from '../types';
 
 function preview(value: string | null | undefined, fallback: string, max = 132): string {
   const text = (value || fallback).replace(/\s+/g, ' ').trim();
@@ -18,11 +18,38 @@ type Props = {
   loading: boolean;
   onAskAI: (q: string) => void;
   onUpload: () => void;
-  onPractice: (topic: string) => void;
+  onPractice: (topic: string, context?: SearchActionContext) => void;
+  onCommunityAction?: (action: 'discussion' | 'study_group' | 'reading_room', context: SearchActionContext) => void;
   go: (screen: ScreenType) => void;
 };
 
-export default function SearchResults({ query, result, loading, onAskAI, onUpload, onPractice, go }: Props) {
+function metadataValue(meta: PastQuestion['metadata_json'], key: string): string {
+  if (!meta || typeof meta !== 'object') return '';
+  const value = (meta as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function materialTitle(item: PastQuestion): string {
+  const meta = item.metadata_json as Record<string, unknown> | null;
+  const generated = [
+    metadataValue(meta, 'course_code'),
+    metadataValue(meta, 'course_title'),
+    metadataValue(meta, 'document_type').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    metadataValue(meta, 'academic_year'),
+  ].filter(Boolean).join(' ');
+  return item.title || metadataValue(meta, 'document_title') || generated || preview(item.content_text, 'Past question', 90);
+}
+
+function materialMetaLine(item: PastQuestion): string {
+  const meta = item.metadata_json as Record<string, unknown> | null;
+  const documentType = metadataValue(meta, 'document_type').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Past Question';
+  const year = metadataValue(meta, 'academic_year') || (item.year ? String(item.year) : '');
+  const semester = item.semester || metadataValue(meta, 'semester');
+  const matches = item.matching_sections || item.chunk_ids?.length || 1;
+  return [documentType, year, semester, `${matches} matching section${matches === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+}
+
+export default function SearchResults({ query, result, loading, onAskAI, onUpload, onPractice, onCommunityAction, go }: Props) {
   const topic = result?.understanding?.interpreted_topic?.trim() || query;
   const relatedTerms = result?.understanding?.related_terms || [];
   const pastQuestions = result?.past_questions || [];
@@ -33,6 +60,22 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
   const relatedTopics = result?.related_topics || [];
   const hasUploaded = pastQuestions.length > 0 || lectureNotes.length > 0;
   const hasBestMatches = lectureNotes.length > 0 || pastQuestions.length > 0;
+  const primaryMaterial = pastQuestions[0];
+  const primaryContext: SearchActionContext = {
+    query,
+    topic,
+    course_id: primaryMaterial?.course_id ?? lectureNotes[0]?.course_id ?? null,
+    course_code: metadataValue(primaryMaterial?.metadata_json, 'course_code'),
+    course_title: metadataValue(primaryMaterial?.metadata_json, 'course_title'),
+    material_title: primaryMaterial ? materialTitle(primaryMaterial) : lectureNotes[0]?.title,
+  };
+  const groundedAiPrompt = primaryContext.material_title
+    ? `Using uploaded ExamMind materials, explain what "${query}" relates to in ${primaryContext.material_title}. Include the key past-question topics and cite sources.`
+    : `Using uploaded ExamMind materials, explain ${topic}. Include relevant sources.`;
+  const goCommunity = (action: 'discussion' | 'study_group' | 'reading_room') => {
+    if (onCommunityAction) onCommunityAction(action, primaryContext);
+    else go(action === 'discussion' ? 'collab' : 'groups');
+  };
 
   if (loading) {
     return (
@@ -92,9 +135,12 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                   return (
                     <div className="search-result-row" key={`best-pq-${item.id}`}>
                       <div>
-                        <div className="search-result-title">{preview(item.content_text, 'Past question')}</div>
+                        <div className="search-result-title">{materialTitle(item)}</div>
+                        {(item.snippets || []).slice(0, 2).map(snippet => (
+                          <div className="search-muted" key={snippet}>{preview(snippet, '', 150)}</div>
+                        ))}
                         <div className="search-muted">
-                          {meta?.course_code || 'Past question'}{item.year ? ` · ${item.year}` : ''}
+                          {meta?.course_code ? `${meta.course_code} · ` : ''}{materialMetaLine(item)}
                           {meta?.topics_covered?.[0] ? ` · ${meta.topics_covered[0]}` : ''}
                         </div>
                       </div>
@@ -138,9 +184,12 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                   return (
                     <div className="search-result-row" key={item.id}>
                       <div>
-                        <div className="search-result-title">{preview(item.content_text, 'Past question')}</div>
+                        <div className="search-result-title">{materialTitle(item)}</div>
+                        {(item.snippets || []).slice(0, 3).map(snippet => (
+                          <div className="search-muted" key={snippet}>{preview(snippet, '', 160)}</div>
+                        ))}
                         <div className="search-muted">
-                          {meta?.course_code || 'Past question'}{item.year ? ` · ${item.year}` : ''}
+                          {meta?.course_code ? `${meta.course_code} · ` : ''}{materialMetaLine(item)}
                           {meta?.topics_covered?.[0] ? ` · ${meta.topics_covered[0]}` : ''}
                         </div>
                       </div>
@@ -160,7 +209,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
             <div className="search-card-title">Practice</div>
             <div className="search-empty-row">
               <span>No shared practice sets yet.</span>
-              <button className="search-link-btn" onClick={() => onPractice(topic)}>Generate practice</button>
+              <button className="search-link-btn" onClick={() => onPractice(topic, primaryContext)}>Generate practice</button>
             </div>
           </section>
         </div>
@@ -169,11 +218,12 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
           <section className="search-card">
             <div className="search-card-title">Quick Actions</div>
             <div className="search-action-grid">
-              <button className="search-primary-btn" onClick={() => onAskAI(`Explain ${topic}`)}>Learn more with AI</button>
-              <button className="search-action-btn" onClick={() => onPractice(topic)}>Generate practice</button>
+              <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Learn more with AI</button>
+              <button className="search-action-btn" onClick={() => onPractice(topic, primaryContext)}>Generate practice</button>
               <button className="search-action-btn" onClick={onUpload}>Upload material</button>
-              <button className="search-action-btn" onClick={() => go('collab')}>Start discussion</button>
-              <button className="search-action-btn" onClick={() => go('groups')}>Create study group</button>
+              <button className="search-action-btn" onClick={() => goCommunity('discussion')}>Start discussion thread</button>
+              <button className="search-action-btn" onClick={() => goCommunity('study_group')}>Create study group</button>
+              <button className="search-action-btn" onClick={() => goCommunity('reading_room')}>Start reading room</button>
             </div>
           </section>
 
@@ -200,7 +250,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
             ) : (
               <div className="search-empty-row">
                 <span>No discussions yet.</span>
-                <button className="search-link-btn" onClick={() => go('collab')}>Start one</button>
+                <button className="search-link-btn" onClick={() => goCommunity('discussion')}>Start one</button>
               </div>
             )}
           </section>
@@ -217,7 +267,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
             ) : (
               <div className="search-empty-row">
                 <span>No groups yet.</span>
-                <button className="search-link-btn" onClick={() => go('groups')}>Create one</button>
+                <button className="search-link-btn" onClick={() => goCommunity('study_group')}>Create one</button>
               </div>
             )}
           </section>
@@ -234,7 +284,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
             ) : (
               <div className="search-empty-row">
                 <span>No active rooms yet.</span>
-                <button className="search-link-btn" onClick={() => go('groups')}>Start room</button>
+                <button className="search-link-btn" onClick={() => goCommunity('reading_room')}>Start reading room</button>
               </div>
             )}
           </section>
@@ -244,7 +294,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
               <div className="search-card-title">Learn more with ExamMind AI</div>
               <p>Ask the AI Assistant to explain this step-by-step using uploaded materials where available.</p>
             </div>
-            <button className="search-primary-btn" onClick={() => onAskAI(`Explain ${topic}`)}>Learn more with AI</button>
+            <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Learn more with AI</button>
           </section>
         </aside>
       </div>

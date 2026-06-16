@@ -57,9 +57,22 @@ export type PastQuestion = {
   year?: number | null;
   semester?: string | null;
   difficulty?: string | null;
+  title?: string | null;
   content_text?: string | null;
+  snippets?: string[];
+  chunk_ids?: number[];
+  matching_sections?: number;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
   verified_status?: string | null;
+};
+
+export type SearchActionContext = {
+  query: string;
+  topic?: string;
+  course_id?: number | null;
+  course_code?: string;
+  course_title?: string;
+  material_title?: string;
 };
 
 export type LectureNote = {

@@ -1036,14 +1036,15 @@ def _question_topics_from_text(text: str) -> list[str]:
         ("risk-seeking behavior", r"\brisk[-\s]?seeking\b"),
         ("communication management", r"\bcommunication\s+management\b"),
         ("inadequate communication", r"\binadequate\s+communication\b"),
-        ("procurement tools", r"\bprocurement\s+tools?\b|\bprocurement\b"),
+        ("procurement management", r"\bprocurement\s+management\b|\bprocurement\b"),
         ("contract pricing", r"\bcontract\s+pricing\b|\bpricing\s+contracts?\b"),
         ("cost management", r"\bcost\s+management\b"),
+        ("earned value management", r"\bearned\s+value\b|\bEVM\b"),
         ("cost variance", r"\bcost\s+variance\b|\bCV\b"),
         ("schedule variance", r"\bschedule\s+variance\b|\bSV\b"),
-        ("CPI", r"\bCPI\b|\bcost\s+performance\s+index\b"),
-        ("SPI", r"\bSPI\b|\bschedule\s+performance\s+index\b"),
-        ("stakeholder engagement", r"\bstakeholder\s+engagement\b|\bstakeholder\b"),
+        ("cost performance index", r"\bCPI\b|\bcost\s+performance\s+index\b"),
+        ("schedule performance index", r"\bSPI\b|\bschedule\s+performance\s+index\b"),
+        ("stakeholder management", r"\bstakeholder\s+management\b|\bstakeholder\s+engagement\b|\bstakeholder\b"),
         ("power/interest grid", r"\bpower\s*/?\s*interest\s+grid\b"),
     ]
     return [label for label, pattern in checks if re.search(pattern, text, re.IGNORECASE)]
@@ -1162,7 +1163,22 @@ def match_course(db: Session, metadata: Dict[str, Any]) -> Optional[models.Cours
     if not course_code or course_code == "UNKNOWN":
         return None
 
-    return db.query(models.Course).filter(models.Course.code == course_code).first()
+    course_title = (metadata.get("course_title") or "").strip()
+    course = db.query(models.Course).filter(models.Course.code == course_code).first()
+    if course:
+        if course_title and (not course.name or course.name.lower() in {"unknown", "untitled"}):
+            course.name = course_title
+            db.flush()
+        return course
+
+    course = models.Course(
+        code=course_code,
+        name=course_title or course_code,
+        description=f"Auto-created from uploaded {DOC_TYPE_TITLE.get(metadata.get('document_type'), 'material')}.",
+    )
+    db.add(course)
+    db.flush()
+    return course
 
 
 def find_duplicate(db: Session, metadata: Dict[str, Any]):
@@ -1287,6 +1303,9 @@ def upload_document(
     )
     quality = preview_quality(content_preview, float(metadata.get("extraction_confidence") or 0))
     preview_sections = content_preview_to_sections(content_preview) or build_content_preview(operational_text, metadata.get("document_type", "unknown"))
+    metadata["content_preview"] = content_preview
+    metadata["preview_quality"] = quality
+    metadata["preview_sections"] = preview_sections
     preview_snippets = [
         item["text"]
         for section in preview_sections
