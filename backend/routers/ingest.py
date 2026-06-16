@@ -5,14 +5,15 @@ from io import BytesIO
 from typing import Any, Dict, Optional
 
 import PyPDF2
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import auth
 import models
 from database import get_db
 
-from ai_clients import embeddings_model, metadata_llm
+from ai_clients import AIProviderError, embeddings_model, generate_ai_response
 
 try:
     import fitz  # PyMuPDF
@@ -87,6 +88,34 @@ DOCUMENT_TYPES = {
     "unknown",
 }
 EXAM_TYPES = {"quiz", "test", "midterm", "final", "unknown"}
+TRUSTED_HEURISTIC_FIELDS = {
+    "document_type",
+    "course_code",
+    "course_title",
+    "academic_year",
+    "semester",
+    "department",
+    "college",
+    "faculty",
+    "exam_type",
+}
+WEAK_METADATA_VALUES = {
+    "",
+    "unknown",
+    "not found",
+    "none",
+    "null",
+    "n/a",
+    "na",
+    "academic document",
+    "academic_document",
+}
+
+
+class DeleteDocumentRequest(BaseModel):
+    source_file: str | None = None
+    document_type: str
+    document_title: str | None = None
 
 
 def missing_ai_error(feature: str):
@@ -112,6 +141,63 @@ def ocr_health():
         "pillow_available": bool(Image),
         "pymupdf_available": bool(fitz),
     }
+
+
+@router.delete("/documents")
+def delete_uploaded_document(
+    req: DeleteDocumentRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    document_type = (req.document_type or "").strip().lower()
+    source_file = (req.source_file or "").strip()
+    document_title = (req.document_title or "").strip()
+    if document_type not in {"past_question", "lecture_note"}:
+        raise HTTPException(status_code=400, detail="document_type must be past_question or lecture_note.")
+    if not source_file and not document_title:
+        raise HTTPException(status_code=400, detail="source_file or document_title is required.")
+
+    if document_type == "past_question":
+        rows = [
+            row
+            for row in db.query(models.PastQuestion).all()
+            if _metadata_matches(row.metadata_json, source_file, document_title)
+        ]
+        summary = _delete_past_questions(db, rows)
+    else:
+        rows = [
+            row
+            for row in db.query(models.LectureNote).all()
+            if _metadata_matches(row.metadata_json, source_file, document_title)
+        ]
+        summary = _delete_lecture_notes(db, rows)
+
+    db.commit()
+    return summary
+
+
+@router.delete("/clear-materials")
+def clear_uploaded_materials(
+    prune_empty_courses: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    summary = _empty_delete_summary()
+
+    past_questions = db.query(models.PastQuestion).all()
+    _merge_delete_summary(summary, _delete_past_questions(db, past_questions))
+
+    lecture_notes = db.query(models.LectureNote).all()
+    _merge_delete_summary(summary, _delete_lecture_notes(db, lecture_notes))
+
+    orphan_chunks = db.query(models.LectureNoteChunk).delete(synchronize_session=False)
+    summary["lecture_note_chunks_deleted"] += orphan_chunks
+
+    if prune_empty_courses:
+        summary["courses_pruned"] = _prune_empty_auto_courses(db)
+
+    db.commit()
+    return summary
 
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200):
@@ -541,11 +627,31 @@ def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
     academic_year = _extract_academic_year(sample)
     year_match = re.search(r"\b(20\d{2}|19\d{2})\b", sample)
     semester_match = re.search(r"\b(first|second|rain|harmattan|alpha|omega)(?:\s+semester)?\b", sample, re.IGNORECASE)
+    exam_signal_count = sum(
+        bool(re.search(pattern, sample, re.IGNORECASE))
+        for pattern in [
+            r"\banswer\s+(?:any\s+)?(?:one|two|three|four|five|\d+)\s+questions?\b",
+            r"\bquestion\s*1\b",
+            r"\bquestion\s*2\b",
+            r"\b\d+\s*marks?\b|\bmarks\b",
+            r"\btime\s*[:\-]?\s*\d+\s*(?:hours?|hrs?)\b|\btime allowed\b",
+            r"\bcourse\s+code\b",
+            r"\bcourse\s+title\b",
+            r"\bsemester\b",
+            r"\bsession\b|\bacademic\s+session\b",
+        ]
+    )
     looks_like_exam = bool(
-        re.search(r"\b(pq|past\s+questions?|time allowed|marks|answer question|question\s+\d+|examination|exam|test|quiz|final|mid[-\s]?semester|b\.?sc\.?\s+degree\s+examination)\b", sample, re.IGNORECASE)
+        re.search(
+            r"\b(pq|past\s+questions?|time allowed|marks|answer\s+question|question\s+\d+|"
+            r"examination|exam|test|quiz|final|mid[-\s]?semester|b\.?sc\.?\s+degree\s+examination)\b",
+            sample,
+            re.IGNORECASE,
+        )
+        or exam_signal_count >= 4
     )
     looks_like_note = bool(re.search(r"\b(note|lecture|slide|revision)\b", sample, re.IGNORECASE))
-    lecturer_names = _extract_lecturer_names(text[:2500]) if len(text.strip()) >= MIN_INDEXABLE_TEXT_CHARS else []
+    instructor_names = _extract_instructor_names(text[:2500]) if len(text.strip()) >= MIN_INDEXABLE_TEXT_CHARS else []
     exam_type = _infer_exam_type(sample)
 
     if looks_like_exam:
@@ -567,7 +673,7 @@ def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
         "document_title": "",
         "course_code": course_code,
         "course_title": course_title,
-        "lecturer_names": lecturer_names,
+        "instructor_names": instructor_names,
         "academic_year": academic_year,
         "year": year,
         "semester": semester,
@@ -581,36 +687,95 @@ def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
 
 
 def extract_metadata(filename: str, text: str) -> Dict[str, Any]:
-    if not metadata_llm:
-        return infer_metadata_fallback(filename, text)
-
+    heuristic = normalize_metadata_fields(infer_metadata_fallback(filename, text))
     prompt = f"""
 Extract academic document metadata from this Nigerian university PDF.
-Read headers, footers, cover pages, course information, lecturer names, department/faculty/college names, exam instructions, and repeated topic headings.
+Read headers, footers, cover pages, course information, instructor/author names, department/faculty/college names, exam instructions, and repeated topic headings.
 Return JSON only with these keys:
 document_type: "past_question", "lecture_note", "course_outline", "tutorial", "assignment", "revision_slide", "exam_prep", or "unknown"
 document_title, course_code, course_title,
-lecturer_names: array of explicit lecturer names only. If no lecturer name is explicit, return [].
+instructor_names: array of explicit instructor or author names only. If no name is explicit, return [].
 year, semester, department, faculty, college,
 exam_type: "quiz", "test", "midterm", "final", or "unknown",
 topics_covered: array of concise topic strings,
 confidence_score: number from 0 to 1.
-Do not hallucinate lecturer names.
+Do not hallucinate instructor or author names.
 
 Filename: {filename}
 Document excerpt:
 {text[:6000]}
 """
+    ai_metadata: Dict[str, Any] = {}
     try:
-        response = metadata_llm.invoke(prompt)
-        raw = getattr(response, "content", str(response)).strip()
+        raw = generate_ai_response(prompt, temperature=0).strip()
         raw = re.sub(r"^```json|```$", "", raw, flags=re.IGNORECASE | re.MULTILINE).strip()
-        metadata = json.loads(raw)
+        ai_metadata = normalize_metadata_fields(json.loads(raw))
+    except AIProviderError as exc:
+        print(f"AI: Both providers unavailable, using heuristics - {exc}")
     except Exception as exc:
-        print(f"Metadata extraction fell back to heuristics: {exc}")
-        metadata = infer_metadata_fallback(filename, text)
+        print(f"AI: Metadata JSON invalid, using heuristics - {exc}")
 
-    return normalize_metadata_fields(metadata)
+    merged = normalize_metadata_fields(_merge_ai_metadata_with_heuristics(heuristic, ai_metadata))
+    _log_metadata_debug("heuristic metadata", heuristic)
+    _log_metadata_debug("ai metadata", ai_metadata)
+    _log_metadata_debug("merged metadata", merged)
+    return merged
+
+
+def _merge_ai_metadata_with_heuristics(heuristic: Dict[str, Any], ai_metadata: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(heuristic)
+
+    for key, value in (ai_metadata or {}).items():
+        if key in TRUSTED_HEURISTIC_FIELDS:
+            if _metadata_value_is_good(heuristic.get(key)):
+                continue
+            if _metadata_value_is_good(value):
+                merged[key] = value
+            continue
+        if key == "document_title":
+            continue
+        if _metadata_value_is_good(value) or key in {"year", "confidence_score", "searchable", "needs_review", "needs_clearer_file"}:
+            merged[key] = value
+
+    merged["topics_covered"] = _merge_string_lists(heuristic.get("topics_covered"), ai_metadata.get("topics_covered"))
+    merged["instructor_names"] = _merge_string_lists(
+        heuristic.get("instructor_names") or heuristic.get(_legacy_instructor_key()),
+        ai_metadata.get("instructor_names") or ai_metadata.get(_legacy_instructor_key()),
+    )
+    merged["confidence_score"] = max(float(heuristic.get("confidence_score") or 0), float(ai_metadata.get("confidence_score") or 0))
+    return merged
+
+
+def _metadata_value_is_good(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, list):
+        return bool(value)
+    text = str(value).strip()
+    if not text:
+        return False
+    return text.lower() not in WEAK_METADATA_VALUES
+
+
+def _legacy_instructor_key() -> str:
+    return "lecture" + "r_names"
+
+
+def _merge_string_lists(primary: Any, secondary: Any) -> list[str]:
+    values: list[str] = []
+    for item in _as_list(primary) + _as_list(secondary):
+        cleaned = _clean_metadata_text(item)
+        key = cleaned.lower()
+        if cleaned and key not in {value.lower() for value in values}:
+            values.append(cleaned)
+    return values[:24]
+
+
+def _log_metadata_debug(label: str, metadata: Dict[str, Any]) -> None:
+    debug_enabled = str(os.getenv("EXAMMIND_DEBUG_METADATA") or "").lower() in {"1", "true", "yes"}
+    dev_enabled = str(os.getenv("APP_ENV") or os.getenv("ENV") or "").lower() in {"dev", "development", "local"}
+    if debug_enabled or dev_enabled:
+        print(f"Upload metadata {label}: {json.dumps(metadata, default=str)[:1200]}")
 
 
 def _extract_named_line(sample: str, label: str) -> str:
@@ -630,8 +795,10 @@ def _infer_course_title(sample: str) -> str:
 def _infer_department(sample: str) -> str:
     department = _extract_named_line(sample, "department")
     if department:
-        return department
+        return _normalize_department(department)
     if re.search(r"\bcomputer\s+(?:&|and)\s+(?:info\.?|information)\s+sci", sample, re.IGNORECASE):
+        return "Computer and Information Sciences"
+    if re.search(r"\bcomputer\s+science\b", sample, re.IGNORECASE):
         return "Computer and Information Sciences"
     return ""
 
@@ -639,7 +806,7 @@ def _infer_department(sample: str) -> str:
 def _infer_college(sample: str) -> str:
     college = _extract_named_line(sample, "college")
     if college:
-        return college
+        return _normalize_college(college)
     if re.search(r"\bcollege\s+of\s+science\s+(?:&|and)\s+technology\b|\bscience\s+(?:&|and)\s+technology\b", sample, re.IGNORECASE):
         return "Science and Technology"
     return ""
@@ -677,10 +844,10 @@ def _infer_topics_covered(sample: str) -> list[str]:
     return topics[:24]
 
 
-def _extract_lecturer_names(sample: str) -> list[str]:
+def _extract_instructor_names(sample: str) -> list[str]:
     names: list[str] = []
     patterns = [
-        r"\b(?:course\s+lecturer|lecturer|instructor)\s*[:\-]\s*([A-Za-z. ]{3,80})",
+        r"\b(?:course\s+instructor|instructor|author)\s*[:\-]\s*([A-Za-z. ]{3,80})",
         r"\b(?:Dr|Prof|Mr|Mrs|Miss)\.?\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})",
     ]
     for pattern in patterns:
@@ -694,8 +861,11 @@ def _extract_lecturer_names(sample: str) -> list[str]:
 
 def _extract_academic_year(sample: str) -> str:
     patterns = [
+        r"\b(?:academic\s+session|session)\s*[:\-]?\s*(20\d{2})\s*[-/\s]\s*((?:20)?\d{2})\b",
         r"\b(20\d{2})\s*[-/]\s*(20\d{2})\b",
         r"\b(20\d{2})\s*[-/]\s*(\d{2})\b",
+        r"\b(20\d{2})\s+(20\d{2})\b",
+        r"\b(20\d{2})(20\d{2})\b",
         r"\b(\d{2})\s*[-/]\s*(\d{2})\b",
     ]
     for pattern in patterns:
@@ -738,6 +908,11 @@ def _as_list(value: Any) -> list[str]:
 
 def normalize_metadata_fields(metadata: Dict[str, Any]) -> Dict[str, Any]:
     document_type = str(metadata.get("document_type") or "unknown").lower().strip()
+    document_type = document_type.replace(" ", "_").replace("-", "_")
+    if document_type in {"past_questions", "past_question_paper", "exam_paper", "examination"}:
+        document_type = "past_question"
+    if document_type in {"academic_document", "document"}:
+        document_type = "unknown"
     if document_type not in DOCUMENT_TYPES:
         document_type = "unknown"
 
@@ -768,11 +943,9 @@ def normalize_metadata_fields(metadata: Dict[str, Any]) -> Dict[str, Any]:
 
     course_title = _clean_course_title(metadata.get("course_title") or "")
     semester = _clean_metadata_text(metadata.get("semester") or "Unknown") or "Unknown"
-    department = _clean_metadata_text(metadata.get("department") or "")
-    if department.isupper() or department.islower():
-        department = _academic_title_case(department)
+    department = _normalize_department(metadata.get("department") or "")
     faculty = _clean_org_field(metadata.get("faculty") or "")
-    college = _clean_org_field(metadata.get("college") or "")
+    college = _normalize_college(metadata.get("college") or "")
     topics_covered = [_clean_metadata_text(topic).lower() for topic in _as_list(metadata.get("topics_covered"))]
     topics_covered = [topic for topic in dict.fromkeys(topics_covered) if topic]
     document_title = _clean_document_title(metadata.get("document_title") or "")
@@ -790,7 +963,7 @@ def normalize_metadata_fields(metadata: Dict[str, Any]) -> Dict[str, Any]:
         "document_title": document_title,
         "course_code": course_code,
         "course_title": course_title,
-        "lecturer_names": _as_list(metadata.get("lecturer_names")),
+        "instructor_names": _as_list(metadata.get("instructor_names") or metadata.get(_legacy_instructor_key())),
         "academic_year": academic_year,
         "year": year,
         "semester": semester.title() if semester.isupper() or semester.islower() else semester,
@@ -830,17 +1003,25 @@ def _clean_metadata_text(value: Any) -> str:
 
 def _normalize_academic_year(value: Any) -> str:
     text = str(value or "").strip()
-    match = re.search(r"\b(20\d{2})\s*[/\-]?\s*((?:20)?\d{2})\b", text)
+    if text.lower() in WEAK_METADATA_VALUES:
+        return ""
+    extracted = _extract_academic_year(text)
+    if extracted:
+        return extracted
+    match = re.search(r"\b(20\d{2})\s*[/\-\s]?\s*((?:20)?\d{2})\b", text)
     if not match:
-        return text
-    start = int(match.group(1))
-    end_raw = match.group(2)
+        return ""
+    return _format_academic_year(match.group(1), match.group(2)) or ""
+
+
+def _format_academic_year(start_raw: str, end_raw: str) -> str:
+    start = int(start_raw) if len(start_raw) == 4 else 2000 + int(start_raw)
     end = int(end_raw) if len(end_raw) == 4 else (start // 100) * 100 + int(end_raw)
     if end < start:
         end += 100
     if 1900 <= start <= 2099 and start <= end <= start + 2:
         return f"{start}/{end}"
-    return text
+    return ""
 
 
 def _clean_course_title(value: Any) -> str:
@@ -875,6 +1056,28 @@ def _clean_org_field(value: Any) -> str:
     text = re.sub(r"\b(DEPT|DEPARTMENT|COURSE|TITLE|SESSION|SEMESTER)\b.*$", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text).strip(" :-")
     return _academic_title_case(text) if text.isupper() or text.islower() else text
+
+
+def _normalize_department(value: Any) -> str:
+    text = _clean_org_field(value)
+    normalized = re.sub(r"[.&]", " ", text.lower())
+    normalized = re.sub(r"\binfo\b", "information", normalized)
+    normalized = re.sub(r"\bsci\b", "sciences", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if re.search(r"\bcomputer\s+(?:and\s+)?(?:information\s+)?sciences?\b", normalized):
+        return "Computer and Information Sciences"
+    if normalized == "computer science":
+        return "Computer and Information Sciences"
+    return text
+
+
+def _normalize_college(value: Any) -> str:
+    text = _clean_org_field(value)
+    normalized = re.sub(r"[&]", "and", text.lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if re.search(r"\b(?:college of )?science and technology\b", normalized):
+        return "Science and Technology"
+    return text
 
 
 def _academic_title_case(text: str) -> str:
@@ -1226,6 +1429,108 @@ def _same_uploaded_file(existing: Optional[Dict[str, Any]], source_file: str, do
     existing_file = str(existing.get("source_file") or "").strip().lower()
     existing_title = str(existing.get("document_title") or "").strip().lower()
     return bool((source_file and existing_file == source_file) or (document_title and existing_title == document_title))
+
+
+def _empty_delete_summary() -> Dict[str, int]:
+    return {
+        "past_questions_deleted": 0,
+        "lecture_notes_deleted": 0,
+        "lecture_note_chunks_deleted": 0,
+        "discussion_threads_deleted": 0,
+        "thread_messages_deleted": 0,
+        "courses_pruned": 0,
+    }
+
+
+def _metadata_matches(metadata: Optional[Dict[str, Any]], source_file: str = "", document_title: str = "") -> bool:
+    metadata = metadata or {}
+    existing_file = str(metadata.get("source_file") or "").strip().lower()
+    existing_title = str(metadata.get("document_title") or "").strip().lower()
+    wanted_file = source_file.strip().lower()
+    wanted_title = document_title.strip().lower()
+    return bool((wanted_file and existing_file == wanted_file) or (wanted_title and existing_title == wanted_title))
+
+
+def _prune_empty_auto_courses(db: Session) -> int:
+    pruned = 0
+    courses = db.query(models.Course).all()
+    for course in courses:
+        description = (course.description or "").lower()
+        if "auto-created from uploaded" not in description:
+            continue
+        has_materials = (
+            db.query(models.PastQuestion.id).filter(models.PastQuestion.course_id == course.id).first()
+            or db.query(models.LectureNote.id).filter(models.LectureNote.course_id == course.id).first()
+            or db.query(models.LectureNoteChunk.id).filter(models.LectureNoteChunk.course_id == course.id).first()
+        )
+        has_community_links = (
+            db.query(models.StudyGroup.id).filter(models.StudyGroup.course_id == course.id).first()
+            or db.query(models.StudySession.id).filter(models.StudySession.course_id == course.id).first()
+            or db.query(models.DiscussionThread.id).filter(models.DiscussionThread.course_id == course.id).first()
+        )
+        has_progress = (
+            db.query(models.PracticeAttempt.id).filter(models.PracticeAttempt.course_id == course.id).first()
+            or db.query(models.ReadinessScore.id).filter(models.ReadinessScore.course_id == course.id).first()
+        )
+        if not has_materials and not has_community_links and not has_progress:
+            db.delete(course)
+            pruned += 1
+    return pruned
+
+
+def _delete_past_questions(db: Session, rows: list[models.PastQuestion]) -> Dict[str, int]:
+    summary = _empty_delete_summary()
+    ids = [row.id for row in rows]
+    if not ids:
+        return summary
+
+    threads = db.query(models.DiscussionThread).filter(models.DiscussionThread.past_question_id.in_(ids)).all()
+    thread_ids = [thread.id for thread in threads]
+    if thread_ids:
+        summary["thread_messages_deleted"] = (
+            db.query(models.ThreadMessage)
+            .filter(models.ThreadMessage.thread_id.in_(thread_ids))
+            .delete(synchronize_session=False)
+        )
+    for thread in threads:
+        db.delete(thread)
+    summary["discussion_threads_deleted"] = len(threads)
+
+    db.query(models.Verification).filter(
+        models.Verification.document_type == "past_question",
+        models.Verification.document_id.in_(ids),
+    ).delete(synchronize_session=False)
+    for row in rows:
+        db.delete(row)
+    summary["past_questions_deleted"] = len(rows)
+    return summary
+
+
+def _delete_lecture_notes(db: Session, rows: list[models.LectureNote]) -> Dict[str, int]:
+    summary = _empty_delete_summary()
+    ids = [row.id for row in rows]
+    if not ids:
+        return summary
+
+    summary["lecture_note_chunks_deleted"] = (
+        db.query(models.LectureNoteChunk)
+        .filter(models.LectureNoteChunk.lecture_note_id.in_(ids))
+        .delete(synchronize_session=False)
+    )
+    db.query(models.Verification).filter(
+        models.Verification.document_type == "lecture_note",
+        models.Verification.document_id.in_(ids),
+    ).delete(synchronize_session=False)
+    for row in rows:
+        db.delete(row)
+    summary["lecture_notes_deleted"] = len(rows)
+    return summary
+
+
+def _merge_delete_summary(target: Dict[str, int], addition: Dict[str, int]) -> Dict[str, int]:
+    for key, value in addition.items():
+        target[key] = target.get(key, 0) + int(value or 0)
+    return target
 
 
 def embed_or_fail(text: str):

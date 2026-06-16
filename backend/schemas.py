@@ -10,7 +10,6 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=24)
     email: EmailStr
     password: str = Field(min_length=8)
-    role: Optional[str] = "student"
 
     @field_validator('username')
     @classmethod
@@ -27,7 +26,7 @@ class UserResponse(BaseModel):
     name: str
     username: Optional[str] = None
     email: EmailStr
-    role: str
+    role: str = "student"
 
     model_config = {"from_attributes": True}
 

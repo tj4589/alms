@@ -52,7 +52,7 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
         return;
       }
 
-      await apiPost('/auth/register', { name, username: username.toLowerCase(), email, password, role: 'student' });
+      await apiPost('/auth/register', { name, username: username.toLowerCase(), email, password });
 
       const body = new URLSearchParams();
       body.set('username', email);

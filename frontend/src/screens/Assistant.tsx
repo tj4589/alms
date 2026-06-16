@@ -18,12 +18,12 @@ type QueryUnderstanding = {
   interpreted_topic: string | null;
   related_terms: string[];
   possible_courses: string[];
-  possible_lecturers: string[];
-  lecturer_name?: string | null;
+  possible_people: string[];
+  person_name?: string | null;
   course_code?: string | null;
   topic?: string | null;
   needs_course?: boolean;
-  needs_lecturer?: boolean;
+  needs_person?: boolean;
   intent: string;
   confidence: number;
   needs_clarification: boolean;
@@ -39,12 +39,12 @@ type IntentResult = {
   interpreted_topic: string | null;
   related_terms: string[];
   possible_course: string | null;
-  possible_lecturer: string | null;
-  lecturer_name?: string | null;
+  possible_person: string | null;
+  person_name?: string | null;
   course_code?: string | null;
   topic?: string | null;
   needs_course?: boolean;
-  needs_lecturer?: boolean;
+  needs_person?: boolean;
   confidence: number;
   response_strategy: string;
   clarifying_question: string | null;
@@ -77,7 +77,7 @@ type ConversationPrecheck = {
 
 // Tracks what the assistant last asked and whether it's expecting user to fill a slot
 type ConversationState = {
-  pendingSlot: 'course_or_topic' | 'lecturer' | 'exam' | 'material_clue' | null;
+  pendingSlot: 'course_or_topic' | 'person_clue' | 'exam' | 'material_clue' | null;
   lastAssistantMsgType: MsgType | null;
   awaitingUserDetail: boolean;
 };
@@ -91,7 +91,7 @@ type DecisionIntent =
   | 'correction_or_complaint'
   | 'academic_search'
   | 'academic_explanation'
-  | 'lecturer_pattern'
+  | 'person_pattern'
   | 'practice_request'
   | 'acknowledgement'
   | 'upload_help'
@@ -109,10 +109,10 @@ type AssistantDecision = {
   should_call_rag: boolean;
   should_show_understood_as: boolean;
   interpreted_topic: string | null;
-  lecturer_name?: string | null;
+  person_name?: string | null;
   course_code?: string | null;
   needs_course?: boolean;
-  needs_lecturer?: boolean;
+  needs_person?: boolean;
   related_terms: string[];
   response_goal: string;
 };
@@ -330,9 +330,9 @@ function classifyConversationFunction(
   const ACADEMIC_RE =
     /\b(explain|find|search|show me|give me|what is|what are|what did|what does|what topic|how does|how do|when did|who is|who was|define|summarize|summarise|tell me about|past question|lecture note|course outline|practice|quiz|test me|drill me|generate|theory|concept|model|principle|law|method|analysis|system|structure|function|understand)\b/i;
   const COURSE_CODE_RE = /\b[a-z]{2,4}\s*\d{3,4}\b/i;
-  const LECTURER_RE = /\b(lecturer|professor|dr\.?|madam|sir|prof\.?|mr\.?|mrs\.?)\s+\w+/i;
+  const PERSON_RE = /\b(professor|dr\.?|madam|sir|prof\.?|mr\.?|mrs\.?)\s+\w+/i;
 
-  if (ACADEMIC_RE.test(norm) || COURSE_CODE_RE.test(norm) || LECTURER_RE.test(norm)) {
+  if (ACADEMIC_RE.test(norm) || COURSE_CODE_RE.test(norm) || PERSON_RE.test(norm)) {
     return academic(0.83);
   }
 
@@ -396,7 +396,7 @@ function buildFollowUpReply(question: string, lastAssistantMsg: ChatMessage | un
     return [
       "I can't promise it will be effortless, but you can become more ready by starting small.",
       '',
-      "Do you have a course, topic, lecturer, or exam in mind?",
+      "Do you have a course, topic, past question, or exam in mind?",
     ].join('\n');
   }
 
@@ -423,7 +423,7 @@ function buildFollowUpReply(question: string, lastAssistantMsg: ChatMessage | un
     return [
       "Yes. You do not need the exact course or topic first.",
       '',
-      "A vague clue is enough — a lecturer, phrase from class, exam, course code, or topic idea. I'll interpret it and guide you to the right materials.",
+      "A vague clue is enough — a phrase from class, exam, course code, material title, or topic idea. I'll interpret it and guide you to the right materials.",
     ].join('\n');
   }
 
@@ -434,7 +434,7 @@ function buildFollowUpReply(question: string, lastAssistantMsg: ChatMessage | un
   if (isHowQ && wasGuidance) {
     return [
       "Start with the easiest clue you have:",
-      "- A lecturer's name",
+      "- A phrase or material title you remember",
       '- A course code',
       '- A topic phrase from class',
       '- An exam date',
@@ -454,7 +454,7 @@ function buildFollowUpReply(question: string, lastAssistantMsg: ChatMessage | un
 
   if (isWhatNextQ && wasGuidance) {
     return [
-      "You can start by typing any course code, topic, lecturer, or exam date.",
+      "You can start by typing any course code, topic, material title, or exam date.",
       '',
       'Even a vague description works — try something like "the motivation topic" or "what Iheanetu taught".',
     ].join('\n');
@@ -529,7 +529,7 @@ function decisionFromPrecheck(
 }
 
 function decisionFromIntentResult(result: IntentResult): AssistantDecision {
-  const lecturerName = result.lecturer_name || result.possible_lecturer || null;
+  const personName = result.person_name || result.possible_person || null;
   const courseCode = result.course_code || result.possible_course || null;
   const intentMap: Record<string, DecisionIntent> = {
     greeting: 'greeting',
@@ -544,7 +544,7 @@ function decisionFromIntentResult(result: IntentResult): AssistantDecision {
     upload_help: 'upload_help',
     practice_request: 'practice_request',
     campus_social: 'campus_social',
-    lecturer_pattern: 'lecturer_pattern',
+    person_pattern: 'person_pattern',
     academic_search: 'academic_search',
     academic_explanation: 'academic_explanation',
     unclear: 'unclear',
@@ -566,10 +566,10 @@ function decisionFromIntentResult(result: IntentResult): AssistantDecision {
     should_call_rag: result.should_call_rag,
     should_show_understood_as: false,
     interpreted_topic: result.interpreted_topic,
-    lecturer_name: lecturerName,
+    person_name: personName,
     course_code: courseCode,
-    needs_course: result.needs_course ?? (intent === 'lecturer_pattern' && Boolean(lecturerName) && !courseCode),
-    needs_lecturer: result.needs_lecturer ?? (intent === 'lecturer_pattern' && !lecturerName),
+    needs_course: result.needs_course ?? (intent === 'person_pattern' && Boolean(personName) && !courseCode),
+    needs_person: result.needs_person ?? (intent === 'person_pattern' && !personName),
     related_terms: result.related_terms || [],
     response_goal: result.response_strategy || 'Respond naturally with the next useful action.',
   };
@@ -580,12 +580,12 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
   const userMessage = context.userMessage.trim().toLowerCase();
   const prevType = context.previousAssistant?.msgType;
   const seed = `${decision.intent}|${decision.student_state}|${userMessage}|${context.previousAssistant?.content ?? ''}`;
-  const cluePrompt = 'Give me one clue: a course, topic, lecturer, exam, or even a rough phrase from class.';
+  const cluePrompt = 'Give me one clue: a course, topic, material title, exam, or even a rough phrase from class.';
 
   if (decision.intent === 'greeting') {
     return pickVariant([
       `Hey${name ? ` ${name}` : ''}. What are we studying today?`,
-      `Hi${name ? ` ${name}` : ''}. Send me a course, topic, lecturer, or past-question clue and I will take it from there.`,
+      `Hi${name ? ` ${name}` : ''}. Send me a course, topic, material title, or past-question clue and I will take it from there.`,
       `I am ready. What topic, course, or exam should we look at first?`,
       `Hello${name ? ` ${name}` : ''}. What do you want to prepare for right now?`,
     ], seed);
@@ -595,7 +595,7 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
     return pickVariant([
       `That worry makes sense, but it does not mean you are stuck. We can make the next step small. ${cluePrompt}`,
       `You do not have to feel ready before you start. Pick one small area and we will build from there. Which course or topic is making you most nervous?`,
-      `I hear you. Let us reduce the pressure: one topic, one past question, or one lecturer clue is enough to begin.`,
+      `I hear you. Let us reduce the pressure: one topic, one past question, or one material clue is enough to begin.`,
       `You can still get more ready than you feel right now. Tell me the part that feels heaviest and I will help you break it down.`,
       `That sounds stressful. Start with the smallest thing you remember from class, and I will help turn it into a plan.`,
     ], seed);
@@ -606,7 +606,7 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
     return pickVariant([
       `${overwhelmed ? 'That is a lot to carry.' : 'I get you.'} We do not need a perfect topic name yet. ${cluePrompt}`,
       `No need to force the exact words. Send whatever you remember, even something vague, and I will help connect it to the right material.`,
-      `Let us make it simpler. What is the nearest clue you have: course code, lecturer, exam, phrase, or topic area?`,
+      `Let us make it simpler. What is the nearest clue you have: course code, exam, phrase, material title, or topic area?`,
       `You are not behind for being unsure. Start with one clue and I will help narrow it down.`,
       `Okay, we can start messy. Type the little bit you remember and I will help shape it into something useful.`,
     ], seed);
@@ -624,7 +624,7 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
     }
     if (prevType === 'guidance' || prevType === 'unsure_support') {
       return pickVariant([
-        `Yes. A vague clue is enough. Type the course, lecturer, phrase, or exam you have in mind.`,
+        `Yes. A vague clue is enough. Type the course, topic, phrase, material title, or exam you have in mind.`,
         `That is enough to begin. What is the clue you are thinking of?`,
         `Exactly. You do not need the perfect keyword. Send the rough version and I will interpret it.`,
         `Yes, we can work from a small clue. What should I use?`,
@@ -642,7 +642,7 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
     return pickVariant([
       'Great. What is it?',
       'Okay, send it to me.',
-      'Nice. Type the course, topic, lecturer, exam, or rough description.',
+      'Nice. Type the course, topic, material title, exam, or rough description.',
       'Good. What clue should I use?',
       'I am with you. What do you have in mind?',
     ], seed);
@@ -654,20 +654,20 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
       (context.previousAssistant?.content ?? '').toLowerCase().includes('i think you mean');
     return pickVariant(prevWasSearch ? [
       `You are right. I read that too much like a search. Let us reset: what did you want me to focus on?`,
-      `Got it. I jumped ahead there. Send the course, topic, lecturer, or clue you meant.`,
+      `Got it. I jumped ahead there. Send the course, topic, material title, or clue you meant.`,
       `Thanks for correcting me. I will slow down. What should I use as the actual clue?`,
       `Fair point. Let us take it again from your meaning. What are you trying to study?`,
     ] : [
       `Got it. Tell me the version you meant and I will follow that.`,
       `Okay, I will not assume. What should I focus on?`,
-      `Understood. Send the course, topic, lecturer, or rough clue you want me to use.`,
+      `Understood. Send the course, topic, material title, or rough clue you want me to use.`,
       `Thanks for clarifying. What do you want to do next?`,
     ], seed);
   }
 
   if (decision.intent === 'acknowledgement') {
     return pickVariant([
-      'Alright. Send me the course, topic, lecturer, exam, or clue when you are ready.',
+      'Alright. Send me the course, topic, material title, exam, or clue when you are ready.',
       'Okay. What should we look at next?',
       'Got it. Give me the next study clue.',
       'Sure. What do you want to focus on?',
@@ -693,16 +693,16 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
     ], seed);
   }
 
-  if (decision.intent === 'lecturer_pattern') {
-    const lecturer = decision.lecturer_name || decision.interpreted_topic;
+  if (decision.intent === 'person_pattern') {
+    const person = decision.person_name || decision.interpreted_topic;
     const course = decision.course_code;
-    if (!lecturer || decision.needs_lecturer) {
-      return 'Which lecturer should I analyze?';
+    if (!person || decision.needs_person) {
+      return 'Which material or question pattern should I analyze?';
     }
     if (!course || decision.needs_course) {
-      return `I can see the lecturer is ${lecturer}. What course should I analyze for them? If you've uploaded past questions or notes, I'll check repeated topics, question style, difficulty, and patterns.`;
+      return `I can see the clue is ${person}. What course should I analyze? If you've uploaded past questions or notes, I'll check repeated topics, question style, difficulty, and patterns.`;
     }
-    return `I'll analyze ${lecturer}'s pattern for ${course} using uploaded past questions and notes.`;
+    return `I'll analyze the ${course} pattern for ${person} using uploaded past questions and notes.`;
   }
 
   if (decision.intent === 'campus_social') {
@@ -728,10 +728,10 @@ function composeNaturalAssistantReply(decision: AssistantDecision, context: Natu
   }
 
   return pickVariant([
-    'Tell me the course, topic, lecturer, exam, or rough clue you want to work on.',
+    'Tell me the course, topic, material title, exam, or rough clue you want to work on.',
     'What should we focus on first?',
     'Send any small study clue and I will help from there.',
-    'Give me the nearest topic, course, or lecturer name you remember.',
+    'Give me the nearest topic, course, material title, or phrase you remember.',
   ], seed);
 }
 
@@ -756,7 +756,7 @@ function buildConversationReply(
 
   switch (precheck.intent) {
     case 'greeting':
-      return `Hey${name ? ` ${name}` : ''}. What course, topic, lecturer, or exam are you preparing for today?`;
+      return `Hey${name ? ` ${name}` : ''}. What course, topic, past question, or exam are you preparing for today?`;
 
     case 'self_doubt_or_anxiety':
       return [
@@ -772,20 +772,20 @@ function buildConversationReply(
         return [
           "I get you — feeling stuck like that is completely normal before exams.",
           '',
-          "You don't need to search anything right now. Start with the easiest clue you have: a lecturer's name, a course code, an exam date, or even a vague phrase from class. I'll help you connect it to materials, past questions, practice, or a reading room.",
+          "You don't need to search anything right now. Start with the easiest clue you have: a course code, an exam date, a material title, or even a vague phrase from class. I'll help you connect it to materials, past questions, practice, or a reading room.",
         ].join('\n');
       }
       if (precheck.studentState === 'overwhelmed') {
         return [
           `${name ? `Hey ${name}, it` : 'It'}'s okay — feeling overwhelmed before exams is completely normal.`,
           '',
-          "You're not trying to search right now — you're figuring out where to start. Start with the smallest clue you have: a lecturer, a course code, an exam, a phrase from class, or something very vague. I'll interpret it and guide you.",
+          "You're not trying to search right now — you're figuring out where to start. Start with the smallest clue you have: a course code, an exam, a material title, a phrase from class, or something very vague. I'll interpret it and guide you.",
         ].join('\n');
       }
       return [
         "I get you. You're not searching for a topic yet — you're trying to figure out where to start.",
         '',
-        "Start with any small clue: a lecturer's name, a course code, an exam, a phrase from class, or even something vague. I'll help you connect it to materials, past questions, practice, or a reading room.",
+        "Start with any small clue: a course code, an exam, a material title, a phrase from class, or even something vague. I'll help you connect it to materials, past questions, practice, or a reading room.",
       ].join('\n');
     }
 
@@ -798,12 +798,12 @@ function buildConversationReply(
         ? [
           "You're right — I misunderstood. I treated your message like a search when you were actually in conversation.",
           '',
-          "Let's reset. Tell me any small clue you remember — a course, lecturer, exam, topic phrase, or something you vaguely remember from class.",
+          "Let's reset. Tell me any small clue you remember — a course, exam, topic phrase, material title, or something you vaguely remember from class.",
         ].join('\n')
         : [
           "Got it — let me not assume what you meant.",
           '',
-          "Tell me what you'd like help with: a course, topic, lecturer, exam, or anything from class.",
+          "Tell me what you'd like help with: a course, topic, past question, exam, or anything from class.",
         ].join('\n');
     }
 
@@ -813,14 +813,14 @@ function buildConversationReply(
     case 'acknowledgement': {
       const prevType = prevAssistant?.msgType;
       if (prevType === 'guidance' || prevType === 'unsure_support') {
-        return "Alright. Whenever you're ready, give me any clue — a course, lecturer, exam, topic phrase, or something you vaguely remember. There's no wrong way to start.";
+        return "Alright. Whenever you're ready, give me any clue — a course, exam, topic phrase, material title, or something you vaguely remember. There's no wrong way to start.";
       }
       if (prevAssistant) return "Alright. What would you like to do next?";
-      return "When you're ready, give me any clue — course, lecturer, exam, topic phrase, or something you vaguely remember.";
+      return "When you're ready, give me any clue — course, exam, topic phrase, material title, or something you vaguely remember.";
     }
 
     default:
-      return `Which course, topic, or lecturer do you want to study${name ? `, ${name}` : ''}?`;
+      return `Which course, topic, or material do you want to study${name ? `, ${name}` : ''}?`;
   }
 }
 
@@ -858,7 +858,7 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
   const { intent, student_state, clarifying_question } = result;
 
   if (intent === 'greeting') {
-    return `Hey${name ? ` ${name}` : ''}. What course, topic, lecturer, or exam are you preparing for today?`;
+    return `Hey${name ? ` ${name}` : ''}. What course, topic, past question, or exam are you preparing for today?`;
   }
 
   if (intent === 'guidance_needed') {
@@ -866,7 +866,7 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
       return [
         `${name ? `Hey ${name}, it` : 'It'}'s okay — feeling overwhelmed before exams is normal.`,
         '',
-        'Start with whatever feels most familiar: a course, a topic, a lecturer, or just an exam date. You do not need to know the exact topic name.',
+        'Start with whatever feels most familiar: a course, a topic, a material title, or just an exam date. You do not need to know the exact topic name.',
         '',
         'You can also:',
         '- Search the ExamMind library',
@@ -876,7 +876,7 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
       ].join('\n');
     }
     return [
-      `No problem${name ? `, ${name}` : ''}. Start with a course, a topic from class, a lecturer, or an upcoming exam.`,
+      `No problem${name ? `, ${name}` : ''}. Start with a course, a topic from class, a material title, or an upcoming exam.`,
       '',
       'You can describe what you remember from class, even if you do not know the exact topic name.',
     ].join('\n');
@@ -908,12 +908,12 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
     return 'You can find reading rooms and study groups from the Study Groups section in the navigation. Look for active rooms on topics you are studying.';
   }
 
-  if (intent === 'lecturer_pattern') {
-    const whom = result.possible_lecturer ? `${result.possible_lecturer}'s` : "that lecturer's";
+  if (intent === 'person_pattern') {
+    const whom = result.possible_person ? `${result.possible_person}'s` : "that pattern's";
     return [
       `If ${whom} materials have been uploaded, I can analyze them.`,
       '',
-      'Upload materials connected to that lecturer: lecture notes, past questions, course outlines, or tutorial sheets. Once indexed, ask me about the lecturer by name.',
+      'Upload materials connected to that course or topic: lecture notes, past questions, course outlines, or tutorial sheets. Once indexed, ask me about the topic or material by name.',
     ].join('\n');
   }
 
@@ -923,7 +923,7 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
 
   if (intent === 'unclear') {
     if (clarifying_question) return clarifying_question || '';
-    return 'Which course, topic, or lecturer do you want to study?';
+    return 'Which course, topic, or material do you want to study?';
   }
 
   const prevAssistant = [...messages].reverse().find(m => m.role === 'assistant');
@@ -936,7 +936,7 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
   ) {
     return 'Try typing a course, topic, or upcoming exam. You can search the ExamMind library or upload course materials if you are not sure where to begin.';
   }
-  return `Which course, topic, or lecturer do you want to study${name ? `, ${name}` : ''}?`;
+  return `Which course, topic, or material do you want to study${name ? `, ${name}` : ''}?`;
 }
 
 function buildContext(msgs: ChatMessage[]): string {
@@ -985,22 +985,22 @@ function shouldShowUnderstoodAs(
 }
 
 function buildVagueInterpretationMessage(result: IntentResult, original: string): string {
-  if (result.intent === 'lecturer_pattern') return '';
+  if (result.intent === 'person_pattern') return '';
   if (!shouldShowUnderstoodAs(result, original) || !result.interpreted_topic) return '';
   const related = result.related_terms.slice(0, 3);
   return `Understood as "${result.interpreted_topic}"${related.length ? `; also checking ${related.join(', ')}` : ''}.`;
 }
 
-function buildLecturerAnalysisIntro(result: IntentResult): string {
-  const lecturer = result.lecturer_name || result.possible_lecturer;
+function buildPersonPatternIntro(result: IntentResult): string {
+  const person = result.person_name || result.possible_person;
   const course = result.course_code || result.possible_course;
-  if (lecturer && course) {
-    return `I'll analyze ${lecturer}'s pattern for ${course} using uploaded past questions and notes.`;
+  if (person && course) {
+    return `I'll analyze the ${course} pattern for ${person} using uploaded past questions and notes.`;
   }
-  if (lecturer) {
-    return `I can see the lecturer is ${lecturer}. What course should I analyze for them? If you've uploaded past questions or notes, I'll check repeated topics, question style, difficulty, and patterns.`;
+  if (person) {
+    return `I can see the clue is ${person}. What course should I analyze? If you've uploaded past questions or notes, I'll check repeated topics, question style, difficulty, and patterns.`;
   }
-  return 'Which lecturer should I analyze?';
+  return 'Which material or question pattern should I analyze?';
 }
 
 // Only show interpretation when the topic is meaningfully different from the input
@@ -1406,8 +1406,8 @@ export default function Assistant({
       // ── Academic with RAG ────────────────────────────────────────────────
       const ragQuery = result.interpreted_topic || question;
       const interpMsg =
-        result.intent === 'lecturer_pattern'
-          ? buildLecturerAnalysisIntro(result)
+        result.intent === 'person_pattern'
+          ? buildPersonPatternIntro(result)
           : buildInterpretationMsg(result, question);
       if (interpMsg) {
         onMessagesChange(current => [
@@ -1436,7 +1436,7 @@ export default function Assistant({
       <div className="pg-head">
         <div className="pg-title">AI <em>Assistant</em></div>
         <div className="pg-sub">
-          Describe a topic, course, lecturer, or exam in plain language. Exact keywords are not required.
+          Describe a topic, course, past question, or exam in plain language. Exact keywords are not required.
         </div>
       </div>
 
@@ -1505,7 +1505,7 @@ export default function Assistant({
             <input
               className="ai-inp"
               type="text"
-              placeholder="Ask about a topic, lecturer, past question, or anything you remember…"
+              placeholder="Ask about a topic, past question, material, or anything you remember…"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleSend(); } }}
@@ -1523,7 +1523,7 @@ export default function Assistant({
             <div className="card">
               <div className="card-hd"><div className="card-ttl">What can you ask?</div></div>
               <div className="note-absent-msg">
-                Ask about any course topic, uploaded note, past question, lecturer, or exam preparation task. You can describe what you remember, even if you do not know the exact topic name.
+                Ask about any course topic, uploaded note, past question, material, or exam preparation task. You can describe what you remember, even if you do not know the exact topic name.
               </div>
               <div style={{ marginTop: 12 }}>
                 {[

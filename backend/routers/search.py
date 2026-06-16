@@ -280,7 +280,7 @@ def _suggested_actions(understanding: dict, query: str, has_results: bool) -> li
     topic = (
         understanding.get("interpreted_topic")
         or understanding.get("course_code")
-        or understanding.get("lecturer_name")
+        or understanding.get("person_name")
         or query
     )
     actions: list[dict[str, Any]] = []
@@ -301,11 +301,11 @@ def _suggested_actions(understanding: dict, query: str, has_results: bool) -> li
         {"label": "Create study group", "action": "study_group", "payload": {"topic": topic or query}},
         {"label": "Join a reading room", "action": "reading_room", "payload": {"topic": topic or query}},
     ])
-    if not has_results and understanding.get("needs_course") and understanding.get("lecturer_name"):
+    if not has_results and understanding.get("needs_course") and understanding.get("person_name"):
         actions.insert(0, {
-            "label": f"Add a course for {understanding.get('lecturer_name')}",
+            "label": f"Add a course for {understanding.get('person_name')}",
             "action": "ask_ai",
-            "payload": {"question": f"What course should I analyze for {understanding.get('lecturer_name')}?"},
+            "payload": {"question": f"What course should I analyze for {understanding.get('person_name')}?"},
         })
     return actions[:6]
 

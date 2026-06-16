@@ -48,7 +48,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
         username=user.username,
         email=user.email,
         password_hash=auth.get_password_hash(user.password),
-        role=user.role or "student",
+        role="student",
     )
     db.add(new_user)
     db.commit()
@@ -67,6 +67,6 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         )
     access_token_expires = auth.timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(
-        data={"sub": user.email, "role": user.role}, expires_delta=access_token_expires
+        data={"sub": user.email}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}

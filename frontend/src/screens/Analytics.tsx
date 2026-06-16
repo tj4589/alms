@@ -19,7 +19,7 @@ type CohortAnalytics = {
 export default function Analytics({
   go,
   notifyUnavailable: _notifyUnavailable,
-  user,
+  user: _user,
 }: {
   go: (s: ScreenType) => void;
   notifyUnavailable: (feature: string) => void;
@@ -63,11 +63,6 @@ export default function Analytics({
               : 'Aggregate past question pattern analysis'}
           </div>
         </div>
-        {user?.role === 'lecturer' && (
-          <div style={{ fontSize: 11, color: 'var(--teal)', background: 'var(--teal2)', border: '1px solid rgba(62,207,178,0.2)', borderRadius: 6, padding: '4px 10px', marginBottom: 5 }}>
-            Lecturer view
-          </div>
-        )}
       </div>
 
       {error && <div className="upload-alert">{error}</div>}

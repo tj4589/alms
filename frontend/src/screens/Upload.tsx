@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ScreenType, User } from '../types';
 import { queuePendingUpload } from '../offline';
-import { apiFormPost, apiGet } from '../lib/api';
+import { apiDelete, apiFormPost, apiGet } from '../lib/api';
 
 type RecentUpload = {
   id: number;
@@ -41,7 +41,7 @@ type Metadata = {
   document_title: string;
   course_code: string;
   course_title: string;
-  lecturer_names: string[];
+  instructor_names: string[];
   academic_year: string;
   year: number | '';
   semester: string;
@@ -67,7 +67,7 @@ const emptyMetadata: Metadata = {
   document_title: '',
   course_code: '',
   course_title: '',
-  lecturer_names: [],
+  instructor_names: [],
   academic_year: '',
   year: '',
   semester: '',
@@ -301,14 +301,14 @@ function AdvancedMetadataEditor({
 }: {
   metadata: Metadata;
   updateField: (key: keyof Metadata, value: string) => void;
-  updateListField: (key: 'topics_covered' | 'lecturer_names', value: string) => void;
+  updateListField: (key: 'topics_covered' | 'instructor_names', value: string) => void;
 }) {
   const fields = [
     ['document_title', 'Document title'],
     ['document_type', 'Document type'],
     ['course_code', 'Course code'],
     ['course_title', 'Course title'],
-    ['lecturer_names', 'Lecturer'],
+    ['instructor_names', 'Instructor/Author'],
     ['academic_year', 'Academic year'],
     ['year', 'Year'],
     ['semester', 'Semester'],
@@ -323,7 +323,7 @@ function AdvancedMetadataEditor({
       <div className="advanced-editor-title">Advanced details</div>
       <div className="metadata-grid">
         {fields.map(([key, label]) => {
-          const value = key === 'lecturer_names' ? metadata.lecturer_names.join(', ') : String(metadata[key] ?? '');
+          const value = key === 'instructor_names' ? metadata.instructor_names.join(', ') : String(metadata[key] ?? '');
           return (
             <label className="meta-field" key={key}>
               <span>{label}</span>
@@ -335,8 +335,8 @@ function AdvancedMetadataEditor({
                 <select value={metadata.exam_type} onChange={e => updateField(key, e.target.value)}>
                   {EXAM_TYPES.map(type => <option value={type} key={type}>{type}</option>)}
                 </select>
-              ) : key === 'lecturer_names' ? (
-                <input value={value} onChange={e => updateListField('lecturer_names', e.target.value)} />
+              ) : key === 'instructor_names' ? (
+                <input value={value} onChange={e => updateListField('instructor_names', e.target.value)} />
               ) : (
                 <input value={value} onChange={e => updateField(key, e.target.value)} />
               )}
@@ -374,7 +374,7 @@ function UploadConfirmationCard({
   advancedOpen: boolean;
   setAdvancedOpen: (value: boolean) => void;
   updateField: (key: keyof Metadata, value: string) => void;
-  updateListField: (key: 'topics_covered' | 'lecturer_names', value: string) => void;
+  updateListField: (key: 'topics_covered' | 'instructor_names', value: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
   hasQueue: boolean;
@@ -496,6 +496,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [rawOcrText, setRawOcrText] = useState('');
   const [previewQuality, setPreviewQuality] = useState<'high' | 'medium' | 'low'>('low');
   const [extraction, setExtraction] = useState<ExtractionInfo | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearingMaterials, setClearingMaterials] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -658,8 +660,29 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setMetadata(c => ({ ...c, [key]: key === 'year' ? Number(value) || '' : value }));
   };
 
-  const updateListField = (key: 'topics_covered' | 'lecturer_names', value: string) => {
+  const updateListField = (key: 'topics_covered' | 'instructor_names', value: string) => {
     setMetadata(c => ({ ...c, [key]: value.split(',').map(t => t.trim()).filter(Boolean) }));
+  };
+
+  const clearUploadedMaterials = async () => {
+    setClearingMaterials(true);
+    setMessage('');
+    try {
+      const summary = await apiDelete('/ingest/clear-materials') as {
+        past_questions_deleted?: number;
+        lecture_notes_deleted?: number;
+        lecture_note_chunks_deleted?: number;
+      };
+      setShowClearConfirm(false);
+      setRecentUploads([]);
+      setMessage(
+        `Uploaded materials cleared. Removed ${summary.past_questions_deleted || 0} past question chunks, ${summary.lecture_notes_deleted || 0} lecture notes, and ${summary.lecture_note_chunks_deleted || 0} note chunks.`
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Could not clear uploaded materials.');
+    } finally {
+      setClearingMaterials(false);
+    }
   };
 
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
@@ -724,6 +747,15 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{u.year ?? '-'}</span>
                 </div>
               ))}
+            </div>
+            <div className="card danger-card">
+              <div className="card-hd"><div className="card-ttl">Clear test uploads</div></div>
+              <div style={{ fontSize: 12.5, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 12 }}>
+                Remove old uploaded materials so you can re-upload them with the latest ExamMind indexing system.
+              </div>
+              <button className="cta cta-ghost danger-btn" onClick={() => setShowClearConfirm(true)}>
+                Clear uploaded materials
+              </button>
             </div>
           </div>
         </div>
@@ -806,6 +838,22 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
             }
           }}
         />
+      )}
+
+      {showClearConfirm && (
+        <div className="success-modal-backdrop">
+          <div className="success-modal danger-modal">
+            <div className="success-label">Clear uploaded materials</div>
+            <h2>Remove test uploads?</h2>
+            <p>This will remove uploaded past questions and notes from ExamMind, but your account will remain. Continue?</p>
+            <div className="empty-actions">
+              <button className="cta cta-ghost" onClick={() => setShowClearConfirm(false)} disabled={clearingMaterials}>Cancel</button>
+              <button className="cta danger-solid" onClick={() => void clearUploadedMaterials()} disabled={clearingMaterials}>
+                {clearingMaterials ? 'Clearing...' : 'Clear materials'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

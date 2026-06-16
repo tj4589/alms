@@ -1,5 +1,7 @@
 # ExamMind
 
+ExamMind is a student-focused AI-powered academic knowledge retrieval and collaborative study system for authenticated university students. It supports secure student access, document upload, semantic search, RAG assistance, practice-question generation, progress tracking, study groups, discussion threads, and reading rooms.
+
 ## Windows Local Dev
 
 Run the app from three terminals.

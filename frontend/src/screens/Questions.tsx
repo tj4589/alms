@@ -87,7 +87,7 @@ type QueryUnderstanding = {
   interpreted_topic: string | null;
   related_terms: string[];
   possible_courses: string[];
-  possible_lecturers: string[];
+  possible_people: string[];
   intent: string;
   confidence: number;
   needs_clarification: boolean;
@@ -420,8 +420,8 @@ export default function SmartSearch({
                   {results.understanding.possible_courses && results.understanding.possible_courses.length > 0 && (
                     <div style={{ marginTop: 4 }}>Related courses: {results.understanding.possible_courses.join(', ')}</div>
                   )}
-                  {results.understanding.possible_lecturers && results.understanding.possible_lecturers.length > 0 && (
-                    <div style={{ marginTop: 4 }}>Lecturer references: {results.understanding.possible_lecturers.join(', ')}</div>
+                  {results.understanding.possible_people && results.understanding.possible_people.length > 0 && (
+                    <div style={{ marginTop: 4 }}>Name references: {results.understanding.possible_people.join(', ')}</div>
                   )}
                 </div>
               )}

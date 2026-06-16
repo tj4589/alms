@@ -145,9 +145,9 @@ Also: `user` prop added to Collab so message ownership (isMe) can be determined 
 **Problem:** Entire Analytics screen was hardcoded with fictional numbers.
 
 **Fix:**
-- `GET /analytics/cohort` backend restriction changed from `require_role("lecturer")` to `get_current_user` — aggregate stats (class avg score, topic frequency, active students) are not sensitive and are useful to all users.
+- `GET /analytics/cohort` backend access changed to authenticated student access — aggregate stats (class avg score, topic frequency, active students) are useful to students reviewing exam readiness.
 - `Analytics.tsx` fetches cohort data on mount. Stats cards show real `questions_attempted`, `active_students`, `avg_practice_score`. Topic frequency chart uses `most_challenging_topics` sorted by attempt count (most practiced first). Falls back to static demo silently.
-- Lecturer accounts shown a "Lecturer view" indicator chip.
+- Removed the legacy alternate-view indicator so analytics remains a student-facing screen.
 - `user` prop threaded through from `App.tsx`.
 
 ---
@@ -260,9 +260,6 @@ Allow dropping multiple PDFs at once. Queue them as a list, process sequentially
 
 **Mobile app**
 React Native with Expo. The backend is already API-first so nothing changes server-side. The IndexedDB offline store would need to be replaced with AsyncStorage + SQLite equivalents.
-
-**Admin panel**
-A separate `/admin` route (role: `admin`) for managing users, viewing all uploads, moderating flagged documents (the `verified_status` field and `Verification` model already exist), and resetting accounts. Could be a simple CRUD UI over the existing models.
 
 ---
 

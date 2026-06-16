@@ -75,12 +75,12 @@ class IntentResult(BaseModel):
     interpreted_topic: str | None = None
     related_terms: list[str] = []
     possible_course: str | None = None
-    possible_lecturer: str | None = None
-    lecturer_name: str | None = None
+    possible_person: str | None = None
+    person_name: str | None = None
     course_code: str | None = None
     topic: str | None = None
     needs_course: bool = False
-    needs_lecturer: bool = False
+    needs_person: bool = False
     confidence: float
     response_strategy: str
     clarifying_question: str | None = None
@@ -103,7 +103,7 @@ Intent options (pick exactly one):
 - "academic_explanation" — wants explanation of a topic, even vaguely described ("the human relations thingy", "workers motivation topic", "computer stuffs"). Use your knowledge to identify the academic topic and set interpreted_topic. CAN call RAG when a topic is identifiable.
 - "academic_search" — looking for past questions, exam materials, what came out. Set should_search=true.
 - "practice_request" — wants quiz/practice/test. Do NOT call RAG — route to practice.
-- "lecturer_pattern" — asking about a specific lecturer's topics, style, patterns ("how does Iheanetu set questions?").
+- "person_pattern" — asking about a specific named person's question style or repeated patterns.
 - "campus_social" — looking for study groups, reading rooms. Do NOT call RAG.
 - "upload_help" — asking what to upload. Do NOT call RAG.
 - "unclear" — truly cannot determine intent. Set should_ask_clarifying_question=true.
@@ -116,7 +116,7 @@ Rules:
 - For vague academic descriptions, fill interpreted_topic using academic knowledge.
 
 Required JSON (fill every field):
-{{"intent":"","student_state":"neutral","should_call_rag":false,"should_search":false,"should_ask_clarifying_question":false,"interpreted_topic":null,"related_terms":[],"possible_course":null,"possible_lecturer":null,"confidence":0.5,"response_strategy":"","clarifying_question":null}}"""
+{{"intent":"","student_state":"neutral","should_call_rag":false,"should_search":false,"should_ask_clarifying_question":false,"interpreted_topic":null,"related_terms":[],"possible_course":null,"possible_person":null,"confidence":0.5,"response_strategy":"","clarifying_question":null}}"""
 
 
 # ── Layer 1: trivial rule-based (no LLM) ─────────────────────────────────────
@@ -206,12 +206,12 @@ def _llm_classify(message: str, context: str) -> IntentResult:
             interpreted_topic=data.get("interpreted_topic") or None,
             related_terms=[str(t) for t in (data.get("related_terms") or [])[:8]],
             possible_course=data.get("possible_course") or None,
-            possible_lecturer=data.get("possible_lecturer") or None,
-            lecturer_name=data.get("lecturer_name") or data.get("possible_lecturer") or None,
+            possible_person=data.get("possible_person") or None,
+            person_name=data.get("person_name") or data.get("possible_person") or None,
             course_code=data.get("course_code") or data.get("possible_course") or None,
             topic=data.get("topic") or None,
             needs_course=bool(data.get("needs_course", False)),
-            needs_lecturer=bool(data.get("needs_lecturer", False)),
+            needs_person=bool(data.get("needs_person", False)),
             confidence=max(0.0, min(1.0, float(data.get("confidence", 0.5)))),
             response_strategy=str(data.get("response_strategy", "")),
             clarifying_question=data.get("clarifying_question") or None,
@@ -237,7 +237,7 @@ def _rule_fallback(message: str, db: Session | None = None) -> IntentResult:
     intent_map: dict[str, str] = {
         "greeting": "greeting",
         "guidance_needed": "guidance_needed",
-        "lecturer_pattern": "lecturer_pattern",
+        "person_pattern": "person_pattern",
         "practice": "practice_request",
         "find_past_questions": "academic_search",
         "explain": "academic_explanation",
@@ -250,25 +250,25 @@ def _rule_fallback(message: str, db: Session | None = None) -> IntentResult:
 
     has_topic = bool(understanding.get("interpreted_topic"))
     possible_courses: list[str] = understanding.get("possible_courses") or []
-    possible_lecturers: list[str] = understanding.get("possible_lecturers") or []
-    lecturer_name = understanding.get("lecturer_name") or (possible_lecturers[0] if possible_lecturers else None)
+    possible_people: list[str] = understanding.get("possible_people") or []
+    person_name = understanding.get("person_name") or (possible_people[0] if possible_people else None)
     course_code = understanding.get("course_code") or (possible_courses[0] if possible_courses else None)
 
     return IntentResult(
         intent=intent,
         student_state="neutral",
         should_call_rag=(intent == "academic_explanation" and has_topic),
-        should_search=(intent == "academic_search" or intent == "lecturer_pattern"),
+        should_search=(intent == "academic_search" or intent == "person_pattern"),
         should_ask_clarifying_question=bool(understanding.get("needs_clarification")),
         interpreted_topic=understanding.get("interpreted_topic"),
         related_terms=understanding.get("related_terms") or [],
         possible_course=course_code,
-        possible_lecturer=lecturer_name,
-        lecturer_name=lecturer_name,
+        possible_person=person_name,
+        person_name=person_name,
         course_code=course_code,
         topic=understanding.get("topic"),
         needs_course=bool(understanding.get("needs_course")),
-        needs_lecturer=bool(understanding.get("needs_lecturer")),
+        needs_person=bool(understanding.get("needs_person")),
         confidence=float(understanding.get("confidence", 0.5)),
         response_strategy=f"handle {intent}",
         clarifying_question=understanding.get("clarifying_question"),
@@ -300,34 +300,34 @@ def understand_message(
     # Layer 3/4 — LLM (with rule-based fallback)
     result = _llm_classify(message, context)
 
-    lecturer_understanding = understand_query(message)
-    if lecturer_understanding.get("intent") == "lecturer_pattern":
-        lecturer_name = lecturer_understanding.get("lecturer_name")
-        course_code = lecturer_understanding.get("course_code")
+    person_understanding = understand_query(message)
+    if person_understanding.get("intent") == "person_pattern":
+        person_name = person_understanding.get("person_name")
+        course_code = person_understanding.get("course_code")
         result = IntentResult(
-            intent="lecturer_pattern",
+            intent="person_pattern",
             student_state="focused",
-            should_call_rag=bool(lecturer_name and course_code),
+            should_call_rag=bool(person_name and course_code),
             should_search=True,
-            should_ask_clarifying_question=bool(lecturer_understanding.get("needs_lecturer")),
+            should_ask_clarifying_question=bool(person_understanding.get("needs_person")),
             interpreted_topic=(
-                f"{lecturer_name} {course_code} question pattern"
-                if lecturer_name and course_code
-                else lecturer_name
+                f"{person_name} {course_code} question pattern"
+                if person_name and course_code
+                else person_name
             ),
-            related_terms=lecturer_understanding.get("related_terms") or [],
+            related_terms=person_understanding.get("related_terms") or [],
             possible_course=course_code,
-            possible_lecturer=lecturer_name,
-            lecturer_name=lecturer_name,
+            possible_person=person_name,
+            person_name=person_name,
             course_code=course_code,
-            topic=lecturer_understanding.get("topic"),
-            needs_course=bool(lecturer_understanding.get("needs_course")),
-            needs_lecturer=bool(lecturer_understanding.get("needs_lecturer")),
+            topic=person_understanding.get("topic"),
+            needs_course=bool(person_understanding.get("needs_course")),
+            needs_person=bool(person_understanding.get("needs_person")),
             confidence=0.94,
-            response_strategy="analyze lecturer question pattern from uploaded materials",
+            response_strategy="analyze question pattern from uploaded materials",
             clarifying_question=(
-                "Which lecturer should I analyze?"
-                if lecturer_understanding.get("needs_lecturer")
+                "Which material or question pattern should I analyze?"
+                if person_understanding.get("needs_person")
                 else None
             ),
         )
@@ -347,7 +347,7 @@ def understand_message(
                 interpreted_topic=None,
                 related_terms=[],
                 possible_course=None,
-                possible_lecturer=None,
+                possible_person=None,
                 confidence=0.95,
                 response_strategy="continue conversation",
                 clarifying_question=None,

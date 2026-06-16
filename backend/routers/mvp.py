@@ -44,6 +44,59 @@ def _topic_terms(topic: str | None) -> list[str]:
     return list(dict.fromkeys(term for term in phrases if term))
 
 
+def serialize_course(row: models.Course) -> dict:
+    return {
+        "id": row.id,
+        "code": row.code,
+        "name": row.name,
+        "description": row.description,
+    }
+
+
+def serialize_past_question(row: models.PastQuestion) -> dict:
+    return {
+        "id": row.id,
+        "course_id": row.course_id,
+        "topic_id": row.topic_id,
+        "uploaded_by": row.uploaded_by,
+        "year": row.year,
+        "semester": row.semester,
+        "difficulty": row.difficulty,
+        "content_text": row.content_text,
+        "file_url": row.file_url,
+        "verified_status": row.verified_status,
+        "created_at": row.created_at,
+        "metadata_json": row.metadata_json or {},
+    }
+
+
+def serialize_lecture_note(row: models.LectureNote) -> dict:
+    return {
+        "id": row.id,
+        "course_id": row.course_id,
+        "uploaded_by": row.uploaded_by,
+        "topic": row.topic,
+        "title": row.title,
+        "year": row.year,
+        "semester": row.semester,
+        "file_url": row.file_url,
+        "verified_status": row.verified_status,
+        "created_at": row.created_at,
+        "metadata_json": row.metadata_json or {},
+    }
+
+
+def serialize_thread(row: models.DiscussionThread) -> dict:
+    return {
+        "id": row.id,
+        "title": row.title,
+        "course_id": row.course_id,
+        "past_question_id": row.past_question_id,
+        "created_by": row.created_by,
+        "created_at": row.created_at,
+    }
+
+
 class ThreadCreateRequest(BaseModel):
     title: str
     course_id: Optional[int] = None
@@ -63,7 +116,8 @@ class StudyGroupCreateRequest(BaseModel):
 
 @router.get("/courses")
 def list_courses(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.Course).order_by(models.Course.code).all()
+    rows = db.query(models.Course).order_by(models.Course.code).all()
+    return [serialize_course(row) for row in rows]
 
 
 @router.get("/past-questions")
@@ -94,7 +148,7 @@ def list_past_questions(
             if lowered in (row.content_text or "").lower()
             or lowered in " ".join((row.metadata_json or {}).get("topics_covered", [])).lower()
         ]
-    return rows
+    return [serialize_past_question(row) for row in rows]
 
 
 @router.get("/lecture-notes")
@@ -109,7 +163,8 @@ def list_lecture_notes(
         query = query.filter(models.LectureNote.course_id == course_id)
     if topic:
         query = query.filter(models.LectureNote.topic.ilike(f"%{topic}%"))
-    return query.order_by(models.LectureNote.created_at.desc()).limit(100).all()
+    rows = query.order_by(models.LectureNote.created_at.desc()).limit(100).all()
+    return [serialize_lecture_note(row) for row in rows]
 
 
 @router.post("/verify/{document_id}")
@@ -180,7 +235,7 @@ def cohort_analytics(db: Session = Depends(get_db), current_user: models.User = 
     challenging_topics.sort(key=lambda item: item["average_score"])
 
     return {
-        "active_students": db.query(models.User).filter(models.User.role == "student").count(),
+        "active_students": db.query(models.User).count(),
         "avg_practice_score": avg_score,
         "questions_attempted": sum(a.total_questions for a in attempts),
         "notes_uploaded": db.query(models.LectureNote).count(),
@@ -194,7 +249,7 @@ def student_analytics(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    if current_user.id != student_id and current_user.role not in {"admin", "lecturer"}:
+    if current_user.id != student_id:
         raise HTTPException(status_code=403, detail="Not enough permissions.")
     readiness = db.query(models.ReadinessScore).filter(models.ReadinessScore.user_id == student_id).all()
     attempts = db.query(models.PracticeAttempt).filter(models.PracticeAttempt.user_id == student_id).all()
@@ -359,7 +414,7 @@ def create_thread(
     db.add(thread)
     db.commit()
     db.refresh(thread)
-    return thread
+    return serialize_thread(thread)
 
 
 @router.get("/threads/{thread_id}/messages")

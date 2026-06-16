@@ -147,12 +147,16 @@ def generate_ai_response(prompt: str, temperature: float = 0.3) -> str:
         print("AI: DeepSeek primary failed - not configured")
 
     if AI_FALLBACK_PROVIDER == "cohere" and _cohere_api_key:
+        print("AI: Trying Cohere fallback...")
         try:
-            return _cohere_chat(prompt, temperature)
+            answer = _cohere_chat(prompt, temperature)
+            print("AI: Cohere fallback succeeded")
+            return answer
         except Exception as exc:
             print(f"AI: Cohere fallback failed - {_provider_error_text(exc)}")
             raise AIProviderError(BOTH_PROVIDERS_UNAVAILABLE_MESSAGE) from exc
 
+    print("AI: Both providers unavailable")
     raise AIProviderError(BOTH_PROVIDERS_UNAVAILABLE_MESSAGE) from deepseek_error
 
 

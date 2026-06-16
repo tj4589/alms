@@ -38,7 +38,7 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-const SEARCH_GUIDANCE = 'Try searching for a course, topic, lecturer, past question, note, or exam phrase.';
+const SEARCH_GUIDANCE = 'Try searching for a course, topic, past question, note, or exam phrase.';
 const SEARCH_NONTOPICS = new Set([
   'hey', 'hi', 'hello', 'okay', 'ok', 'sure', 'yes', 'yeah', 'yep', 'no', 'nah',
   'lost', 'tired', 'confused', 'meant', 'thanks', 'thank', 'hmm', 'hm',
@@ -281,6 +281,22 @@ export default function App() {
     }
   };
 
+  const refreshSubmittedSearchAfterDelete = async () => {
+    const query = submittedQuery.trim();
+    setToast('Material removed. You can upload it again.');
+    window.setTimeout(() => setToast(''), 3600);
+    if (!query) return;
+    setSubmittedLoading(true);
+    try {
+      const data = await apiGet(`/search?q=${encodeURIComponent(query)}`) as GlobalSearchResult;
+      setSubmittedResult(data);
+    } catch {
+      setSubmittedResult(null);
+    } finally {
+      setSubmittedLoading(false);
+    }
+  };
+
   if (!token) {
     return <Auth onLogin={handleLogin} />;
   }
@@ -380,7 +396,7 @@ export default function App() {
                   {!searchLoading && searchGuidance && (
                     <div className="gsp-card">
                       <div className="gsp-card-title">Search needs an academic clue</div>
-                      <div className="gsp-card-body">Try a course, topic, lecturer, past question, note, or exam phrase.</div>
+                      <div className="gsp-card-body">Try a course, topic, past question, note, or exam phrase.</div>
                     </div>
                   )}
 
@@ -562,6 +578,7 @@ export default function App() {
             onUpload={() => go('upload')}
             onPractice={(topic, context) => { handleGoToPractice(topic, context); }}
             onCommunityAction={handleCommunityAction}
+            onMaterialDeleted={() => void refreshSubmittedSearchAfterDelete()}
             go={go}
           />
         )}

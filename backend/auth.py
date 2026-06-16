@@ -65,7 +65,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 def require_role(required_role: str):
     def role_checker(current_user: models.User = Depends(get_current_user)):
-        if current_user.role != required_role and current_user.role != "admin":
-            raise HTTPException(status_code=403, detail="Not enough permissions. Required role: " + required_role)
+        if required_role == "student" and current_user.role != "student":
+            raise HTTPException(status_code=403, detail="Authenticated student access is required.")
         return current_user
     return role_checker

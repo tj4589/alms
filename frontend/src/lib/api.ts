@@ -83,6 +83,18 @@ export function apiPost(path: string, body: RequestBody) {
   );
 }
 
+export function apiDelete(path: string, body?: RequestBody) {
+  return request(
+    path,
+    {
+      method: 'DELETE',
+      headers: authHeaders(body ? { 'Content-Type': 'application/json' } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+    },
+    'Delete request failed.',
+  );
+}
+
 export function apiFormPost(path: string, formData: FormData | URLSearchParams) {
   const isUrlEncoded = formData instanceof URLSearchParams;
   return request(

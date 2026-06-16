@@ -1,4 +1,5 @@
 import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext } from '../types';
+import { apiDelete } from '../lib/api';
 
 function preview(value: string | null | undefined, fallback: string, max = 132): string {
   const text = (value || fallback).replace(/\s+/g, ' ').trim();
@@ -20,6 +21,7 @@ type Props = {
   onUpload: () => void;
   onPractice: (topic: string, context?: SearchActionContext) => void;
   onCommunityAction?: (action: 'discussion' | 'study_group' | 'reading_room', context: SearchActionContext) => void;
+  onMaterialDeleted?: () => void;
   go: (screen: ScreenType) => void;
 };
 
@@ -49,7 +51,16 @@ function materialMetaLine(item: PastQuestion): string {
   return [documentType, year, semester, `${matches} matching section${matches === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
 }
 
-export default function SearchResults({ query, result, loading, onAskAI, onUpload, onPractice, onCommunityAction, go }: Props) {
+function deletePayload(item: { title?: string | null; metadata_json?: Record<string, unknown> | null }, documentType: 'past_question' | 'lecture_note') {
+  const meta = item.metadata_json || {};
+  return {
+    document_type: documentType,
+    source_file: typeof meta.source_file === 'string' ? meta.source_file : '',
+    document_title: typeof meta.document_title === 'string' ? meta.document_title : (item.title || ''),
+  };
+}
+
+export default function SearchResults({ query, result, loading, onAskAI, onUpload, onPractice, onCommunityAction, onMaterialDeleted, go }: Props) {
   const topic = result?.understanding?.interpreted_topic?.trim() || query;
   const relatedTerms = result?.understanding?.related_terms || [];
   const pastQuestions = result?.past_questions || [];
@@ -75,6 +86,15 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
   const goCommunity = (action: 'discussion' | 'study_group' | 'reading_room') => {
     if (onCommunityAction) onCommunityAction(action, primaryContext);
     else go(action === 'discussion' ? 'collab' : 'groups');
+  };
+  const deleteMaterial = async (
+    item: { title?: string | null; metadata_json?: Record<string, unknown> | null },
+    documentType: 'past_question' | 'lecture_note',
+  ) => {
+    const title = item.title || metadataValue(item.metadata_json, 'document_title') || metadataValue(item.metadata_json, 'source_file') || 'this material';
+    if (!window.confirm(`Delete "${title}" from ExamMind? You can upload it again with the latest indexing system.`)) return;
+    await apiDelete('/ingest/documents', deletePayload(item, documentType));
+    onMaterialDeleted?.();
   };
 
   if (loading) {
@@ -125,6 +145,9 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                   <div className="search-result-row" key={`best-note-${note.id}`}>
                     <div>
                       <div className="search-result-title">{note.title}</div>
+                      <button className="search-danger-link" onClick={() => void deleteMaterial(note, 'lecture_note')}>
+                        Delete from ExamMind
+                      </button>
                       <div className="search-muted">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</div>
                     </div>
                     <span className="search-result-type">Note</span>
@@ -136,6 +159,9 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                     <div className="search-result-row" key={`best-pq-${item.id}`}>
                       <div>
                         <div className="search-result-title">{materialTitle(item)}</div>
+                        <button className="search-danger-link" onClick={() => void deleteMaterial(item, 'past_question')}>
+                          Delete from ExamMind
+                        </button>
                         {(item.snippets || []).slice(0, 2).map(snippet => (
                           <div className="search-muted" key={snippet}>{preview(snippet, '', 150)}</div>
                         ))}
@@ -162,6 +188,9 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                   <div className="search-result-row" key={note.id}>
                     <div>
                       <div className="search-result-title">{note.title}</div>
+                      <button className="search-danger-link" onClick={() => void deleteMaterial(note, 'lecture_note')}>
+                        Delete from ExamMind
+                      </button>
                       <div className="search-muted">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</div>
                     </div>
                   </div>
@@ -185,6 +214,9 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                     <div className="search-result-row" key={item.id}>
                       <div>
                         <div className="search-result-title">{materialTitle(item)}</div>
+                        <button className="search-danger-link" onClick={() => void deleteMaterial(item, 'past_question')}>
+                          Delete from ExamMind
+                        </button>
                         {(item.snippets || []).slice(0, 3).map(snippet => (
                           <div className="search-muted" key={snippet}>{preview(snippet, '', 160)}</div>
                         ))}

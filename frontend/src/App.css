@@ -180,6 +180,8 @@
 .search-result-row:last-child{border-bottom:none;padding-bottom:0;}
 .search-result-title{font-size:13px;color:var(--text);line-height:1.5;font-weight:500;}
 .search-result-type{flex-shrink:0;border:1px solid var(--border);border-radius:999px;padding:2px 8px;color:var(--text3);font-size:10.5px;font-weight:700;}
+.search-danger-link{margin-top:5px;background:none;border:none;color:var(--coral);font-family:var(--font);font-size:11px;font-weight:700;padding:0;cursor:pointer;}
+.search-danger-link:hover{text-decoration:underline;}
 .search-empty-row{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--text2);font-size:12.5px;line-height:1.5;min-height:38px;}
 .search-action-grid{display:grid;grid-template-columns:1fr;gap:8px;}
 .search-action-btn,.search-primary-btn,.search-ghost-btn,.search-link-btn,.search-link-row{font-family:var(--font);border-radius:8px;cursor:pointer;transition:all .15s;border:1px solid var(--border);font-size:12px;}
@@ -383,6 +385,10 @@
 .upload-badge.review{border-color:rgba(255,183,77,0.35);background:rgba(255,183,77,0.12);color:#ffb74d;}
 .upload-rescue-note{border:1px solid rgba(240,115,90,0.25);background:var(--coral2);color:var(--coral);border-radius:8px;padding:10px 12px;margin:0 0 14px;font-size:12.5px;line-height:1.5;}
 .upload-review-note{border:1px solid rgba(255,183,77,0.3);background:rgba(255,183,77,0.1);color:#ffb74d;border-radius:8px;padding:10px 12px;margin:0 0 14px;font-size:12.5px;line-height:1.5;}
+.danger-card{border-color:rgba(240,115,90,0.2);background:linear-gradient(145deg,rgba(240,115,90,0.055),var(--bg2));}
+.danger-btn{color:var(--coral);border-color:rgba(240,115,90,0.28);}
+.danger-solid{background:var(--coral);color:#120d0b;border-color:var(--coral);}
+.danger-modal{border-color:rgba(240,115,90,0.25);}
 .confirm-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
 .failure-card{border-color:rgba(240,115,90,0.25);background:linear-gradient(145deg,rgba(240,115,90,0.055),var(--bg2));}
 .failure-title{font-family:var(--serif);font-size:26px;margin-bottom:8px;color:var(--text);}

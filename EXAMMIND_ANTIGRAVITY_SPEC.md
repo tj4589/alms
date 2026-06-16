@@ -1,291 +1,123 @@
-# ExamMind — Antigravity Build Specification
+# ExamMind — Final Student-Focused Build Specification
 
 ## Project Overview
 
-ExamMind is an AI-powered learning intelligence platform designed for Nigerian universities.
+ExamMind is a student-focused AI-powered academic knowledge retrieval and collaborative study system for authenticated university students.
 
 The system uses:
-- past examination questions,
-- lecture notes,
+
+- student-contributed past examination questions,
+- lecture notes and academic materials,
+- OCR cleanup and metadata extraction,
 - semantic vector search,
-- and Retrieval-Augmented Generation (RAG)
+- Retrieval-Augmented Generation (RAG),
+- practice-question generation,
+- progress tracking,
+- study groups,
+- discussion threads,
+- reading rooms.
 
-to help students prepare for examinations using historically examinable content.
+ExamMind is not a generic LMS. It is an exam-intelligent student study platform.
 
-This is NOT a generic LMS.
-This is an exam-intelligent academic platform.
+## Authentication
 
----
+- Student registration
+- Student login
+- JWT-based authentication
+- Secure student access to uploads, search, AI assistant, practice, progress, and collaboration tools
 
-# Core MVP Features (Priority)
+The implemented system supports authenticated student users only.
 
-## 1. Authentication
-- Student login/register
-- JWT authentication
-- Role-based access:
-  - Student
-  - Lecturer (read-only analytics)
-  - Admin
-
----
-
-# 2. Upload Pipeline (Highest Priority)
+## Upload Pipeline
 
 Students upload:
+
 - past question PDFs
 - lecture note PDFs
 
-## Upload Flow
+Upload flow:
 
-### Step 1 — Drag & Drop Upload
-Student uploads PDF.
+1. Student uploads PDF.
+2. Backend checks readability, document type signals, scan quality, and duplicate risk.
+3. OCR text is cleaned before display and indexing.
+4. Raw OCR is stored only for trace/debug views.
+5. Metadata extraction identifies course code, course title, year/session, semester, department, faculty/college, topics, and document type.
+6. Student confirms the cleaned metadata and structured preview.
+7. Cleaned text is chunked and embedded.
+8. Material becomes searchable immediately.
 
-### Step 2 — AI Pre-Screen
-System checks:
-- readability
-- corruption
-- likely document type
-- scan quality
+## AI Assistant
 
-### Step 3 — Metadata Extraction
-LLM extracts:
-- course code
-- course title
-- year
-- semester
-- department
-- faculty
-- topics covered
-- document type
+The RAG assistant:
 
-Return structured JSON.
-
-### Step 4 — Duplicate Detection
-Duplicate condition:
-same:
-- course_code
-- year
-- semester
-- document_type
-
-If duplicate exists:
-- stop indexing
-- return existing document
-
-### Step 5 — Student Confirmation
-Student confirms or edits extracted metadata.
-
-### Step 6 — Chunk + Embed
-- semantic chunking
-- embeddings using text-embedding-3-small
-- store in PostgreSQL pgvector
-
-### Step 7 — Instant Availability
-Document becomes searchable immediately.
-
----
-
-# 3. AI Assistant (RAG)
-
-## AI Behaviour
-The AI:
-- searches uploaded content,
+- searches uploaded ExamMind materials,
 - retrieves relevant chunks,
-- generates grounded responses,
-- cites past questions,
-- and never fabricates information.
+- answers from retrieved context,
+- cites source names where possible,
+- admits when uploaded material is missing,
+- avoids raw provider errors.
 
-## Dual Search
-Search:
-1. Past questions
-2. Lecture notes
+DeepSeek is the primary LLM provider. Cohere is an optional fallback provider. Embeddings and search remain local.
 
-simultaneously.
+## Search
 
-## Missing Content Behaviour
+Search should show one clean card per uploaded material, grouped by source document, with the best matching snippets underneath.
 
-If lecture notes are missing:
-Return:
-`no_lecture_notes_found: true`
+Search cards should use metadata titles first. If a title is missing, generate:
 
-Frontend displays:
-“Be the first to upload lecture notes for this topic.”
+```text
+<course_code> <course_title> <document_type> <academic_year>
+```
 
----
+## Practice
 
-# 4. Past Question Browser
+Practice generation should use uploaded academic materials where available. When there is not enough indexed content, the interface should explain the limitation clearly.
 
-Students can:
-- search questions
-- filter by:
-  - course
-  - year
-  - topic
-  - difficulty
+## Analytics and Progress
 
-## Heatmap
-Topic frequency visualization:
-- highest recurring topics
-- most examinable concepts
+Student-facing analytics include:
 
----
+- questions attempted,
+- practice scores,
+- topic readiness,
+- study activity,
+- examination analytics based on uploaded material and practice results.
 
-# 5. Practice Test Generator
+## Collaboration
 
-AI generates:
-- exam-style questions
-- based on:
-  - topic frequency
-  - historical patterns
-  - difficulty balancing
+The collaboration layer includes:
 
-After submission:
-- generate score
-- generate AI debrief
-- update readiness score
+- discussion threads for topic conversations,
+- study groups for long-term group learning,
+- reading rooms for live revision sessions,
+- AI study cards generated from room context.
 
----
+## Design Direction
 
-# 6. Analytics
-
-## Student Analytics
-- readiness score
-- weak topics
-- study activity
-- topic mastery
-
-## Lecturer Analytics
-Read-only:
-- weakest cohort topics
-- average scores
-- difficult concepts
-- engagement trends
-
-No upload permissions for lecturers.
-
----
-
-# Database Design
-
-## Core Tables
-
-### users
-### courses
-### departments
-### faculties
-### past_questions
-### lecture_notes
-### past_question_chunks
-### lecture_note_chunks
-### practice_attempts
-### readiness_scores
-### discussion_threads
-### thread_messages
-
----
-
-# Recommended Tech Stack
-
-## Frontend
-- React
-- TypeScript
-- Vite
-
-## Backend
-- FastAPI
-- SQLAlchemy
-
-## Database
-- PostgreSQL
-- pgvector
-
-## AI
-- OpenAI GPT-4o
-- text-embedding-3-small
-
-## RAG
-- LangChain
-
----
-
-# UI/UX Direction
-
-Design reference:
-exammind-v2.html
-
-## Design Rules
-- Flat dark surfaces
-- Gold accent system
-- No glassmorphism
-- No heavy gradients
+- Clean student-focused interface
+- No raw OCR/debug text in primary views
+- Clear empty states
+- Clean action buttons
 - Mobile responsive
-- Fast loading
+- Consistent visual language across upload, search, AI, practice, and collaboration
 
----
+## MVP Build Order
 
-# MVP Build Order
+1. Authentication and secure student access
+2. Upload/OCR/indexing
+3. Search and grouped snippets
+4. RAG assistant
+5. Practice generation
+6. Progress and examination analytics
+7. Discussion threads, study groups, and reading rooms
+8. Final testing evidence for Chapter Four
 
-## Phase 1
-- authentication
-- upload pipeline
-- chunking
-- embeddings
-- duplicate detection
-
-## Phase 2
-- RAG assistant
-- dual search
-- lecture notes support
-
-## Phase 3
-- past question browser
-- practice generator
-- analytics
-
-## Phase 4
-- collaboration
-- contribution system
-- advanced AI features
-
----
-
-# Important Architectural Rules
-
-## Students upload content
-Lecturers do NOT upload.
-
-## AI never fabricates
-Missing information must be reported honestly.
-
-## Course registry is seeded
-Students select courses.
-They do not create courses.
-
-## pgvector inside PostgreSQL
-No Pinecone required.
-
----
-
-# Academic Positioning
+## Academic Positioning
 
 Project title:
 
-“An AI-Powered Exam Intelligence and Adaptive Learning Platform for Nigerian Universities.”
+“ExamMind: An AI-Powered Academic Knowledge Retrieval and Collaborative Study System for University Students.”
 
 Core contribution:
-Using historical examination questions as the grounding knowledge base for an educational RAG pipeline.
 
----
-
-# Final Notes
-
-This is a FINAL YEAR PROJECT MVP.
-
-Focus on:
-- strong architecture,
-- solid upload pipeline,
-- working RAG,
-- intelligent retrieval,
-- and meaningful analytics.
-
-Avoid overbuilding unnecessary startup-scale features.
+Using student-contributed academic materials and historical examination questions as the grounding knowledge base for semantic search, RAG answers, practice generation, and collaborative study.

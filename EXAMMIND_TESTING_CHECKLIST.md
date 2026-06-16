@@ -138,7 +138,7 @@ Evidence format:
 |---|---|---|---|---|---|---|---|
 | PRIV-001 | Privacy Settings | User opens privacy settings | Click Privacy/Settings if available | Privacy options are visible or unavailable message is friendly | To be recorded | Pending | `[Screenshot: PRIV-001 privacy settings]` |
 | PRIV-002 | Privacy Settings | User data is protected by login | Access API without token | API rejects request with authentication error | To be recorded | Pending | `[Screenshot: PRIV-002 unauthorized API]` |
-| PRIV-003 | Privacy Settings | User cannot modify protected lecturer/admin data | Student attempts restricted action | System rejects unauthorized action | To be recorded | Pending | `[Screenshot: PRIV-003 role restriction]` |
+| PRIV-003 | Privacy Settings | User cannot access another student's protected data | Student attempts to open another user's private progress endpoint | System rejects unauthorized access | To be recorded | Pending | `[Screenshot: PRIV-003 protected student data]` |
 | PRIV-004 | Privacy Settings | Raw OCR is not exposed by default | Upload confirmation screen | Raw OCR hidden behind manual debug button | To be recorded | Pending | `[Screenshot: PRIV-004 raw text privacy]` |
 | PRIV-005 | Privacy Settings | User session can be cleared | Logout | Token is removed and login screen appears | To be recorded | Pending | `[Screenshot: PRIV-005 logout]` |
 
