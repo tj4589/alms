@@ -1,6 +1,7 @@
 from collections import defaultdict
+import json
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import models
+from ai_clients import AIProviderError, generate_ai_response
 from database import get_db
 from routers.rag import run_rag_query
 
@@ -26,6 +28,10 @@ class PracticeSubmitRequest(BaseModel):
     topic: Optional[str] = None
     score: int
     total_questions: int
+
+
+MAX_NOTE_PRACTICE_CHUNKS = 6
+MAX_NOTE_PRACTICE_CONTEXT_CHARS = 4500
 
 
 def _topic_terms(topic: str | None) -> list[str]:
@@ -159,10 +165,182 @@ def _serialize_practice_items(rows: list[models.PastQuestion], topic: str | None
                     "year": row.year or metadata.get("year"),
                     "difficulty": row.difficulty or "mixed",
                     "topic_tags": tags,
+                    "source_type": "past_question",
                 }
             )
     items.sort(key=lambda item: _practice_item_score(item, topic), reverse=True)
     return items[:limit]
+
+
+def _practice_item_key(prompt: str) -> str:
+    return re.sub(r"\W+", " ", str(prompt or "").lower()).strip()
+
+
+def _note_source_title(metadata: dict | None, fallback: str = "Uploaded notes") -> str:
+    metadata = metadata or {}
+    title = metadata.get("document_title") or metadata.get("source_file") or metadata.get("course_title") or fallback
+    return re.sub(r"\s+", " ", str(title)).strip()
+
+
+def _relevant_note_chunks(
+    db: Session,
+    course_id: int | None,
+    topic: str | None,
+    limit: int = MAX_NOTE_PRACTICE_CHUNKS,
+) -> list[models.LectureNoteChunk]:
+    query = db.query(models.LectureNoteChunk)
+    if course_id is not None:
+        query = query.filter(models.LectureNoteChunk.course_id == course_id)
+
+    terms = _topic_terms(topic)
+    if terms:
+        filters = []
+        for term in terms[:8]:
+            pattern = f"%{term}%"
+            filters.append(models.LectureNoteChunk.chunk_text.ilike(pattern))
+            filters.append(models.LectureNoteChunk.topic_tag.ilike(pattern))
+        query = query.filter(or_(*filters))
+
+    rows = query.order_by(models.LectureNoteChunk.id.desc()).limit(30).all()
+    if not terms:
+        return rows[:limit]
+
+    def score(row: models.LectureNoteChunk) -> int:
+        haystack = f"{row.topic_tag or ''} {row.chunk_text or ''}".lower()
+        return sum(3 if term in (row.topic_tag or "").lower() else 1 for term in terms if term in haystack)
+
+    return sorted(rows, key=score, reverse=True)[:limit]
+
+
+def _strip_json_fences(value: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+def _parse_generated_practice_json(value: str) -> list[dict[str, Any]]:
+    text = _strip_json_fences(value)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\[[\s\S]*\]", text)
+        if not match:
+            return []
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return []
+    if isinstance(parsed, dict):
+        parsed = parsed.get("questions") or parsed.get("items") or []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _generated_practice_from_notes(
+    chunks: list[models.LectureNoteChunk],
+    topic: str | None,
+    count: int,
+) -> tuple[list[dict], str | None]:
+    if not chunks or count <= 0:
+        return [], None
+
+    parts: list[str] = []
+    source_titles: list[str] = []
+    total_chars = 0
+    for index, chunk in enumerate(chunks, start=1):
+        metadata = chunk.metadata_json or {}
+        source_title = _note_source_title(metadata)
+        source_titles.append(source_title)
+        chunk_text = re.sub(r"\s+", " ", str(chunk.chunk_text or "")).strip()
+        if not chunk_text:
+            continue
+        remaining = MAX_NOTE_PRACTICE_CONTEXT_CHARS - total_chars
+        if remaining <= 0:
+            break
+        snippet = chunk_text[:remaining]
+        total_chars += len(snippet)
+        parts.append(f"[Source {index}: {source_title}]\n{snippet}")
+
+    context = "\n\n".join(parts).strip()
+    if not context:
+        return [], None
+
+    source_label = ", ".join(list(dict.fromkeys(source_titles))[:3])
+    prompt = f"""
+You are ExamMind's practice-question generator for authenticated university students.
+Use ONLY the provided uploaded lecture-note/study-material context.
+Generate {count} exam-style practice questions{f" about {topic}" if topic else ""}.
+
+Return STRICT JSON only: a list of objects.
+Each object must have:
+{{"prompt": "...", "topic": "...", "difficulty": "easy|medium|hard"}}
+
+Rules:
+- Do not include answers.
+- Do not invent facts not supported by the context.
+- Do not use markdown fences or prose outside the JSON.
+- Keep each prompt clear and academically useful.
+
+Context:
+{context}
+""".strip()
+
+    try:
+        raw = generate_ai_response(prompt, temperature=0.3)
+    except AIProviderError as exc:
+        return [], f"Practice generation from notes is temporarily unavailable: {exc}"
+    except Exception:
+        return [], "Practice generation from notes is temporarily unavailable."
+
+    parsed = _parse_generated_practice_json(raw)
+    items: list[dict] = []
+    seen: set[str] = set()
+    for index, item in enumerate(parsed, start=1):
+        if not isinstance(item, dict):
+            continue
+        question = _clean_practice_prompt(str(item.get("prompt") or ""))
+        if len(question) < 20:
+            continue
+        key = _practice_item_key(question)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        item_topic = str(item.get("topic") or topic or "Generated practice").strip()
+        difficulty = str(item.get("difficulty") or "medium").lower().strip()
+        if difficulty not in {"easy", "medium", "hard"}:
+            difficulty = "medium"
+        items.append(
+            {
+                "id": f"note-gen-{index}",
+                "prompt": question,
+                "source": source_label or "Uploaded notes",
+                "year": None,
+                "difficulty": difficulty,
+                "topic": item_topic,
+                "topic_tags": _practice_tags(f"{question} {item_topic}") or ([item_topic] if item_topic else []),
+                "source_type": "generated_from_notes",
+            }
+        )
+        if len(items) >= count:
+            break
+
+    if not items:
+        return [], "ExamMind found note material, but could not generate clean practice questions from it yet."
+    return items, None
+
+
+def _merge_practice_items(past_items: list[dict], generated_items: list[dict], limit: int) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for item in [*past_items, *generated_items]:
+        key = _practice_item_key(item.get("prompt", ""))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+        if len(merged) >= limit:
+            break
+    return merged
 
 
 def serialize_course(row: models.Course) -> dict:
@@ -355,15 +533,16 @@ def generate_practice(
             .all()
         )
         if not questions and req.course_id is not None:
-            warning = (
-                f"No exact topic match for '{req.topic}' yet, so ExamMind generated practice "
-                "from broader past questions in the selected course."
-            )
             questions = (
                 query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
                 .limit(max(safe_count, 20))
                 .all()
             )
+            if questions:
+                warning = (
+                    f"No exact topic match for '{req.topic}' yet, so ExamMind generated practice "
+                    "from broader past questions in the selected course."
+                )
     else:
         questions = (
             query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
@@ -374,10 +553,25 @@ def generate_practice(
     if questions and not practice_items:
         warning = warning or "ExamMind found uploaded material, but it could not extract clean practice prompts from it yet."
 
+    generated_items: list[dict] = []
+    generation_warning: str | None = None
+    remaining_count = max(safe_count - len(practice_items), 0)
+    note_chunks = _relevant_note_chunks(db, req.course_id, req.topic)
+    if note_chunks and remaining_count > 0:
+        generated_items, generation_warning = _generated_practice_from_notes(note_chunks, req.topic, remaining_count)
+    elif note_chunks and not practice_items:
+        generated_items, generation_warning = _generated_practice_from_notes(note_chunks, req.topic, safe_count)
+
+    combined_items = _merge_practice_items(practice_items, generated_items, safe_count)
+    if generation_warning:
+        warning = f"{warning} {generation_warning}".strip() if warning else generation_warning
+    if note_chunks and not generated_items and not practice_items and not warning:
+        warning = "ExamMind found uploaded notes, but could not generate clean practice questions from them yet."
+
     return {
         "topic": req.topic or "Mixed revision",
         "warning": warning,
-        "questions": practice_items,
+        "questions": combined_items,
     }
 
 

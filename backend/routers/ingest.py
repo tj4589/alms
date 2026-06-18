@@ -28,6 +28,16 @@ except Exception:
     Image = None
 
 try:
+    from docx import Document as DocxDocument
+except Exception:
+    DocxDocument = None
+
+try:
+    from pptx import Presentation
+except Exception:
+    Presentation = None
+
+try:
     import cv2
     import numpy as np
 except Exception:
@@ -51,6 +61,8 @@ MIN_INDEXABLE_TEXT_CHARS = int(os.getenv("MIN_INDEXABLE_TEXT_CHARS", "80"))
 MAX_OCR_PAGES = int(os.getenv("MAX_OCR_PAGES", "20"))
 OCR_RENDER_SCALE = float(os.getenv("OCR_RENDER_SCALE", "4"))
 OCR_FALLBACK_RENDER_SCALE = float(os.getenv("OCR_FALLBACK_RENDER_SCALE", "3"))
+SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg"}
+IMAGE_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 OCR_CONFIGS = [
     "--oem 3 --psm 6 -c preserve_interword_spaces=1",
     "--oem 3 --psm 4 -c preserve_interword_spaces=1",
@@ -471,7 +483,7 @@ def _ocr_pdf(content: bytes, page_count: int, warnings: list[str]) -> tuple[str,
         warnings.append("OCR could not run because PyMuPDF is not installed.")
         return "", "ocr_not_installed"
     if not pytesseract or not Image:
-        warnings.append("OCR support is not installed. Install Tesseract OCR or upload a text-based PDF.")
+        warnings.append("OCR support is not installed. Install Tesseract OCR or upload a text-based file.")
         return "", "ocr_not_installed"
 
     doc = fitz.open(stream=content, filetype="pdf")
@@ -495,7 +507,7 @@ def _ocr_pdf(content: bytes, page_count: int, warnings: list[str]) -> tuple[str,
             warnings.append("OCR produced text, but it may be incomplete or noisy.")
         return text, None
     except pytesseract.TesseractNotFoundError:
-        warnings.append("OCR support is not installed. Install Tesseract OCR or upload a text-based PDF.")
+        warnings.append("OCR support is not installed. Install Tesseract OCR or upload a text-based file.")
         return "", "ocr_not_installed"
     except Exception as exc:
         warnings.append(f"OCR could not read this PDF: {exc}")
@@ -504,18 +516,163 @@ def _ocr_pdf(content: bytes, page_count: int, warnings: list[str]) -> tuple[str,
         doc.close()
 
 
-def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+def _successful_text_extraction(
+    text: str,
+    method: str,
+    page_count: int,
+    warnings: list[str],
+    ocr_used: bool = False,
+    confidence_method: str | None = None,
+) -> Dict[str, Any]:
+    cleaned_text = _clean_ocr_text(text)
+    indexable_text = cleaned_text if len(cleaned_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS else text
+    return {
+        "text": text,
+        "raw_extracted_text": text,
+        "cleaned_text": indexable_text,
+        "method": method,
+        "page_count": page_count,
+        "text_char_count": len(text.strip()),
+        "cleaned_text_char_count": len(indexable_text.strip()),
+        "ocr_used": ocr_used,
+        "extraction_confidence": _quality_score(text, page_count, confidence_method or method),
+        "failure_reason": None,
+        "warnings": warnings,
+    }
 
-    content = file.file.read(MAX_UPLOAD_BYTES + 1)
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"PDF is too large. Maximum upload size is {MAX_UPLOAD_BYTES} bytes.",
-        )
 
-    warnings = []
+def _failed_text_extraction(
+    raw_text: str,
+    page_count: int,
+    warnings: list[str],
+    failure_reason: str,
+    ocr_used: bool = False,
+    ocr_score: float = 0.0,
+    ocr_useful_words: int = 0,
+) -> Dict[str, Any]:
+    cleaned_text = _clean_ocr_text(raw_text)
+    return {
+        "text": raw_text,
+        "raw_extracted_text": raw_text,
+        "cleaned_text": cleaned_text,
+        "method": "failed",
+        "page_count": page_count,
+        "text_char_count": len(raw_text.strip()),
+        "cleaned_text_char_count": len(cleaned_text.strip()),
+        "ocr_used": ocr_used,
+        "extraction_confidence": 0.0,
+        "failure_reason": failure_reason,
+        "indexed_status": "unindexed",
+        "searchable": False,
+        "needs_review": True,
+        "ocr_score": ocr_score,
+        "ocr_useful_words": ocr_useful_words,
+        "warnings": warnings,
+    }
+
+
+def _extract_docx_text(content: bytes, warnings: list[str]) -> Dict[str, Any]:
+    if not DocxDocument:
+        warnings.append("Word document support is not installed. Install python-docx.")
+        return _failed_text_extraction("", 0, warnings, "docx_not_installed")
+    try:
+        doc = DocxDocument(BytesIO(content))
+        parts: list[str] = [paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                if row_text:
+                    parts.append(row_text)
+        text = _clean_extracted_text(parts)
+        if len(text.strip()) >= MIN_INDEXABLE_TEXT_CHARS:
+            return _successful_text_extraction(text, "docx_text", max(1, len(doc.sections)), warnings)
+        warnings.append("Word document did not contain enough readable text.")
+        return _failed_text_extraction(text, max(1, len(doc.sections)), warnings, "no_text_found")
+    except Exception as exc:
+        warnings.append(f"Word document text extraction failed: {exc}")
+        return _failed_text_extraction("", 0, warnings, "docx_read_failed")
+
+
+def _extract_pptx_text(content: bytes, warnings: list[str]) -> Dict[str, Any]:
+    if not Presentation:
+        warnings.append("PowerPoint support is not installed. Install python-pptx.")
+        return _failed_text_extraction("", 0, warnings, "pptx_not_installed")
+    try:
+        deck = Presentation(BytesIO(content))
+        parts: list[str] = []
+        for slide_index, slide in enumerate(deck.slides, start=1):
+            slide_parts: list[str] = []
+            for shape in slide.shapes:
+                if getattr(shape, "has_text_frame", False):
+                    text = "\n".join(paragraph.text for paragraph in shape.text_frame.paragraphs if paragraph.text.strip())
+                    if text.strip():
+                        slide_parts.append(text)
+                if getattr(shape, "has_table", False):
+                    for row in shape.table.rows:
+                        row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                        if row_text:
+                            slide_parts.append(row_text)
+            notes_slide = getattr(slide, "notes_slide", None)
+            notes_frame = getattr(notes_slide, "notes_text_frame", None) if notes_slide else None
+            if notes_frame and notes_frame.text.strip():
+                slide_parts.append(notes_frame.text)
+            if slide_parts:
+                parts.append(f"Slide {slide_index}\n" + "\n".join(slide_parts))
+        text = _clean_extracted_text(parts)
+        page_count = len(deck.slides)
+        if len(text.strip()) >= MIN_INDEXABLE_TEXT_CHARS:
+            return _successful_text_extraction(text, "pptx_text", page_count, warnings)
+        warnings.append("PowerPoint file did not contain enough readable text.")
+        return _failed_text_extraction(text, page_count, warnings, "no_text_found")
+    except Exception as exc:
+        warnings.append(f"PowerPoint text extraction failed: {exc}")
+        return _failed_text_extraction("", 0, warnings, "pptx_read_failed")
+
+
+def _extract_image_text(content: bytes, warnings: list[str]) -> Dict[str, Any]:
+    if not pytesseract or not Image:
+        warnings.append("OCR support is not installed. Install Tesseract OCR to read image uploads.")
+        return _failed_text_extraction("", 1, warnings, "ocr_not_installed", ocr_used=True)
+    try:
+        image = Image.open(BytesIO(content)).convert("RGB")
+        ocr_text, ocr_score, _config, _engine = _best_ocr_for_page(image, 1)
+        text = _clean_extracted_text([ocr_text])
+        ocr_useful_words = _useful_word_count(text)
+        if len(text.strip()) >= MIN_INDEXABLE_TEXT_CHARS or _is_useful_ocr_text(text):
+            cleaned_text = _clean_ocr_text(text)
+            indexable_text = cleaned_text if len(cleaned_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS else text
+            extraction_confidence = max(0.45, _quality_score(text, 1, "ocr"))
+            if extraction_confidence < 0.65 or ocr_score < 75:
+                warnings.append("OCR completed, but extracted text may need review.")
+            return {
+                "text": text,
+                "raw_extracted_text": text,
+                "cleaned_text": indexable_text,
+                "method": "ocr",
+                "page_count": 1,
+                "text_char_count": len(text.strip()),
+                "cleaned_text_char_count": len(indexable_text.strip()),
+                "ocr_used": True,
+                "extraction_confidence": extraction_confidence,
+                "failure_reason": None,
+                "indexed_status": "indexed_review_required" if extraction_confidence < 0.65 or ocr_score < 75 else "indexed",
+                "searchable": True,
+                "needs_review": extraction_confidence < 0.65 or ocr_score < 75,
+                "ocr_score": ocr_score,
+                "ocr_useful_words": ocr_useful_words,
+                "warnings": warnings,
+            }
+        failure_reason = "ocr_low_confidence" if text.strip() else "file_too_blurry"
+        return _failed_text_extraction(text, 1, warnings, failure_reason, ocr_used=True, ocr_score=ocr_score, ocr_useful_words=ocr_useful_words)
+    except pytesseract.TesseractNotFoundError:
+        warnings.append("OCR support is not installed. Install Tesseract OCR to read image uploads.")
+        return _failed_text_extraction("", 1, warnings, "ocr_not_installed", ocr_used=True)
+    except Exception as exc:
+        warnings.append(f"OCR could not read this image: {exc}")
+        return _failed_text_extraction("", 1, warnings, "ocr_failed", ocr_used=True)
+
+
+def _extract_pdf_content(content: bytes, warnings: list[str]) -> Dict[str, Any]:
     embedded_text = ""
     page_count = 0
     failure_reason = "embedded_text_weak"
@@ -619,6 +776,35 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
         "ocr_useful_words": ocr_useful_words,
         "warnings": warnings,
     }
+
+
+def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
+    filename = file.filename or ""
+    extension = os.path.splitext(filename.lower())[1]
+    if extension not in SUPPORTED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF, Word, PowerPoint, PNG, JPG, and JPEG files are supported.",
+        )
+
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_BYTES} bytes.",
+        )
+
+    warnings: list[str] = []
+    if extension == ".pdf":
+        return _extract_pdf_content(content, warnings)
+    if extension == ".docx":
+        return _extract_docx_text(content, warnings)
+    if extension == ".pptx":
+        return _extract_pptx_text(content, warnings)
+    if extension in IMAGE_UPLOAD_EXTENSIONS:
+        return _extract_image_text(content, warnings)
+
+    raise HTTPException(status_code=400, detail="Unsupported file type.")
 
 
 def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
@@ -1538,13 +1724,13 @@ def extraction_message(extraction: Dict[str, Any]) -> str:
         return "Read using OCR. Please review the detected metadata."
     reason = extraction.get("failure_reason")
     if reason == "ocr_not_installed":
-        return "OCR is not installed on this server. Install Tesseract OCR or upload a text-based PDF."
+        return "OCR is not installed on this server. Install Tesseract OCR or upload a text-based file."
     if reason in {"ocr_failed", "ocr_low_confidence", "file_too_blurry"}:
         return "ExamMind tried OCR, but the scan is too unclear to read confidently."
     if reason == "encrypted_pdf":
         return "This PDF appears to be encrypted. Upload an unlocked PDF."
     if reason == "unsupported_pdf":
-        return "This PDF could not be read. Upload a standard PDF file."
+        return "This file could not be read. Upload a standard PDF, Word, PowerPoint, PNG, or JPG file."
     return "ExamMind could not read this scan clearly. Try a clearer PDF or enter metadata manually."
 
 

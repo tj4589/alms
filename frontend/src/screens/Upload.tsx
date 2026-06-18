@@ -118,7 +118,7 @@ const DOC_TYPES = Object.keys(DOC_TYPE_LABEL);
 const EXAM_TYPES = ['unknown', 'quiz', 'test', 'midterm', 'final'];
 
 function rescueMessage(reason?: string) {
-  if (reason === 'ocr_not_installed') return 'OCR is not installed on this server. Install Tesseract OCR or upload a text-based PDF.';
+  if (reason === 'ocr_not_installed') return 'OCR is not installed on this server. Install Tesseract OCR or upload a text-based file.';
   if (reason === 'ocr_failed' || reason === 'ocr_low_confidence' || reason === 'file_too_blurry') return 'ExamMind tried OCR, but the scan is too unclear to read confidently.';
   if (reason === 'encrypted_pdf') return 'This PDF appears to be encrypted. Upload an unlocked PDF.';
   return 'ExamMind could not read this file clearly.';
@@ -577,7 +577,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       setState('error');
       const fallback = 'Upload analysis failed.';
       const errorMessage = err instanceof Error ? err.message : fallback;
-      setMessage(errorMessage.includes('scanned or image-based PDF') ? 'ExamMind could not read this scan clearly. Try a clearer PDF.' : errorMessage);
+      setMessage(errorMessage.includes('scanned or image-based') ? 'ExamMind could not read this scan clearly. Try a clearer file.' : errorMessage);
     }
   };
 
@@ -645,14 +645,25 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const pdfs = Array.from(files).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-    if (pdfs.length === 0) { setMessage('Only PDF files are supported.'); return; }
+    const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg'];
+    const supportedMimeTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'image/png',
+      'image/jpeg',
+    ];
+    const supportedFiles = Array.from(files).filter((f) => {
+      const name = f.name.toLowerCase();
+      return supportedMimeTypes.includes(f.type) || supportedExtensions.some((ext) => name.endsWith(ext));
+    });
+    if (supportedFiles.length === 0) { setMessage('Only PDF, Word, PowerPoint, PNG, JPG, and JPEG files are supported.'); return; }
     setMessage('');
-    if (pdfs.length === 1) {
+    if (supportedFiles.length === 1) {
       setQueue([]);
-      void analyzeFile(pdfs[0]);
+      void analyzeFile(supportedFiles[0]);
     } else {
-      startQueue(pdfs);
+      startQueue(supportedFiles);
     }
   };
 
@@ -699,7 +710,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     <div className="page" id="s-upload">
       <div className="pg-head">
         <div className="pg-title">Upload <em>Knowledge</em></div>
-        <div className="pg-sub">Drop a PDF. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
+        <div className="pg-sub">Drop a PDF, Word document, PowerPoint, or image. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
       </div>
 
       {message && <div className={`upload-alert${reviewRequired ? ' review' : ''}`} style={{ marginBottom: 16 }}>{message}</div>}
@@ -715,9 +726,9 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
             onClick={() => document.getElementById('file-input')?.click()}
             style={{ cursor: 'pointer' }}
           >
-            <input id="file-input" type="file" accept="application/pdf" multiple onChange={e => handleFiles(e.target.files)} />
+            <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" multiple onChange={e => handleFiles(e.target.files)} />
             <div className="drop-icon">+</div>
-            <div className="drop-title">Drop academic PDFs here</div>
+            <div className="drop-title">Drop academic files here</div>
             <div className="drop-sub">ExamMind detects the document type, course, session, semester, department, topics, and reading confidence automatically.</div>
           </div>
 
@@ -767,7 +778,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
           {state === 'error' && (
             <div className="confirm-actions">
               <button className="cta cta-ghost" onClick={() => setState(lastAction === 'index' ? 'confirm' : 'idle')}>
-                {lastAction === 'index' ? 'Back to confirmation' : 'Choose another PDF'}
+                {lastAction === 'index' ? 'Back to confirmation' : 'Choose another file'}
               </button>
               {file && <button className="cta" onClick={() => void (lastAction === 'index' ? confirmUpload() : analyzeFile(file))}>Try again</button>}
             </div>
@@ -800,7 +811,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
             <span className="upload-badge warn">Not indexed</span>
             <span className="upload-badge warn">{extractionConfidence}% extraction confidence</span>
           </div>
-          <div className="upload-rescue-note">Manual metadata rescue is available here because the PDF could not produce useful searchable text.</div>
+          <div className="upload-rescue-note">Manual metadata rescue is available here because the file could not produce useful searchable text.</div>
           <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} />
           <div className="confirm-actions">
             <button className="cta cta-ghost" onClick={() => setState('idle')}>Upload clearer file</button>
@@ -817,7 +828,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
           <div className="duplicate-body">Same course, year, semester and type. Indexing was skipped to keep the knowledge base clean.</div>
           <div className="confirm-actions">
             {hasQueue && <button className="cta" onClick={nextInQueue}>Next file ({queueIndex + 1}/{queue.length})</button>}
-            <button className="cta cta-ghost" onClick={() => setState('idle')}>Upload another PDF</button>
+            <button className="cta cta-ghost" onClick={() => setState('idle')}>Upload another file</button>
           </div>
         </div>
       )}

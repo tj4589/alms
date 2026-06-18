@@ -13,6 +13,7 @@ type GeneratedQuestion = {
   id: string;
   prompt: string;
   source?: string;
+  source_type?: 'past_question' | 'generated_from_notes' | string;
   year?: number | null;
   difficulty?: string | null;
   topic_tags?: string[];
@@ -297,6 +298,9 @@ export default function Practice({
               </div>
               <div className="qd-meta" style={{alignItems: 'center', flexWrap: 'wrap'}}>
                 <span className="tag tag-m">{question.difficulty || 'Mixed'}</span>
+                <span className="tag">
+                  {question.source_type === 'generated_from_notes' ? 'Generated from your notes' : 'From past questions'}
+                </span>
                 <span className="qi-yr">{question.year || 'Year unknown'}</span>
                 {question.source && <span className="tag">{question.source}</span>}
                 {(question.topic_tags || []).map(tag => <span className="tag" key={`${question.id}-${tag}`}>{tag}</span>)}
