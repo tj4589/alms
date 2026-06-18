@@ -10,10 +10,12 @@ type Course = {
 };
 
 type GeneratedQuestion = {
-  id: number;
+  id: string;
   prompt: string;
+  source?: string;
   year?: number | null;
   difficulty?: string | null;
+  topic_tags?: string[];
 };
 
 type GenerateResponse = {
@@ -72,7 +74,7 @@ export default function Practice({
   );
   const [qCount, setQCount] = useState<number>(10);
   const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
-  const [answers, setAnswers] = useState<Record<number, boolean | null>>({});
+  const [answers, setAnswers] = useState<Record<string, boolean | null>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -153,7 +155,7 @@ export default function Practice({
     }
   };
 
-  const markQuestion = (questionId: number, correct: boolean) => {
+  const markQuestion = (questionId: string, correct: boolean) => {
     setAnswers((current) => ({ ...current, [questionId]: correct }));
   };
 
@@ -176,6 +178,7 @@ export default function Practice({
     if (!navigator.onLine) {
       await queuePracticeAttempt(requestBody);
       setResult({ attempt_id: -1, readiness_score: Math.round((score / generatedQuestions.length) * 100), debrief: 'You are offline. This attempt has been saved and will sync to your progress when you reconnect.' });
+      setNotice(`Practice saved offline. Score: ${score}/${generatedQuestions.length}. Readiness will sync when you reconnect.`);
       setSubmitting(false);
       return;
     }
@@ -183,6 +186,7 @@ export default function Practice({
     try {
       const data = await apiPost('/practice/submit', requestBody) as SubmitResponse;
       setResult(data);
+      setNotice(`Practice submitted. Score: ${score}/${generatedQuestions.length}. Readiness updated.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not submit practice score.');
     } finally {
@@ -197,7 +201,7 @@ export default function Practice({
         <div className="pg-sub">Generated from uploaded past questions · self-marked · readiness updated after submission</div>
       </div>
 
-      {notice && <div className="upload-alert" style={{ borderColor: 'rgba(232,162,58,0.35)', color: 'var(--text2)' }}>{notice}</div>}
+      {notice && <div className="upload-alert" style={{ borderColor: result ? 'rgba(62,207,178,0.35)' : 'rgba(232,162,58,0.35)', color: 'var(--text2)' }}>{notice}</div>}
       {error && <div className="upload-alert">{error}</div>}
 
       <div className="two-col">
@@ -269,13 +273,57 @@ export default function Practice({
           </div>
 
           {generatedQuestions.map((question, index) => (
-            <div className="qd" style={{cursor: 'default'}} key={question.id}>
-              <div className="qd-text">{index + 1}. {question.prompt}</div>
-              <div className="qd-meta">
+            <div
+              className="qd"
+              style={{
+                cursor: 'default',
+                borderColor: answers[question.id] === true ? 'rgba(62,207,178,0.45)' : answers[question.id] === false ? 'rgba(255,111,97,0.45)' : undefined,
+                background: answers[question.id] !== null && answers[question.id] !== undefined ? 'rgba(255,255,255,0.025)' : undefined,
+              }}
+              key={question.id}
+            >
+              <div style={{display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start'}}>
+                <div className="qd-text">{index + 1}. {question.prompt}</div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: answers[question.id] === true ? 'var(--teal)' : answers[question.id] === false ? 'var(--coral)' : 'var(--text3)',
+                    whiteSpace: 'nowrap',
+                    fontWeight: 700,
+                  }}
+                >
+                  {answers[question.id] === true ? 'Marked correct' : answers[question.id] === false ? 'Marked incorrect' : 'Not marked'}
+                </div>
+              </div>
+              <div className="qd-meta" style={{alignItems: 'center', flexWrap: 'wrap'}}>
                 <span className="tag tag-m">{question.difficulty || 'Mixed'}</span>
                 <span className="qi-yr">{question.year || 'Year unknown'}</span>
-                <button className={`cta cta-ghost ${answers[question.id] === true ? 'on' : ''}`} style={{marginTop: 0}} onClick={() => markQuestion(question.id, true)}>Correct</button>
-                <button className={`cta cta-ghost ${answers[question.id] === false ? 'on' : ''}`} style={{marginTop: 0}} onClick={() => markQuestion(question.id, false)}>Incorrect</button>
+                {question.source && <span className="tag">{question.source}</span>}
+                {(question.topic_tags || []).map(tag => <span className="tag" key={`${question.id}-${tag}`}>{tag}</span>)}
+                <button
+                  className={`cta cta-ghost ${answers[question.id] === true ? 'on' : ''}`}
+                  style={{
+                    marginTop: 0,
+                    borderColor: answers[question.id] === true ? 'rgba(62,207,178,0.55)' : undefined,
+                    color: answers[question.id] === true ? 'var(--teal)' : undefined,
+                    background: answers[question.id] === true ? 'rgba(62,207,178,0.12)' : undefined,
+                  }}
+                  onClick={() => markQuestion(question.id, true)}
+                >
+                  Correct
+                </button>
+                <button
+                  className={`cta cta-ghost ${answers[question.id] === false ? 'on' : ''}`}
+                  style={{
+                    marginTop: 0,
+                    borderColor: answers[question.id] === false ? 'rgba(255,111,97,0.55)' : undefined,
+                    color: answers[question.id] === false ? 'var(--coral)' : undefined,
+                    background: answers[question.id] === false ? 'rgba(255,111,97,0.12)' : undefined,
+                  }}
+                  onClick={() => markQuestion(question.id, false)}
+                >
+                  Incorrect
+                </button>
               </div>
             </div>
           ))}

@@ -1,0 +1,88 @@
+{
+  "generated_at": "2026-06-17T23:10:00+01:00",
+  "api_base_url": "http://127.0.0.1:8010",
+  "frontend_url": "http://localhost:5173",
+  "auth": {
+    "method": "generated_test_accounts",
+    "status": "configured_for_live_run",
+    "account_a_id": 4,
+    "account_b_id": 5,
+    "note": "Live measurements used temporary ch4_* student accounts created through /auth/register."
+  },
+  "api_measurements": {
+    "backend_health": {
+      "status": "available",
+      "http_status": 200,
+      "elapsed_ms": 3.94,
+      "error": null,
+      "payload": {
+        "status": "ok",
+        "message": "Welcome to the AI-LMS API"
+      }
+    },
+    "frontend_health": {
+      "status": "available",
+      "http_status": 200,
+      "url": "http://localhost:5173"
+    },
+    "unauthenticated_protected_request": {
+      "endpoint": "GET /courses",
+      "http_status": 401,
+      "elapsed_ms": 54.59,
+      "expected": "401 or 403 when backend is available",
+      "result": "protected",
+      "error": "HTTP 401",
+      "payload": {
+        "detail": "Not authenticated"
+      }
+    },
+    "semantic_search": {
+      "query": "critical path",
+      "course_id": 6,
+      "endpoint": "GET /search?q=critical+path&course_id=6&limit=5",
+      "measured": true,
+      "http_status": 200,
+      "elapsed_ms": 170.39,
+      "result": "measured"
+    },
+    "ai_assistant": {
+      "endpoint": "POST /rag/ask",
+      "question": "What topics appear in the MIS415 2022/2023 past question?",
+      "course_id": 6,
+      "measured": true,
+      "http_status": 200,
+      "elapsed_ms": 157.26,
+      "result": "measured"
+    },
+    "upload_ocr_extraction": {
+      "endpoint": "POST /ingest/upload",
+      "file_type": "generated scanned-image PDF",
+      "measured": true,
+      "http_status": 200,
+      "elapsed_ms": 126843.14,
+      "ocr_used": true,
+      "cleaned_text_characters": 725,
+      "evidence": "docs/evidence/chapter4/CH4_TC07_TC10_TC12_unique_upload_rerun.txt"
+    },
+    "confirm_indexing": {
+      "endpoint": "POST /ingest/upload with confirm=true",
+      "file_type": "generated scanned-image PDF",
+      "measured": true,
+      "http_status": 200,
+      "elapsed_ms": 117606.41,
+      "matching_generated_past_question_records": 1,
+      "evidence": "docs/evidence/chapter4/CH4_TC07_TC10_TC12_unique_upload_rerun.txt"
+    }
+  },
+  "database": {
+    "status": "direct_sql_unavailable",
+    "reason": "DATABASE_URL is not set in the current shell environment.",
+    "api_verification": {
+      "past_questions_total_for_unique_upload_user": 1,
+      "lecture_notes_total_for_unique_upload_user": 0,
+      "matching_generated_past_question_records": 1,
+      "study_group_created_id": 5,
+      "cross_account_analytics_request": "HTTP 403 for Account B requesting Account A analytics"
+    }
+  }
+}

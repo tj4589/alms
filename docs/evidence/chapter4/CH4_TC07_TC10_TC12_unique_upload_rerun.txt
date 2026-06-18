@@ -1,0 +1,222 @@
+{
+  "account": {
+    "email": "ch4u_2a513eff@stu.cu.edu.ng",
+    "id": 6
+  },
+  "generated_pdf": "docs/evidence/generated/ch4_unique_scanned_2a513eff.pdf",
+  "analyze": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 126843.14,
+    "body": {
+      "status": "needs_confirmation",
+      "metadata": {
+        "document_type": "past_question",
+        "document_title": "TQA407 Evidence Methods Past Question 2026/2027",
+        "course_code": "TQA407",
+        "course_title": "Evidence Methods",
+        "instructor_names": [],
+        "academic_year": "2026/2027",
+        "year": 2027,
+        "semester": "Omega",
+        "department": "College of Science and Technology",
+        "faculty": "College of Science and Technology",
+        "college": "Science and Technology",
+        "exam_type": "test",
+        "topics_covered": [
+          "semantic search evaluation",
+          "document indexing evidence",
+          "ocr fallback",
+          "metadata correction",
+          "upload confirmation",
+          "privacy isolation for authenticated student analytics",
+          "study group creation",
+          "collaborative learning workflow",
+          "ai assistant retrieval timing",
+          "source-grounded answers"
+        ],
+        "source_file": "ch4_unique_scanned_2a513eff.pdf",
+        "extraction_method": "ocr",
+        "extraction_confidence": 0.82,
+        "extraction_failure_reason": "",
+        "indexed_status": "indexed",
+        "searchable": true,
+        "needs_review": false,
+        "needs_clearer_file": false,
+        "confidence_score": 1.0,
+        "extraction_warnings": [
+          "Weak embedded text detected"
+        ],
+        "pages_read": 1,
+        "raw_extracted_text": "COVENANT UNIVERSITY\n\nCOLLEGE OF SCIENCE AND TECHNOLOGY\n\nDEPARTMENT OF COMPUTER AND INFORMATION SCIENCES\n\nCOURSE CODE: TQA407\n\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\n\nSESSION: 2026/2027 SEMESTER: OMEGA\n\nINSTRUCTION: Answer any three questions.\n\nThis scanned test document is generated for Chapter Four OCR evidence only.\n\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\n\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\n\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\n\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\n\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+        "raw_extracted_text_truncated": false,
+        "cleaned_text_sample": "COVENANT UNIVERSITY\nCOLLEGE OF SCIENCE AND TECHNOLOGY\nCOURSE CODE: TQA407\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\nSESSION: 2026/2027 SEMESTER: OMEGA\nINSTRUCTION: Answer any three questions.\nThis scanned test document is generated for Chapter Four OCR evidence only.\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+        "cleaned_text_char_count": 725,
+        "content_preview": {
+          "instruction": "Answer any three questions.",
+          "scenario": "Question 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)",
+          "questions": []
+        },
+        "preview_quality": "medium",
+        "preview_sections": [
+          {
+            "title": "Page 1: Header and scenario",
+            "items": [
+              {
+                "label": "Instruction",
+                "text": "Answer any three questions."
+              },
+              {
+                "label": "Scenario",
+                "text": "Question 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)"
+              }
+            ]
+          }
+        ]
+      },
+      "preview": "COVENANT UNIVERSITY\nCOLLEGE OF SCIENCE AND TECHNOLOGY\nCOURSE CODE: TQA407\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\nSESSION: 2026/2027 SEMESTER: OMEGA\nINSTRUCTION: Answer any three questions.\nThis scanned test document is generated for Chapter Four OCR evidence only.\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+      "preview_snippets": [
+        "Answer any three questions.",
+        "Question 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)"
+      ],
+      "preview_sections": [
+        {
+          "title": "Page 1: Header and scenario",
+          "items": [
+            {
+              "label": "Instruction",
+              "text": "Answer any three questions."
+            },
+            {
+              "label": "Scenario",
+              "text": "Question 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)"
+            }
+          ]
+        }
+      ],
+      "content_preview": {
+        "instruction": "Answer any three questions.",
+        "scenario": "Question 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)",
+        "questions": []
+      },
+      "preview_quality": "medium",
+      "raw_extracted_text": "COVENANT UNIVERSITY\n\nCOLLEGE OF SCIENCE AND TECHNOLOGY\n\nDEPARTMENT OF COMPUTER AND INFORMATION SCIENCES\n\nCOURSE CODE: TQA407\n\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\n\nSESSION: 2026/2027 SEMESTER: OMEGA\n\nINSTRUCTION: Answer any three questions.\n\nThis scanned test document is generated for Chapter Four OCR evidence only.\n\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\n\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\n\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\n\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\n\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+      "raw_ocr_text": "COVENANT UNIVERSITY\n\nCOLLEGE OF SCIENCE AND TECHNOLOGY\n\nDEPARTMENT OF COMPUTER AND INFORMATION SCIENCES\n\nCOURSE CODE: TQA407\n\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\n\nSESSION: 2026/2027 SEMESTER: OMEGA\n\nINSTRUCTION: Answer any three questions.\n\nThis scanned test document is generated for Chapter Four OCR evidence only.\n\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\n\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\n\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\n\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\n\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+      "cleaned_text": "COVENANT UNIVERSITY\nCOLLEGE OF SCIENCE AND TECHNOLOGY\nCOURSE CODE: TQA407\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\nSESSION: 2026/2027 SEMESTER: OMEGA\nINSTRUCTION: Answer any three questions.\nThis scanned test document is generated for Chapter Four OCR evidence only.\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+      "extraction": {
+        "method": "ocr",
+        "page_count": 1,
+        "text_char_count": 785,
+        "cleaned_text_char_count": 725,
+        "ocr_used": true,
+        "extraction_confidence": 0.82,
+        "failure_reason": null,
+        "indexed_status": "indexed",
+        "searchable": true,
+        "needs_review": false,
+        "ocr_score": 155.84,
+        "ocr_useful_words": 87,
+        "warnings": [
+          "Weak embedded text detected"
+        ]
+      },
+      "message": "Read using OCR. Please review the detected metadata."
+    }
+  },
+  "confirm": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 117606.41,
+    "body": {
+      "status": "success",
+      "document_id": 22,
+      "document_type": "past_question",
+      "chunks_indexed": 1,
+      "indexed": true,
+      "searchable": true,
+      "metadata": {
+        "document_type": "past_question",
+        "document_title": "TQA407 Evidence Methods 2A513Eff Past Question 2026/2027",
+        "course_code": "TQA407",
+        "course_title": "Evidence Methods 2A513Eff",
+        "instructor_names": [],
+        "academic_year": "2026/2027",
+        "year": 2027,
+        "semester": "Omega",
+        "department": "Computer and Information Sciences",
+        "faculty": "College of Science and Technology",
+        "college": "Science and Technology",
+        "exam_type": "test",
+        "topics_covered": [
+          "semantic search evaluation",
+          "document indexing evidence",
+          "ocr fallback",
+          "metadata correction",
+          "upload confirmation",
+          "privacy isolation for authenticated student analytics",
+          "study group creation",
+          "collaborative learning workflow",
+          "ai assistant retrieval timing",
+          "source-grounded answers"
+        ],
+        "source_file": "ch4_unique_scanned_2a513eff.pdf",
+        "extraction_method": "ocr",
+        "extraction_confidence": 0.82,
+        "extraction_failure_reason": "",
+        "indexed_status": "indexed",
+        "searchable": true,
+        "needs_review": false,
+        "needs_clearer_file": false,
+        "confidence_score": 1.0,
+        "extraction_warnings": [
+          "Weak embedded text detected"
+        ],
+        "pages_read": 1,
+        "raw_extracted_text": "COVENANT UNIVERSITY\n\nCOLLEGE OF SCIENCE AND TECHNOLOGY\n\nDEPARTMENT OF COMPUTER AND INFORMATION SCIENCES\n\nCOURSE CODE: TQA407\n\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\n\nSESSION: 2026/2027 SEMESTER: OMEGA\n\nINSTRUCTION: Answer any three questions.\n\nThis scanned test document is generated for Chapter Four OCR evidence only.\n\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\n\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\n\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\n\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\n\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+        "raw_extracted_text_truncated": false,
+        "cleaned_text_sample": "COVENANT UNIVERSITY\nCOLLEGE OF SCIENCE AND TECHNOLOGY\nCOURSE CODE: TQA407\nCOURSE TITLE: EVIDENCE METHODS 2A513EFF TIME: 2 HOURS\nSESSION: 2026/2027 SEMESTER: OMEGA\nINSTRUCTION: Answer any three questions.\nThis scanned test document is generated for Chapter Four OCR evidence only.\nQuestion 1: Explain semantic search evaluation and document indexing evidence. (20 marks)\nQuestion 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)\nQuestion 3: Explain privacy isolation for authenticated student analytics. (20 marks)\nQuestion 4: Discuss study group creation and collaborative learning workflow. (20 marks)\nQuestion 5: Explain Al assistant retrieval timing and source-grounded answers. (20 marks)",
+        "cleaned_text_char_count": 725,
+        "content_preview": {
+          "instruction": "Answer any three questions.",
+          "scenario": "Question 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)",
+          "questions": []
+        },
+        "preview_quality": "medium",
+        "preview_sections": [
+          {
+            "title": "Page 1: Header and scenario",
+            "items": [
+              {
+                "label": "Instruction",
+                "text": "Answer any three questions."
+              },
+              {
+                "label": "Scenario",
+                "text": "Question 2: Discuss OCR fallback, metadata correction, and upload confirmation. (20 marks)"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "counts": {
+    "past_questions_total_for_user": 1,
+    "lecture_notes_total_for_user": 0,
+    "matching_generated_past_question_records": 1,
+    "matching_generated_lecture_note_records": 0,
+    "past_questions_http": 200,
+    "lecture_notes_http": 200
+  },
+  "computed": {
+    "ocr_used": true,
+    "ocr_chars": 725,
+    "corrected_title_saved": false,
+    "saved_title": "TQA407 Evidence Methods 2A513Eff Past Question 2026/2027",
+    "saved_academic_year": "2026/2027"
+  },
+  "performance": {
+    "analyze_ms": 126843.14,
+    "confirm_index_ms": 117606.41
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "source": "Authenticated API verification after unique scanned PDF upload",
+  "evidence_file": "CH4_TC07_TC10_TC12_unique_upload_rerun.txt",
+  "past_questions_total_for_user": 1,
+  "lecture_notes_total_for_user": 0,
+  "matching_generated_past_question_records": 1,
+  "matching_generated_lecture_note_records": 0,
+  "past_questions_http": 200,
+  "lecture_notes_http": 200,
+  "status": "Pass"
+}

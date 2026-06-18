@@ -44,6 +44,132 @@ def _topic_terms(topic: str | None) -> list[str]:
     return list(dict.fromkeys(term for term in phrases if term))
 
 
+PRACTICE_TOPIC_KEYWORDS = [
+    ("project network diagram", r"\bnetwork\s+diagram\b"),
+    ("critical path", r"\bcritical\s+path\b"),
+    ("path lengths", r"\bpath\s+lengths?\b|\blength\s+of\s+each\s+path\b"),
+    ("PERT duration", r"\bPERT\b|\bexpected\s+duration\b|optimistic|pessimistic|most\s+likely"),
+    ("project scope management", r"\bscope\s+management\b"),
+    ("scope management issues", r"\bscope\s+(?:management\s+)?(?:issues|problems)\b"),
+    ("risk management", r"\brisk\s+management\b|\brisk\b"),
+    ("risk breakdown structure", r"\brisk\s+breakdown\s+structure\b|\bRBS\b"),
+    ("communication management", r"\bcommunication\s+management\b|\bcommunication\b"),
+    ("procurement management", r"\bprocurement\s+management\b|\bprocurement\b"),
+    ("contract pricing", r"\bcontract\s+pricing\b|\bpricing\s+contracts?\b"),
+    ("cost management", r"\bcost\s+management\b"),
+    ("earned value management", r"\bearned\s+value\b|\bEVM\b"),
+    ("cost variance", r"\bcost\s+variance\b|\bCV\b"),
+    ("schedule variance", r"\bschedule\s+variance\b|\bSV\b"),
+    ("cost performance index", r"\bcost\s+performance\s+index\b|\bCPI\b"),
+    ("schedule performance index", r"\bschedule\s+performance\s+index\b|\bSPI\b"),
+    ("stakeholder management", r"\bstakeholder\s+management\b|\bstakeholder\b"),
+    ("power/interest grid", r"\bpower\s*/?\s*interest\s+grid\b"),
+]
+
+
+def _clean_practice_prompt(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" -:\t\r\n")
+    text = re.sub(r"\b(COVENANT UNIVERSITY|COLLEGE OF|DEPARTMENT OF|COURSE CODE|COURSE TITLE|SESSION|SEMESTER)\b.*?(?=\b(question|identify|determine|calculate|discuss|explain|evaluate|state|draw)\b|$)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^[#*=_~|\\/\W\d]{1,12}$", "", text).strip()
+    text = re.sub(r"\bQuestion\s*\d+\s*[:.)-]?\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s+", " ", text).strip(" -:")
+    if text and not text.endswith("?") and not text.endswith("."):
+        text += "."
+    return text[:320]
+
+
+def _practice_tags(text: str, metadata: dict | None = None) -> list[str]:
+    tags = [tag for tag, pattern in PRACTICE_TOPIC_KEYWORDS if re.search(pattern, text, re.IGNORECASE)]
+    if not tags:
+        haystack = " ".join((metadata or {}).get("topics_covered") or [])
+        tags = [tag for tag, pattern in PRACTICE_TOPIC_KEYWORDS if re.search(pattern, haystack, re.IGNORECASE)]
+    return list(dict.fromkeys(tags))[:6]
+
+
+def _practice_source_title(row: models.PastQuestion) -> str:
+    metadata = row.metadata_json or {}
+    title = metadata.get("document_title") or metadata.get("source_file") or metadata.get("course_title") or "Uploaded past question"
+    return re.sub(r"\s+", " ", str(title)).strip()
+
+
+def _preview_question_prompts(metadata: dict | None) -> list[str]:
+    metadata = metadata or {}
+    preview = metadata.get("content_preview") or {}
+    prompts: list[str] = []
+    questions = preview.get("questions") if isinstance(preview, dict) else None
+    if isinstance(questions, list):
+        for item in questions:
+            if isinstance(item, dict):
+                prompts.append(str(item.get("preview") or item.get("text") or ""))
+            else:
+                prompts.append(str(item or ""))
+    preview_sections = metadata.get("preview_sections") or []
+    if isinstance(preview_sections, list):
+        for section in preview_sections:
+            if isinstance(section, dict) and re.search(r"question|\b\d+[.)]", str(section.get("label") or ""), re.IGNORECASE):
+                prompts.append(str(section.get("text") or section.get("preview") or ""))
+    return [_clean_practice_prompt(prompt) for prompt in prompts if _clean_practice_prompt(prompt)]
+
+
+def _fallback_practice_prompts(row: models.PastQuestion) -> list[str]:
+    metadata = row.metadata_json or {}
+    text = str(metadata.get("cleaned_text") or row.content_text or "")
+    chunks = re.split(r"\b(?:Question\s*)?(?=[1-9]\s*[.)])", text)
+    prompts: list[str] = []
+    for chunk in chunks:
+        cleaned = _clean_practice_prompt(chunk)
+        if len(cleaned) < 24:
+            continue
+        if re.search(r"covenant university|department|course title|session|semester|#\d+", cleaned, re.IGNORECASE):
+            continue
+        if not re.search(r"\b(identify|determine|calculate|discuss|explain|evaluate|state|draw|prepare|develop|risk|cost|scope|critical|PERT|stakeholder|procurement|communication)\b", cleaned, re.IGNORECASE):
+            continue
+        prompts.append(cleaned)
+    return list(dict.fromkeys(prompts))[:8]
+
+
+def _practice_item_score(item: dict, topic: str | None) -> int:
+    if not topic:
+        return 0
+    haystack = " ".join([item.get("prompt", ""), " ".join(item.get("topic_tags", []))]).lower()
+    terms = _topic_terms(topic)
+    score = sum(4 for term in terms if term in haystack)
+    if "critical path" in topic.lower():
+        score += sum(
+            3
+            for term in ["critical path", "network diagram", "pert", "path length", "completion time"]
+            if term in haystack
+        )
+    return score
+
+
+def _serialize_practice_items(rows: list[models.PastQuestion], topic: str | None, limit: int) -> list[dict]:
+    items: list[dict] = []
+    seen: set[str] = set()
+    for row in rows:
+        metadata = row.metadata_json or {}
+        prompts = _preview_question_prompts(metadata) or _fallback_practice_prompts(row)
+        source = _practice_source_title(row)
+        for index, prompt in enumerate(prompts, start=1):
+            key = re.sub(r"\W+", " ", prompt.lower()).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            tags = _practice_tags(prompt, metadata)
+            items.append(
+                {
+                    "id": f"pq-{row.id}-{index}",
+                    "prompt": prompt,
+                    "source": source,
+                    "year": row.year or metadata.get("year"),
+                    "difficulty": row.difficulty or "mixed",
+                    "topic_tags": tags,
+                }
+            )
+    items.sort(key=lambda item: _practice_item_score(item, topic), reverse=True)
+    return items[:limit]
+
+
 def serialize_course(row: models.Course) -> dict:
     return {
         "id": row.id,
@@ -285,7 +411,7 @@ def generate_practice(
         )
         questions = (
             topic_query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
-            .limit(safe_count)
+            .limit(max(safe_count, 20))
             .all()
         )
         if not questions and req.course_id is not None:
@@ -295,28 +421,23 @@ def generate_practice(
             )
             questions = (
                 query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
-                .limit(safe_count)
+                .limit(max(safe_count, 20))
                 .all()
             )
     else:
         questions = (
             query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
-        .limit(safe_count)
+        .limit(max(safe_count, 20))
         .all()
         )
+    practice_items = _serialize_practice_items(questions, req.topic, safe_count)
+    if questions and not practice_items:
+        warning = warning or "ExamMind found uploaded material, but it could not extract clean practice prompts from it yet."
 
     return {
         "topic": req.topic or "Mixed revision",
         "warning": warning,
-        "questions": [
-            {
-                "id": question.id,
-                "prompt": question.content_text,
-                "year": question.year,
-                "difficulty": question.difficulty,
-            }
-            for question in questions
-        ],
+        "questions": practice_items,
     }
 
 

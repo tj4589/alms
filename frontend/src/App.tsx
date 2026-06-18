@@ -28,8 +28,10 @@ import Progress from './screens/Progress';
 import StudyGroups from './screens/StudyGroups';
 import Empty from './screens/Empty';
 import SearchResults from './screens/SearchResults';
+import Settings from './screens/Settings';
 import OfflineStatus from './components/OfflineStatus';
 import { Auth } from './components/Auth';
+import Landing from './components/Landing';
 import { apiGet } from './lib/api';
 
 function initials(name: string): string {
@@ -84,8 +86,10 @@ export default function App() {
     }
     return localStorage.getItem('token');
   });
+  const [publicView, setPublicView] = useState<'landing' | 'auth'>('landing');
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
-  const [activeScreen, setActiveScreen] = useState<ScreenType>('upload');
+  const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [toast, setToast] = useState('');
@@ -130,14 +134,15 @@ export default function App() {
     } catch {
       // /me failed but login succeeded — proceed without user info
     }
-    setActiveScreen('upload');
+    setActiveScreen('dashboard');
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
-    setActiveScreen('upload');
+    setActiveScreen('dashboard');
+    setPublicView('landing');
     setSidebarOpen(false);
   };
 
@@ -298,13 +303,32 @@ export default function App() {
   };
 
   if (!token) {
-    return <Auth onLogin={handleLogin} />;
+    if (publicView === 'landing') {
+      return (
+        <Landing
+          onGetStarted={() => {
+            setAuthInitialMode('register');
+            setPublicView('auth');
+          }}
+          onSignIn={() => {
+            setAuthInitialMode('login');
+            setPublicView('auth');
+          }}
+        />
+      );
+    }
+
+    return (
+      <Auth
+        key={authInitialMode}
+        onLogin={handleLogin}
+        initialMode={authInitialMode}
+        onBackToLanding={() => setPublicView('landing')}
+      />
+    );
   }
 
   const userInitials = user ? initials(user.name) : '?';
-  const userRole = user?.role
-    ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
-    : 'Loading...';
   const searchResults = searchResult?.past_questions || [];
   const discussionContext =
     communityContext?.action === 'discussion'
@@ -335,13 +359,15 @@ export default function App() {
           <div className="nav-section">Community</div>
           <div className={`ni ${activeScreen === 'collab' ? 'on' : ''}`} onClick={() => go('collab')}><span className="ni-ico">C</span>Collaboration</div>
           <div className={`ni ${activeScreen === 'groups' ? 'on' : ''}`} onClick={() => go('groups')}><span className="ni-ico">G</span>Study Groups</div>
+          <div className="nav-section">Account</div>
+          <div className={`ni ${activeScreen === 'settings' ? 'on' : ''}`} onClick={() => go('settings')}><span className="ni-ico">S</span>Settings</div>
         </nav>
         <div className="user-row">
           <div className="user-btn">
             <div className="ava">{userInitials}</div>
             <div>
               <div className="ava-name">{user?.name ?? 'Loading...'}</div>
-              <div className="ava-role">{user?.username ? `@${user.username}` : userRole}</div>
+              <div className="ava-role">{user?.username ? `@${user.username}` : 'Student'}</div>
             </div>
           </div>
           <button
@@ -550,7 +576,7 @@ export default function App() {
           </div>
           <div className="tb-right">
             <OfflineStatus />
-            <button className="ico-btn" title="Settings" onClick={() => notifyUnavailable('Settings')}>S</button>
+            <button className="ico-btn" title="Settings" onClick={() => go('settings')}>S</button>
             <button className="ico-btn" title="Notifications" onClick={() => notifyUnavailable('Notifications')}>!<span className="notif-pip"></span></button>
             <div className="ava" style={{ width: 32, height: 32, fontSize: 11 }}>{userInitials}</div>
           </div>
@@ -569,6 +595,7 @@ export default function App() {
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
+        {activeScreen === 'settings' && <Settings go={go} user={user} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}

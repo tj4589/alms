@@ -1,0 +1,325 @@
+{
+  "mis415_course": {
+    "id": 6,
+    "code": "MIS415",
+    "name": "Project Management",
+    "description": "Auto-created from uploaded Past Question."
+  },
+  "search_response": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 456.98,
+    "body": {
+      "query": "critical path",
+      "understanding": {
+        "interpreted_topic": "critical path",
+        "related_terms": [
+          "critical path",
+          "critical",
+          "path"
+        ],
+        "possible_courses": [],
+        "possible_people": [],
+        "person_name": null,
+        "course_code": null,
+        "topic": null,
+        "should_search": false,
+        "should_call_rag": false,
+        "needs_course": false,
+        "needs_person": false,
+        "intent": "general_search",
+        "confidence": 0.75,
+        "needs_clarification": false,
+        "clarifying_question": null
+      },
+      "past_questions": [
+        {
+          "id": 13,
+          "course_id": 6,
+          "year": 2023,
+          "semester": "Alpha",
+          "difficulty": "mixed",
+          "title": "MIS415 Project Management Past Question 2022/2023",
+          "content_text": "Instruction: ANSWER ANY THREE QUESTIONS",
+          "snippets": [
+            "Instruction: ANSWER ANY THREE QUESTIONS",
+            "Scenario: a reputable company in Lagos to execute a Wide Area Network (WAN) project for Ten (10) of",
+            "MIS415 oS es a a EAP COVENANT UNIVERSITY CANAANLAND, KM 10, IDIROKO ROAD P.M.B 1023, OTA, OGUN STATE, NIGERIA B.Sc DEGREE EXAMINATION SESSION: 2022/2023 SEMESTER: ALPHA COURSE CODE: MIS415 CREDIT UNIT: 2 COURSE TITLE: PROJECT MANAGEMENT TIME: 2 HOURS INSTRUCTION: ANSWER ANY THREE..."
+          ],
+          "chunk_ids": [
+            13,
+            11,
+            12,
+            14,
+            17,
+            15,
+            16
+          ],
+          "matching_sections": 7,
+          "metadata_json": {
+            "document_type": "past_question",
+            "document_title": "MIS415 Project Management Past Question 2022/2023",
+            "course_code": "MIS415",
+            "course_title": "Project Management",
+            "instructor_names": [],
+            "academic_year": "2022/2023",
+            "year": 2023,
+            "semester": "Alpha",
+            "department": "Computer and Information Sciences",
+            "faculty": "Computer 4 Info Sciences",
+            "college": "Covenant University",
+            "exam_type": "final",
+            "topics_covered": [
+              "project network diagram",
+              "critical path",
+              "project scope management",
+              "project management",
+              "risk management",
+              "project communication management",
+              "cost management",
+              "stakeholder management",
+              "risk breakdown structure",
+              "negative risk strategies",
+              "risk identification tools",
+              "communication management",
+              "inadequate communication",
+              "procurement management",
+              "contract pricing",
+              "earned value management",
+              "cost variance",
+              "schedule variance",
+              "cost performance index",
+              "schedule performance index",
+              "power/interest grid"
+            ],
+            "source_file": "mis415 22-23.pdf",
+            "extraction_method": "ocr",
+            "extraction_confidence": 0.93,
+            "extraction_failure_reason": "",
+            "indexed_status": "indexed",
+            "searchable": true,
+            "needs_review": false,
+            "needs_clearer_file": false,
+            "confidence_score": 0.9,
+            "extraction_warnings": [
+              "Weak embedded text detected"
+            ],
+            "pages_read": 3,
+            "raw_extracted_text": "MIS 415\n\noS       es    a   a                          EAP\no  74    .                               Oo OF DEPART MEN;\n5 id          \u2018\n\n                   Date:..272/22\na eee\nCOVENANT UNIVERSITY\n\nCANAANLAND, KM 10, IDIROKO ROAD\nP.M.B 1023, OTA, OGUN STATE, NIGERIA\n\nB.Sc DEGREE EXAMINATION\n\nCOLLEGE: SCIENCE AND TECHNOLOGY               DEPT: COMPUTER & INFO. SCI\nSESSION: 2022/2023                                SEMESTER: ALPHA\n\nCOURSE CODE: MIS 415                                       CREDIT UNIT: 2\n\nCOURSE TITLE: PROJECT MANAGEMENT             TIME: 2 HOURS\n\nINSTRUCTION: ANSWER ANY THREE QUESTIONS\n\nAs an experienced Project Manager of an Information Technology (IT) firm, you were invited by\n\na reputable company in Lagos to execute a Wide Area Network (WAN) project for Ten (10) of\n\nher subsidiaries in Lagos Metropolis within a time frame of_30 days. IT resources needed for this\n\nproject include hardware devices such as routers, switches, firewall and other software resources.\n\nOther essential resources include funds, five Network engineers, and_10 Network technicians\namong others to facilitate the successful completion of the project. Due to your many years of\nexperience as a project manager, and coupled with your professional  certifications in the\ndifferent knowledge areas of project management, you are expected to oversee and contribute to\nthe successful completion of this project within the specified time.\n\nn line with the above scenario, discuss issues relating to the proposed WAN project where\napplicable in the questions highlighted below:\nThe Project network diagram below shows the Arrow Diagramming of the WAN project\nomprising the various activities and tasks involved in building the WAN connection of the 10\nubsidiaries in Lagos Metropolis as reflected in Table 1 below\n\nas     > \\85\n\\ 8) Finish\n\n,        1\nStart \\       /\n\nTable 1 showing Activity/Tasks and Duration for the WAN Project\n\nActivity/Node      Task                                              Duration (days)\n\nA           Contacting a service provider and | 3\nhaving the necessary documentation\ndone\n\nae\n\nB                     Acguiring a router and connecting to\na WAN link for 10 subsidiaries\n\nConnecting your network switches\nto your router for 10 subsidiaries\n\nnstalling \u2018firewalls        for        IK)\nsubsidiaries\n\nTest running the WAN connections\nin phases for the 10 subsidiaries\n\ninal implementation of the WAN\n\nconnection for the 10subsidiaries\n\nQuestion 1 _~\n\nI(a). Answer the following questions in line with project network diagram illustrated above (10%\nmarks)\n\ni. Identify the paths on this network diagram\nii. Determine the length of each path.\niii. Determine the critical path.\niv. What is the shortest amount of time needed to complete this project?\n\nv. Calculate the project duration where the Optimistic time=15, Most likely time =20 days\nPessimistic Time=25 days\n\n(b). Discuss the six processes involved in project scope management as applicable to the\nproposed WAN project                                                                      (9 marks)\n\n(c). Explain briefly any four common issues often faced by Project Managers in scope\nmanagement.                                                                                                (4 marks)\n\nQuestion 2\n\n(a). Explain four possible strategies you would employ in handling the negative risks\nidentified in the proposed WAN project.                                                     (4 marks)\n\n(b). Identify and explain briefly any four risk identification tools and techniques that can be\nused by project managers to mitigate known and unknown risks as applicable to the proposed\nWAN project.                                                                                     (10 marks)\n\nCOVENANT UNIVEe srry OTA\nCOMPUTER 4 INFO SCIENCES\n\n=\n\n.\nseueeentdy  DEEtR er eres bes eesese\n\nHEAD OF DEPARTMENT\n\n(c). Highlight and explain any five sources of IT project risk as applicable to the proposed\n\nWAN project\n\n(5 marks)\n\n(d). What is a Risk Breakdown Structure?\n\n(2% marks)\n\n(e ). What does it mean for a project manager to be risk seeking?\n\n(2 marks)\n\nQuestion 3\n\n(a). Discuss the four components of project communication management.\n\n(3 marks)\n\n(b). Discuss the implications of  inadequate communication on the part of the project manager\n\non project scope, quality, project risk, procurement and stakeholders\u2019 involvement, of the\n\n(4% marks)\n\nproposed WAN project.\n\n(c). Discuss briefly on any two tools that can be used by the Project Manager in planning\n\nprocurement management for the proposed WAN project\n\n(3 marks)\n\n(d). Explain briefly any two types of contract pricing that can be used by the project manager in\n\nthe procurement of IT accessories and other materials to aid the successful completion of the\n\nWAN project.\n\n(3 marks)\n\nQuestion 4  \"ok\n\n(a). Explain the following cost management principles as applicable to the proposed WAN\n\nproject. (i) Sunk cost (ii) Direct cost (iii) Reserves (iv) Intangible cost\n\n(10 marks)\n\n(b). Given the following information on the proposed WAN project, if the Planned Value\n\n(PV)=$23,000, Earned Value (EV)=$20,000, Actual cost (AC)=$25,000 and Budget at\n\nCompletion (BAC)=$120,000.\n\nCalculate the following and state its implications on the WAN project:\n\n(i)Cost Variance, (ii)Schedule Variance (iii) Cost Performance Index (CPI) (iv) Schedule\n\nPerformance index\n\n(8 marks)\n\n(c). How is the project doing? Is it ahead of schedule or behind schedule? Is it under budget or\n\nover budget\n\n(54 marks)\n\nQuestion 5\n\nPrete ele +\n\n(a) Discuss the four processes involved in managing stakeholders\u2019 engagement as applicable to\n\nthe proposed WAN project\n\n(10 marks)\n\n(b) Explain briefly how you would handle difficult and uncooperative stakeholders in order to\n\navoid project/schedule slips on the WAN project\n\n(5 marks)\n\n(\u00a2) Explain the importance of a Power/Interest Grid to the Project Manager in Stakholder\n\nManagement.\n\n(5 marks)\n\n(d) Identify any three communication or collaboration\n\ntools and state its importance in\n\nStakeholder Management.\n\n(3% marks)\n\n COVENANT UNIVER CITY OTA\n\nCOMPUTER 4 INFO. SCIENCES",
+            "raw_extracted_text_truncated": false,
+            "cleaned_text_sample": "MIS415\noS es a a EAP\nCOVENANT UNIVERSITY\nCANAANLAND, KM 10, IDIROKO ROAD\nP.M.B 1023, OTA, OGUN STATE, NIGERIA\nB.Sc DEGREE EXAMINATION\nSESSION: 2022/2023 SEMESTER: ALPHA\nCOURSE CODE: MIS415 CREDIT UNIT: 2\nCOURSE TITLE: PROJECT MANAGEMENT TIME: 2 HOURS\nINSTRUCTION: ANSWER ANY THREE QUESTIONS\nAs an experienced Project Manager of an Information Technology (IT) firm, you were invited by\na reputable company in Lagos to execute a Wide Area Network (WAN) project for Ten (10) of\nher subsidiaries in Lagos Metropolis within a time frame of_30 days. IT resources needed for this\nproject include hardware devices such as routers, switches, firewall and other software resources.\nOther essential resources include funds, five Network engineers, and_10 Network technicians\namong others to facilitate the successful completion of the project. Due to your many years of\nexperience as a project manager, and coupled with your professional certifications in the\ndifferent knowledge areas of project management, you are expected to oversee and contribute to\nthe successful completion of this project within the specified time.\nn line with the above scenario, discuss issues relating to the proposed WAN project where\napplicable in the questions highlighted below\nThe Project network diagram below shows the Arrow Diagramming of the WAN project\nomprising the various activities and tasks involved in building the WAN connection of the 10\nubsidiaries in Lagos Metropolis as reflected in Table 1 below\nStart \\ /\nTable 1 showing Activity/Tasks and Duration for the WAN Project\nActivity/Node Task Duration (days)\nA Contacting a service provider and | 3\nhaving the necessary documentation\nB Acguiring a router and connecting to\na WAN link for 10 subsidiaries\nConnecting your network switches\nto your router for 10 subsidiaries\nnstalling \u2018firewalls for IK)\nsubsidiaries\nTest running the WAN connections\nin phases for the 10 subsidiaries\ninal implementation of the WAN\nconnection for the 10subsidiaries\nQuestion 1\nI(a). Answer the following questions in line with project network diagram illustrated above (10%\nmarks)\ni. Identify the paths on this network diagram\nii. Determine the length of each path.\niii. Determine the critical path.\niv. What is the shortest amount of time needed to complete this project?\nv. Calculate the project duration where the Optimistic time=15, Most likely time =20 days\nPessimistic Time=25 days\n(b). Discuss the six processes involved in project scope management as applicable to the\nproposed WAN project (9 marks)\n(c). Explain briefly any four common issues often faced by Project Managers in scope\nmanagement. (4 marks)\nQuestion 2\n(a). Explain four possible strategies you would employ in handling the negative risks\nidentified in the proposed WAN project. (4 marks)\n(b). Identify and explain briefly any four risk identification tools and techniques that can be\nused by project managers to mitigate known and unknown risks as applicable to the proposed\nWAN project. (10 marks)\nCOVENANT UNIVEe srry OTA\nCOMPUTER 4 INFO SCIENCES\nseueeentdy DEEtR er eres bes eesese\n(c). Highlight and explain any five sources of IT project risk as applicable to the proposed\nWAN project\n(5 marks)\n(d). What is a Risk Breakdown Structure?\n(2% marks)\n(e). What does it mean for a project manager to be risk seeking?\n(2 marks)\nQuestion 3\n(a). Discuss the four components of project communication management.\n(3 marks)\n(b). Discuss the implications of inadequate communication on the part of the project manager\non project scope, quality, project risk, procurement and stakeholders\u2019 involvement, of the\n(4% marks)\nproposed WAN project.\n(c). Discuss briefly on any two tools that can be used by the Project Manager in planning\nprocurement management for the proposed WAN project\n(3 marks)\n(d). Explain briefly any two types of contract pricing that can be used by the project manager in\nthe procurement of IT accessories and other materials to aid the successful completion of the\nWAN project.\n(3 marks)\nQuestion 4 \"ok\n(a). Explain the following cost management principles as applicable to the proposed WAN\nproject. (i) Sunk cost (ii) Direct cost (iii) Reserves (iv) Intangible cost\n(10 marks)\n(b). Given the following information on the proposed WAN project, if the Planned Value\n(PV)=$23,000, Earned Value (EV)=$20,000, Actual cost (AC)=$25,000 and Budget at\nCompletion (BAC)=$120,000.\nCalculate the following and state its implications on the WAN project\n(i)Cost Variance, (ii)Schedule Variance (iii) Cost Performance Index (CPI) (iv) Schedule\nPerformance index\n(8 marks)\n(c). How is the project doing? Is it ahead of schedule or behind schedule? Is it under budget or\nover budget\n(54 marks)\nQuestion 5\nPrete ele +\n(a) Discuss the four processes involved in managing stakeholders\u2019 engagement as applicable to\nthe proposed WAN project\n(10 marks)\n(b) Explain briefly how you would handle difficult and uncooperative stakeholders in order to\navoid project/schedule slips on the WAN project\n(5 marks)\n(\u00a2) Explain t",
+            "cleaned_text_char_count": 5271,
+            "content_preview": {
+              "instruction": "ANSWER ANY THREE QUESTIONS",
+              "scenario": "a reputable company in Lagos to execute a Wide Area Network (WAN) project for Ten (10) of",
+              "questions": []
+            },
+            "preview_quality": "medium",
+            "preview_sections": [
+              {
+                "title": "Page 1: Header and scenario",
+                "items": [
+                  {
+                    "label": "Instruction",
+                    "text": "ANSWER ANY THREE QUESTIONS"
+                  },
+                  {
+                    "label": "Scenario",
+                    "text": "a reputable company in Lagos to execute a Wide Area Network (WAN) project for Ten (10) of"
+                  }
+                ]
+              }
+            ],
+            "chunk_index": 2,
+            "indexed": true
+          },
+          "verified_status": "unverified"
+        },
+        {
+          "id": 20,
+          "course_id": 6,
+          "year": 2025,
+          "semester": "Alpha",
+          "difficulty": "mixed",
+          "title": "MIS415 Project Management Past Question 2024/2025",
+          "content_text": "Scenario: investment of 50,000. The project is expected to generate cash inflows of 20,000 in Year 1,",
+          "snippets": [
+            "Scenario: investment of 50,000. The project is expected to generate cash inflows of 20,000 in Year 1,",
+            "Question 3: Question 3 was detected, but the OCR wording may require review.",
+            "UNIVERSIT COVENANT UNIVERSITY CANAANLAND,KM 10, IDIROKOROAD P.M.B 1023, OTA,OGUN STATE,NIGERIA. TITLE OF EXAMINATION B.SC EXAMINATION COLLEGE: SCIENCE AND TECHNOLOGY SEMESTER: ALPHA COURSE CODE MIS415 COURSE TITLE: PROJECT MANAGEMENT INSTRUCTION Answer ANY three (3) Questions TIM..."
+          ],
+          "chunk_ids": [
+            20,
+            18,
+            21,
+            19
+          ],
+          "matching_sections": 4,
+          "metadata_json": {
+            "document_type": "past_question",
+            "document_title": "MIS415 Project Management Past Question 2024/2025",
+            "course_code": "MIS415",
+            "course_title": "Project Management",
+            "instructor_names": [],
+            "academic_year": "2024/2025",
+            "year": 2025,
+            "semester": "Alpha",
+            "department": "Science and Technology",
+            "faculty": "Science and Technology",
+            "college": "Science and Technology",
+            "exam_type": "final",
+            "topics_covered": [
+              "critical path",
+              "risk management",
+              "procurement management",
+              "stakeholder management",
+              "stakeholder engagement",
+              "project management",
+              "project management in modern it environments",
+              "triple constraint in project management",
+              "balancing constraints for project success",
+              "project management process groups",
+              "project manager skills and competencies",
+              "strategic planning for project selection",
+              "project selection methods",
+              "net present value (np) calculation",
+              "return on investment (roi) calculation",
+              "project execution techniques",
+              "project scheduling and dependencies",
+              "quality assurance vs. quality control",
+              "vendor selection criteria in project procurement",
+              "project risk management",
+              "stakeholder engagement in project communication",
+              "project procurement management processes",
+              "project quality management tools",
+              "procurement management plan"
+            ],
+            "source_file": "MIS415 Past Questions 2024-25.pdf",
+            "extraction_method": "embedded_text",
+            "extraction_confidence": 0.98,
+            "extraction_failure_reason": "",
+            "indexed_status": "indexed",
+            "searchable": true,
+            "needs_review": false,
+            "needs_clearer_file": false,
+            "confidence_score": 1.0,
+            "extraction_warnings": [],
+            "pages_read": 2,
+            "raw_extracted_text": "HENANT\nUNIVERSIT\nCOVENANT UNIVERSITY\nCANAANLAND,KM 10, IDIROKOROAD\nP.M.B 1023, OTA,OGUN STATE,NIGERIA.\nTITLE OF EXAMINATION:\nB.SC EXAMINATION\nCOLLEGE: SCIENCE AND TECHNOLOGY\nDEPARTMENT: COMPUTER AND INFORMATION SCIENCES\nSESSION: 2024/2025\nSEMESTER: ALPHA\nCOURSE CODE:\nMIS415\nCREDIT\nUNIT:2\nCOURSE TITLE: PROJECT\nMANAGEMENT\nINSTRUCTION:\nAnswer ANY three\n(3) Questions\nTIME: 2HOURS\nQuestion\nOne\na.\nDiscuss\nthe importance\nof project management\nin modern IT environments.\n(5marks)\nb.\ni)Explain\nthe triple\nconstraint in\nprojectmarnagement.\n(3marks)\n) How does balancing the constraintsin () impacts\nproject success? Supportyour answerwith\nexample\n(3 marks)\nC.\nDescribe\nthe five project management process groups and their significancein ensuring\nsuccessful\nproject execution.\n(7.5 marks)\nd. A project manager needs\nseveral\nskills and competencies,\nidentify three classes ofprojects and state\nthe most important\nskills required for each.\n(5 marks)\nQuestion Two\na.\nDescribe the strategic\nplanning process\nin project selection.\n(5 marks)\nb.\nExplain\nthree (3)project selection\nmethods.\n(6marks)\nc.\ni)A XYZ Hospital\nis considering\ninvesting\nin a new 3D Scanning\nsystem that requires an initial\ninvestment of $50,000. The project is expected to generate cash inflows of $20,000 in Year 1,\n$25,000 in Year 2,and $30,000 in Year 3.If the company's\ndiscount rate is 10%, calculatethe Net\nPresent Value (NP)of the project and determine\nwhether\nit should be accepted.\n(6 marks)\nThe company\nis expecting to generate\ntotal\ndiscounted\nbenefits of $90,000over the lifetime\nof\nthe 3D scanning system. Calculate the Return on Investnent (RO)and determine\nwhether the\nproject is financially\nviable.\n(3marks)\nd. Briefly describe three project execution techniques\n(3.5 marks)\nQuestion\n3\nTable 1 showsdifferent activities\nwith their respective duration in Project XYZ.\nTable 1: Project ABCactivities\nActivity\nDuration\n(days)\nPredecessor\nA\n3\n|\n5\n4\n\u001a\n3\nB\nA\nC\n4\nA\nD\n6\nB,C\nC\nD,E\nCoVFNANT UNRYOTA!\nCOaPyTER\nINFO, SCIENCES\nHEADOF DEPAR\u001aTMENT\nDate..e.\n1\n\na. Developa network\nactivitydiagram\nrepresenting the project.\n(2marks)\nb. What is the critical\npath for Project XYZ and how long is it?\n(2marks)\nC.\nCalculate the Early Start,Early Finish, Late Start and Late Finish for each activityin Project XYZ.\n(6marks)\nd. What are the different types ofdependencies\nin project scheduling.\n(3.5 marks)\ne.\nExplain the difference between\nQuality Assurance and Quality Control.\n(4marks)\nf. Whatare the key criteriafor selecting avendor in project procurement\n(6marks)\nQuestion 4\na. What is Project Risk Management,and why is it important\n(5.5 marks)\nb.\nExplain the significance of stakeholder engagement\nin projectcommunication and how itcan be\nmanaged effectively.\n(7marks)\nC. What are the four major processes in Project Procurement\nManagement\n(4marks)\nd. What are the seven\nbasicquality tools, and how are they used in Project Quality Management\n(7 marks)\nQuestion 5\na. What is the purpose ofa ProcurementManagement Plan, and what does it entails?\n(5.5 mark)\nb. Discuss the importance ofcustomer\nsatisfactionin Project Quality Management.\n(4marks)\nC.\nWhat are the five key processes of Project Risk Management?\n(5marks)\nd. Explain the difference\nbetween\ninteractive, push, and pull communication methods. (5marks)\ne. Mention three (3) procurementrisks and how can theybe mitigated.\n(3marks)",
+            "raw_extracted_text_truncated": false,
+            "cleaned_text_sample": "UNIVERSIT\nCOVENANT UNIVERSITY\nCANAANLAND,KM 10, IDIROKOROAD\nP.M.B 1023, OTA,OGUN STATE,NIGERIA.\nTITLE OF EXAMINATION\nB.SC EXAMINATION\nCOLLEGE: SCIENCE AND TECHNOLOGY\nSEMESTER: ALPHA\nCOURSE CODE\nMIS415\nCOURSE TITLE: PROJECT\nMANAGEMENT\nINSTRUCTION\nAnswer ANY three\n(3) Questions\nTIME: 2HOURS\nQuestion\nDiscuss\nthe importance\nof project management\nin modern IT environments.\n(5marks)\ni)Explain\nthe triple\nconstraint in\nprojectmarnagement.\n(3marks)) How does balancing the constraintsin () impacts\nproject success? Supportyour answerwith\n(3 marks)\nDescribe\nthe five project management process groups and their significancein ensuring\nsuccessful\nproject execution.\n(7.5 marks)\nd. A project manager needs\nskills and competencies,\nidentify three classes ofprojects and state\nthe most important\nskills required for each.\n(5 marks)\nQuestion Two\nDescribe the strategic\nplanning process\nin project selection.\n(5 marks)\nExplain\nthree (3)project selection\nmethods.\n(6marks)\ni)A XYZ Hospital\nis considering\ninvesting\nin a new 3D Scanning\nsystem that requires an initial\ninvestment of $50,000. The project is expected to generate cash inflows of $20,000 in Year 1,\n$25,000 in Year 2,and $30,000 in Year 3.If the company's\ndiscount rate is 10%, calculatethe Net\nPresent Value (NP)of the project and determine\nit should be accepted.\n(6 marks)\nThe company\nis expecting to generate\ndiscounted\nbenefits of $90,000over the lifetime\nthe 3D scanning system. Calculate the Return on Investnent (RO)and determine\nwhether the\nproject is financially\n(3marks)\nd. Briefly describe three project execution techniques\n(3.5 marks)\nQuestion\nTable 1 showsdifferent activities\nwith their respective duration in Project XYZ.\nTable 1: Project ABCactivities\nActivity\nDuration\nPredecessor\nCoVFNANT UNRYOTA!\nCOaPyTER\nINFO, SCIENCES\na. Developa network\nactivitydiagram\nrepresenting the project.\n(2marks)\nb. What is the critical\npath for Project XYZ and how long is it?\n(2marks)\nCalculate the Early Start,Early Finish, Late Start and Late Finish for each activityin Project XYZ.\n(6marks)\nd. What are the different types ofdependencies\nin project scheduling.\n(3.5 marks)\nExplain the difference between\nQuality Assurance and Quality Control.\n(4marks)\nf. Whatare the key criteriafor selecting avendor in project procurement\n(6marks)\nQuestion 4\na. What is Project Risk Management,and why is it important\n(5.5 marks)\nExplain the significance of stakeholder engagement\nin projectcommunication and how itcan be\nmanaged effectively.\n(7marks)\nC. What are the four major processes in Project Procurement\nManagement\n(4marks)\nd. What are the seven\nbasicquality tools, and how are they used in Project Quality Management\n(7 marks)\nQuestion 5\na. What is the purpose ofa ProcurementManagement Plan, and what does it entails?\nb. Discuss the importance ofcustomer\nsatisfactionin Project Quality Management.\n(4marks)\nWhat are the five key processes of Project Risk Management?\n(5marks)\nd. Explain the difference\ninteractive, push, and pull communication methods. (5marks)\ne. Mention three (3) procurementrisks and how can theybe mitigated.\n(3marks)",
+            "cleaned_text_char_count": 3087,
+            "content_preview": {
+              "instruction": "",
+              "scenario": "investment of $50,000. The project is expected to generate cash inflows of $20,000 in Year 1,",
+              "questions": [
+                {
+                  "number": "Question 3",
+                  "preview": "Question 3 was detected, but the OCR wording may require review."
+                }
+              ]
+            },
+            "preview_quality": "medium",
+            "preview_sections": [
+              {
+                "title": "Page 1: Header and scenario",
+                "items": [
+                  {
+                    "label": "Scenario",
+                    "text": "investment of $50,000. The project is expected to generate cash inflows of $20,000 in Year 1,"
+                  }
+                ]
+              },
+              {
+                "title": "Page 2: Question 1 and Question 2",
+                "items": [
+                  {
+                    "label": "Question 3",
+                    "text": "Question 3 was detected, but the OCR wording may require review."
+                  }
+                ]
+              }
+            ],
+            "chunk_index": 2,
+            "indexed": true
+          },
+          "verified_status": "unverified"
+        }
+      ],
+      "lecture_notes": [],
+      "threads": [],
+      "related_topics": [
+        "critical path",
+        "project management",
+        "risk management",
+        "stakeholder management",
+        "procurement management",
+        "project network diagram",
+        "project scope management",
+        "project communication management"
+      ],
+      "study_groups": [],
+      "study_sessions": [
+        {
+          "id": 3,
+          "title": "we must pass",
+          "topic": "critical path",
+          "exam_goal": null,
+          "course_id": 6,
+          "creator_username": "tjking",
+          "status": "active",
+          "created_at": "2026-06-16T23:19:54.505058+00:00",
+          "participant_count": 0,
+          "studying_count": 0,
+          "on_break_count": 0
+        }
+      ],
+      "suggested_actions": [
+        {
+          "label": "Ask AI to explain critical path",
+          "action": "ask_ai",
+          "payload": {
+            "question": "Explain critical path"
+          }
+        },
+        {
+          "label": "Generate practice on critical path",
+          "action": "practice",
+          "payload": {
+            "topic": "critical path"
+          }
+        },
+        {
+          "label": "Upload materials for this topic",
+          "action": "upload",
+          "payload": {
+            "query": "critical path"
+          }
+        },
+        {
+          "label": "Start discussion",
+          "action": "discussion",
+          "payload": {
+            "query": "critical path"
+          }
+        },
+        {
+          "label": "Create study group",
+          "action": "study_group",
+          "payload": {
+            "topic": "critical path"
+          }
+        },
+        {
+          "label": "Join a reading room",
+          "action": "reading_room",
+          "payload": {
+            "topic": "critical path"
+          }
+        }
+      ]
+    }
+  },
+  "result_count": 2,
+  "foreign_course_ids": []
+}

@@ -1,9 +1,10 @@
 import os
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import Text, or_
+from sqlalchemy import Text, func, or_
 from sqlalchemy.orm import Session
 
 import auth
@@ -21,6 +22,7 @@ class AskQuestionRequest(BaseModel):
     question: str
     topic_id: Optional[int] = None
     course_id: Optional[int] = None
+    recent_context: Optional[str] = None
 
 
 class AskQuestionResponse(BaseModel):
@@ -38,8 +40,65 @@ def source_from_metadata(prefix: str, year, metadata: dict | None):
     course_code = metadata.get("course_code", "Unknown course")
     title = metadata.get("document_title") or metadata.get("course_title") or metadata.get("source_file") or "Unknown file"
     year_label = year or metadata.get("academic_year") or metadata.get("year") or metadata.get("session") or "Unknown year"
-    document_type = str(metadata.get("document_type") or prefix).replace("_", " ")
-    return f"{course_code} {title} - {document_type} - {year_label}"
+    title = re.sub(r"\s+", " ", str(title)).strip()
+    if str(course_code).lower() != "unknown course" and not title.lower().startswith(str(course_code).lower()):
+        title = f"{course_code} {title}"
+    if year_label and str(year_label) not in title:
+        title = f"{title} {year_label}"
+    return title
+
+
+def _past_question_context(item: models.PastQuestion) -> str:
+    metadata = item.metadata_json or {}
+    source = source_from_metadata("Past question", item.year, metadata)
+    parts = [f"Past Question Source: {source}"]
+    topics = metadata.get("topics_covered") or []
+    if topics:
+        parts.append("Detected topics: " + ", ".join(str(topic) for topic in topics[:20]))
+    preview = metadata.get("content_preview") or {}
+    if isinstance(preview, dict):
+        instruction = preview.get("instruction")
+        scenario = preview.get("scenario")
+        questions = preview.get("questions") or []
+        if instruction:
+            parts.append(f"Instruction: {instruction}")
+        if scenario:
+            parts.append(f"Scenario: {scenario}")
+        if isinstance(questions, list) and questions:
+            question_lines = []
+            for question in questions[:8]:
+                if isinstance(question, dict):
+                    label = question.get("number") or "Question"
+                    text = question.get("preview") or question.get("text") or ""
+                    if text:
+                        question_lines.append(f"- {label}: {text}")
+                elif question:
+                    question_lines.append(f"- {question}")
+            if question_lines:
+                parts.append("Detected questions:\n" + "\n".join(question_lines))
+    cleaned = metadata.get("cleaned_text")
+    if cleaned and len("\n".join(parts)) < 900:
+        parts.append("Cleaned text excerpt: " + str(cleaned)[:900])
+    elif not topics and not preview:
+        parts.append("Text excerpt: " + (item.content_text or "")[:900])
+    return "\n".join(parts)
+
+
+def _topic_list_answer(question: str, rows: list[models.PastQuestion], sources: list[str]) -> str | None:
+    if not re.search(r"\b(topic|topics|cover|appear|what.+in)\b", question, re.IGNORECASE):
+        return None
+    topics: list[str] = []
+    for row in rows:
+        metadata = row.metadata_json or {}
+        for topic in metadata.get("topics_covered") or []:
+            value = re.sub(r"\s+", " ", str(topic)).strip().lower()
+            if value and value not in topics:
+                topics.append(value)
+    if not topics:
+        return None
+    source = sources[0] if sources else "the uploaded source"
+    bullet_lines = "\n".join(f"- {topic}" for topic in topics[:24])
+    return f"The uploaded {source} appears to cover:\n{bullet_lines}\n\nSource: {source}."
 
 
 def run_rag_query(
@@ -51,6 +110,11 @@ def run_rag_query(
 ) -> dict:
     """Core RAG pipeline — reusable across endpoints. Raises HTTPException on failure."""
     understanding = understand_query(question, _metadata_context(db))
+    if course_id is None and understanding.get("course_code"):
+        compact_code = re.sub(r"\s+", "", str(understanding.get("course_code") or "")).upper()
+        course = db.query(models.Course).filter(func.replace(models.Course.code, " ", "") == compact_code).first()
+        if course:
+            course_id = course.id
     public_view = public_understanding(understanding)
     if understanding.get("needs_clarification"):
         return {
@@ -122,7 +186,7 @@ def run_rag_query(
     past_context = []
     past_sources = []
     for item in similar_questions:
-        past_context.append(f"Past Question ({item.year}): {item.content_text}")
+        past_context.append(_past_question_context(item))
         source = source_from_metadata("Past question", item.year, item.metadata_json)
         if source not in past_sources:
             past_sources.append(source)
@@ -135,9 +199,24 @@ def run_rag_query(
         if source not in note_sources:
             note_sources.append(source)
 
+    topic_answer = _topic_list_answer(question, similar_questions, past_sources)
+    if topic_answer:
+        return {
+            "answer": topic_answer,
+            "sources": past_sources + note_sources,
+            "past_question_sources": past_sources,
+            "lecture_note_sources": note_sources,
+            "no_past_questions_found": no_past_questions_found,
+            "no_lecture_notes_found": no_lecture_notes_found,
+            "understanding": public_view,
+        }
+
     prompt = (
         "You are ExamMind AI, an exam-intelligent tutor for Nigerian university students.\n"
         "Answer ONLY from the retrieved past questions and lecture notes below.\n"
+        "Answer the student's focused question directly. Do not solve or summarize the whole past question unless the student explicitly asks for full answers.\n"
+        "For critical path questions, focus on the project network diagram, path lengths, shortest completion time, and PERT duration when those appear in the source.\n"
+        "For topic-list questions, return concise bullet points from detected topics and preview sections.\n"
         "When the student asks about uploaded content, do not use outside knowledge except to explain terms that appear in the retrieved material.\n"
         "Cite source names exactly as listed in the source metadata when possible, for example MIS415 Project Management Past Question 2022/2023.\n"
         "If OCR quality or extraction looks imperfect, say so briefly and answer from the usable text.\n"
@@ -198,7 +277,8 @@ def ask_question(
             status_code=413,
             detail=f"Question is too long. Limit it to {MAX_RAG_QUESTION_CHARS} characters.",
         )
-    return run_rag_query(question, req.course_id, req.topic_id, db)
+    room_context = f"Recent conversation:\n{req.recent_context[:1200]}" if req.recent_context else None
+    return run_rag_query(question, req.course_id, req.topic_id, db, room_context=room_context)
 
 
 def _metadata_context(db: Session) -> list[dict]:

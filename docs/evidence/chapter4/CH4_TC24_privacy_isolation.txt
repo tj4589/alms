@@ -1,0 +1,29 @@
+{
+  "account_a_practice_submit": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 39.82,
+    "body": {
+      "attempt_id": 2,
+      "readiness_score": 80,
+      "debrief": "You scored 80%. Review the questions you missed, then retry the same topic. ExamMind updates readiness from repeated practice, so improvement matters more than one score."
+    }
+  },
+  "account_b_access_account_a_analytics": {
+    "ok": false,
+    "status_code": 403,
+    "elapsed_ms": 22.12,
+    "body": {
+      "detail": "Not enough permissions."
+    }
+  },
+  "account_b_own_analytics": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 35.69,
+    "body": {
+      "readiness": [],
+      "attempts": []
+    }
+  }
+}

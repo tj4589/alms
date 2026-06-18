@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "status_code": 401,
+  "elapsed_ms": 24.81,
+  "body": {
+    "detail": "Could not validate credentials"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "status_code": 400,
+  "elapsed_ms": 32.85,
+  "body": {
+    "detail": "Only PDF files are supported."
+  }
+}

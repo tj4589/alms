@@ -56,6 +56,15 @@ type Course = {
   name: string;
 };
 
+type LastRagContext = {
+  lastCourseId?: number;
+  lastCourseCode?: string;
+  lastDocumentTitle?: string;
+  lastTopic?: string;
+  lastSources: string[];
+  lastQuestion: string;
+};
+
 // ── Pre-gate types ────────────────────────────────────────────────────────────
 
 // Message function — what the user is TRYING TO DO, not what they typed
@@ -946,6 +955,28 @@ function buildContext(msgs: ChatMessage[]): string {
     .join('\n');
 }
 
+function extractCourseCode(value: string): string | null {
+  const match = value.match(/\b([A-Za-z]{2,4})\s*-?\s*(\d{3,4})\b/);
+  return match ? `${match[1].toUpperCase()}${match[2]}` : null;
+}
+
+function isContextualFollowUp(value: string): boolean {
+  return /\b(what did you find|what did u find|okay so|ok so|so what|continue|tell me more|more details|explain that|what about the topics|what topics|that topic|the topics|what about it)\b/i.test(value);
+}
+
+function buildRecentContext(messages: ChatMessage[], lastContext: LastRagContext | null): string {
+  const recent = messages.slice(-6).map(m => `${m.role === 'user' ? 'Student' : 'Assistant'}: ${m.content.slice(0, 220)}`).join('\n');
+  const memory = lastContext
+    ? [
+        `Last source: ${lastContext.lastDocumentTitle || lastContext.lastSources[0] || 'unknown uploaded material'}`,
+        `Last course: ${lastContext.lastCourseCode || 'unknown'}`,
+        `Last topic: ${lastContext.lastTopic || 'unknown'}`,
+        `Last question: ${lastContext.lastQuestion}`,
+      ].join('\n')
+    : 'No previous RAG context.';
+  return `${memory}\n\nRecent messages:\n${recent}`;
+}
+
 function normalizeForComparison(value: string): string {
   return value
     .toLowerCase()
@@ -1118,6 +1149,7 @@ export default function Assistant({
   const [loading, setLoading] = useState(false);
   const [thinkingPhase, setThinkingPhase] = useState<ThinkingPhase>('idle');
   const [courses, setCourses] = useState<{ id: number; code: string; name: string }[]>([]);
+  const [lastRagContext, setLastRagContext] = useState<LastRagContext | null>(null);
   const msgsEndRef = useRef<HTMLDivElement>(null);
   const lastAutoSubmittedRef = useRef('');
   const conversationStateRef = useRef<ConversationState>({
@@ -1183,8 +1215,28 @@ export default function Assistant({
       setLoading(true);
       setThinkingPhase('searching');
       try {
-        const data = (await apiPost('/rag/ask', { question })) as AskResponse;
+        const courseCode = extractCourseCode(question) || extractCourseCode(originalQuestion) || lastRagContext?.lastCourseCode || null;
+        const course = courseCode
+          ? courses.find(c => c.code.replace(/\s+/g, '').toLowerCase() === courseCode.replace(/\s+/g, '').toLowerCase())
+          : null;
+        const data = (await apiPost('/rag/ask', {
+          question,
+          course_id: course?.id ?? lastRagContext?.lastCourseId,
+          recent_context: buildRecentContext(messages, lastRagContext),
+        })) as AskResponse;
         const noSources = data.no_past_questions_found && data.no_lecture_notes_found;
+        if (!noSources) {
+          const nextSource = (data.sources || [])[0] || lastRagContext?.lastDocumentTitle;
+          const nextCourseCode = extractCourseCode(nextSource || '') || courseCode || data.understanding?.course_code || undefined;
+          setLastRagContext({
+            lastCourseId: course?.id ?? lastRagContext?.lastCourseId,
+            lastCourseCode: nextCourseCode || undefined,
+            lastDocumentTitle: nextSource,
+            lastTopic: data.understanding?.interpreted_topic || data.understanding?.topic || lastRagContext?.lastTopic,
+            lastSources: data.sources || [],
+            lastQuestion: originalQuestion,
+          });
+        }
         onMessagesChange(current => [
           ...current,
           {
@@ -1210,7 +1262,7 @@ export default function Assistant({
         setThinkingPhase('idle');
       }
     },
-    [onMessagesChange],
+    [courses, lastRagContext, messages, onMessagesChange],
   );
 
   const handleSend = useCallback(
@@ -1294,14 +1346,16 @@ export default function Assistant({
 
       // ── HARD PRE-GATE: classify message function BEFORE any API call ──────
       const followUpLooksContextual =
-        Boolean(latestStudyAssistant) &&
-        /\b(what did you find|what did u find|okay|ok|so what|continue|tell me more|more details|explain that)\b/i.test(question);
+        Boolean(lastRagContext || latestStudyAssistant) &&
+        isContextualFollowUp(question);
       if (followUpLooksContextual) {
-        const previousTopic = latestStudyAssistant?.understanding?.interpreted_topic
+        const previousTopic = lastRagContext?.lastDocumentTitle
+          || latestStudyAssistant?.sources?.[0]
+          || latestStudyAssistant?.understanding?.interpreted_topic
           || latestStudyAssistant?.understanding?.course_code
           || latestStudyAssistant?.understanding?.topic
           || 'the uploaded material we were discussing';
-        await callRag(`Continue the previous ExamMind answer about ${previousTopic}. The student asked: ${question}`, question);
+        await callRag(`Using the previous context, answer about ${previousTopic}: ${question}`, question);
         conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: 'academic_answer', awaitingUserDetail: false };
         return;
       }
@@ -1374,6 +1428,22 @@ export default function Assistant({
         });
       }
 
+      if (
+        !result.should_call_rag &&
+        extractCourseCode(question) &&
+        /\b(what\s+topics?|topics?\s+appear|cover|covered|in\s+the\s+past\s+question)\b/i.test(question)
+      ) {
+        result = {
+          ...result,
+          intent: 'academic_explanation',
+          should_call_rag: true,
+          should_search: true,
+          interpreted_topic: question,
+          course_code: extractCourseCode(question),
+          response_strategy: 'list topics from uploaded source',
+        };
+      }
+
       // ── Non-RAG intent from /understand ──────────────────────────────────
       if (!result.should_call_rag) {
         if (result.intent === 'guidance_needed') {
@@ -1404,7 +1474,8 @@ export default function Assistant({
       }
 
       // ── Academic with RAG ────────────────────────────────────────────────
-      const ragQuery = result.interpreted_topic || question;
+      const hasSpecificSource = Boolean(extractCourseCode(question) || /\bpast\s+question|uploaded|source|document|topics?\s+appear\b/i.test(question));
+      const ragQuery = hasSpecificSource ? question : (result.interpreted_topic || question);
       const interpMsg =
         result.intent === 'person_pattern'
           ? buildPersonPatternIntro(result)
@@ -1419,7 +1490,7 @@ export default function Assistant({
       await callRag(ragQuery, question);
       conversationStateRef.current = { pendingSlot: null, lastAssistantMsgType: 'academic_answer', awaitingUserDetail: false };
     },
-    [input, loading, messages, onMessagesChange, user, callRag, localReplyWithAnim, latestStudyAssistant],
+    [input, loading, messages, onMessagesChange, user, callRag, localReplyWithAnim, latestStudyAssistant, lastRagContext],
   );
 
   useEffect(() => {

@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "status_code": 401,
+  "elapsed_ms": 501.15,
+  "body": {
+    "detail": "Incorrect email or password"
+  }
+}

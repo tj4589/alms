@@ -1,0 +1,22 @@
+{
+  "register_first": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 815.42,
+    "body": {
+      "id": 4,
+      "name": "Chapter Four Student A",
+      "username": "ch4a_fb936616",
+      "email": "ch4a_fb936616@stu.cu.edu.ng",
+      "role": "student"
+    }
+  },
+  "register_duplicate": {
+    "ok": false,
+    "status_code": 400,
+    "elapsed_ms": 54.43,
+    "body": {
+      "detail": "Email already registered."
+    }
+  }
+}

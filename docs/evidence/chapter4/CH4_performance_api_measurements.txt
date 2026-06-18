@@ -1,0 +1,21 @@
+{
+  "backend_health_ms": 3.94,
+  "semantic_search": {
+    "elapsed_ms": 170.39,
+    "status_code": 200
+  },
+  "ai_assistant": {
+    "elapsed_ms": 157.26,
+    "status_code": 200,
+    "ok": true,
+    "body_preview": "{'answer': 'The uploaded MIS415 Project Management Past Question 2024/2025 appears to cover:\\n- critical path\\n- risk management\\n- procurement management\\n- stakeholder management\\n- stakeholder engagement\\n- project management\\n- project management in modern it environments\\n- triple constraint in"
+  },
+  "pdf_upload_text_extraction": {
+    "elapsed_ms": 134664.08,
+    "status_code": 200
+  },
+  "pdf_confirm_indexing": {
+    "elapsed_ms": 100114.77,
+    "status_code": 200
+  }
+}

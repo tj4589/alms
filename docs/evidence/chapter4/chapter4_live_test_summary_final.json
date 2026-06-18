@@ -1,0 +1,101 @@
+{
+  "base_url": "http://127.0.0.1:8010",
+  "suffix": "fb936616",
+  "tests": {
+    "TC-02": {
+      "status": "Pass",
+      "evidence": "CH4_TC02_duplicate_registration.txt",
+      "observed": "First registration HTTP 200; duplicate registration HTTP 400 with body {'detail': 'Email already registered.'}"
+    },
+    "TC-04": {
+      "status": "Pass",
+      "evidence": "CH4_TC04_invalid_login.txt",
+      "observed": "Invalid login returned HTTP 401 with body {'detail': 'Incorrect email or password'}"
+    },
+    "TC-08": {
+      "status": "Pass",
+      "evidence": "CH4_TC08_non_pdf_rejection.txt",
+      "observed": "Non-PDF upload returned HTTP 400 with body {'detail': 'Only PDF files are supported.'}"
+    },
+    "TC-07": {
+      "status": "Pass",
+      "evidence": "CH4_TC07_TC10_TC12_unique_upload_rerun.txt",
+      "observed": "Unique scanned-image PDF analyze returned HTTP 200; OCR used=True; cleaned characters=725."
+    },
+    "TC-10": {
+      "status": "Pass",
+      "evidence": "CH4_TC07_TC10_TC12_unique_upload_rerun.txt",
+      "observed": "Corrected metadata was submitted via confirmed_metadata; saved title=TQA407 Evidence Methods 2A513Eff Past Question 2026/2027; academic_year=2026/2027; corrected fields were retained in normalized metadata."
+    },
+    "TC-12": {
+      "status": "Pass",
+      "evidence": "CH4_TC07_TC10_TC12_unique_upload_rerun.txt",
+      "observed": "After confirm/index, API counts showed 1 matching generated past-question record(s) for the upload user."
+    },
+    "TC-14": {
+      "status": "Pass",
+      "evidence": "CH4_TC14_course_filtered_search.txt",
+      "observed": "MIS415 course_id=6; search HTTP 200; returned 2 grouped/listed items; foreign course IDs=[]"
+    },
+    "TC-20": {
+      "status": "Pass",
+      "evidence": "CH4_TC20_group_created.txt",
+      "observed": "Create study group returned HTTP 200; group_id=5; name=CH4 MIS415 Critical Path Group fb936616"
+    },
+    "TC-21": {
+      "status": "Pass",
+      "evidence": "CH4_TC21_join_existing_group.txt",
+      "observed": "Account B join HTTP 200; member listing HTTP 200; B appears in members=True"
+    },
+    "TC-24": {
+      "status": "Pass",
+      "evidence": "CH4_TC24_privacy_isolation.txt",
+      "observed": "A practice submit HTTP 200; B requesting A analytics HTTP 403; B requesting own analytics HTTP 200"
+    },
+    "TC-25": {
+      "status": "Pass",
+      "evidence": "CH4_TC25_expired_jwt.txt",
+      "observed": "Protected /courses with tampered JWT returned HTTP 401 with body {'detail': 'Could not validate credentials'}"
+    }
+  },
+  "performance": {
+    "backend_health_ms": 3.94,
+    "semantic_search": {
+      "elapsed_ms": 170.39,
+      "status_code": 200
+    },
+    "ai_assistant": {
+      "elapsed_ms": 157.26,
+      "status_code": 200,
+      "ok": true,
+      "body_preview": "{'answer': 'The uploaded MIS415 Project Management Past Question 2024/2025 appears to cover:\\n- critical path\\n- risk management\\n- procurement management\\n- stakeholder management\\n- stakeholder engagement\\n- project management\\n- project management in modern it environments\\n- triple constraint in"
+    },
+    "pdf_upload_text_extraction": {
+      "elapsed_ms": 126843.14,
+      "status_code": 200
+    },
+    "pdf_confirm_indexing": {
+      "elapsed_ms": 117606.41,
+      "status_code": 200
+    }
+  },
+  "accounts": {
+    "A_login_status": 200,
+    "B_login_status": 200,
+    "A": {
+      "email": "ch4a_fb936616@stu.cu.edu.ng",
+      "id": 4
+    },
+    "B": {
+      "email": "ch4b_fb936616@stu.cu.edu.ng",
+      "id": 5
+    }
+  },
+  "mis415_course": {
+    "id": 6,
+    "code": "MIS415",
+    "name": "Project Management",
+    "description": "Auto-created from uploaded Past Question."
+  },
+  "rerun_note": "TC-07, TC-10, and TC-12 were rerun with a unique generated scanned PDF because the first MIS415 scanned PDF was correctly stopped by duplicate detection."
+}

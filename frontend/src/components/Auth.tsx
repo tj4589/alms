@@ -1,29 +1,16 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { apiFormPost, apiPost } from '../lib/api';
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--bg3)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--r)',
-  padding: '10px 12px',
-  color: 'var(--text)',
-  fontFamily: 'var(--font)',
-  fontSize: 13,
-  outline: 'none',
-  transition: 'border-color .2s',
+const AuthScene3D = lazy(() => import('./AuthScene3D'));
+
+type AuthProps = {
+  onLogin: (token: string) => void;
+  onBackToLanding?: () => void;
+  initialMode?: 'login' | 'register';
 };
 
-const labelStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text3)',
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '.5px',
-};
-
-export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
-  const [isLogin, setIsLogin] = useState(false);
+export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: AuthProps) => {
+  const [isLogin, setIsLogin] = useState(initialMode === 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -78,46 +65,41 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'var(--bg)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 24,
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: 420,
-        background: 'var(--bg2)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--rlg)',
-        padding: '36px 32px',
-      }}>
-
-        {/* Branding */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{
-            width: 42,
-            height: 42,
-            background: 'var(--gold)',
-            borderRadius: 10,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--serif)',
-            fontSize: 24,
-            color: '#0c0d11',
-            fontStyle: 'italic',
-            margin: '0 auto 12px',
-          }}>E</div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 22, letterSpacing: '-.2px' }}>
-            Exam<span style={{ color: 'var(--gold)' }}>Mind</span>
-          </div>
-          <div style={{ fontSize: 12.5, color: 'var(--text3)', marginTop: 4 }}>
-            {isLogin ? 'Sign in to your account' : 'Create your upload account'}
+    <div className="auth-page">
+      <Suspense fallback={<div className="auth-scene3d auth-scene-loading" aria-hidden="true" />}>
+        <AuthScene3D />
+      </Suspense>
+      <button className="auth-back" onClick={onBackToLanding} type="button">
+        Back to overview
+      </button>
+      <section className="auth-shell">
+        <div className="auth-panel">
+          <div className="auth-kicker">Authenticated student access</div>
+          <h1>{isLogin ? 'Welcome back to ExamMind.' : 'Create your student workspace.'}</h1>
+          <p>
+            Upload academic materials, search your archive, ask grounded AI questions, and build
+            practice sessions from the documents you add.
+          </p>
+          <div className="auth-proof-list">
+            <span>Secure JWT login</span>
+            <span>Student-focused dashboard</span>
+            <span>Private progress tracking</span>
           </div>
         </div>
+
+        <div className="auth-card">
+          <div className="auth-brand">
+            <div className="auth-logo">E</div>
+            <div>
+              <div className="auth-brand-name">Exam<span>Mind</span></div>
+              <div className="auth-brand-sub">Academic Excellence</div>
+            </div>
+          </div>
+
+          <div className="auth-switch">
+            <button className={isLogin ? 'on' : ''} type="button" onClick={() => setIsLogin(true)}>Sign in</button>
+            <button className={!isLogin ? 'on' : ''} type="button" onClick={() => setIsLogin(false)}>Create account</button>
+          </div>
 
         {error && (
           <div className="upload-alert" style={{ marginBottom: 16 }}>{error}</div>
@@ -134,65 +116,61 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
           }}>{success}</div>
         )}
 
-        <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <form className="auth-form" onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
           {!isLogin && (
             <>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <span style={labelStyle}>Full Name</span>
+              <label className="auth-field">
+                <span>Full Name</span>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  style={inputStyle}
                   placeholder="Your full name"
                   required
                   minLength={2}
                 />
               </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <span style={labelStyle}>Username</span>
+              <label className="auth-field">
+                <span>Username</span>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                  style={inputStyle}
                   placeholder="e.g. vera_csc301"
                   required
                   minLength={3}
                   maxLength={24}
                 />
-                <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                <small>
                   3-24 characters - lowercase letters, numbers, underscores
-                </span>
+                </small>
               </label>
             </>
           )}
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={labelStyle}>{isLogin ? 'Email Address' : 'School Email'}</span>
+          <label className="auth-field">
+            <span>{isLogin ? 'Email Address' : 'School Email'}</span>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={inputStyle}
               placeholder={isLogin ? 'your@email.com' : 'yourname@stu.cu.edu.ng'}
               required
             />
             {!isLogin && (
-              <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              <small>
                 Use your school email. ExamMind is currently available for Covenant University students.
-              </span>
+              </small>
             )}
           </label>
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={labelStyle}>Password</span>
+          <label className="auth-field">
+            <span>Password</span>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              style={inputStyle}
               placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'}
               required
               minLength={8}
@@ -205,29 +183,20 @@ export const Auth = ({ onLogin }: { onLogin: (token: string) => void }) => {
             style={{ width: '100%', justifyContent: 'center', padding: 12, fontSize: 13.5, marginTop: 4 }}
             disabled={loading}
           >
-            {loading ? 'Please wait...' : isLogin ? 'Sign In ->' : 'Create Account ->'}
+            {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
           </button>
         </form>
 
-        <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13, color: 'var(--text3)' }}>
+        <div className="auth-footnote">
           {isLogin ? "Don't have an account? " : 'Already have an account? '}
           <button
             onClick={switchMode}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--gold)',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontFamily: 'var(--font)',
-              fontSize: 13,
-              padding: 0,
-            }}
           >
             {isLogin ? 'Sign up' : 'Sign in'}
           </button>
         </div>
       </div>
+      </section>
     </div>
   );
 };

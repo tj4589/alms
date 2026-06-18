@@ -1,0 +1,86 @@
+{
+  "create_response": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 58.72,
+    "body": {
+      "id": 5,
+      "name": "CH4 MIS415 Critical Path Group fb936616",
+      "description": "Chapter Four evidence study group.",
+      "course_id": 6,
+      "topic": "critical path",
+      "created_by": 4,
+      "created_by_username": "ch4a_fb936616",
+      "created_at": "2026-06-17T22:19:23.265782+00:00",
+      "member_count": 1,
+      "is_member": true
+    }
+  },
+  "list_response": {
+    "ok": true,
+    "status_code": 200,
+    "elapsed_ms": 24.69,
+    "body": [
+      {
+        "id": 5,
+        "name": "CH4 MIS415 Critical Path Group fb936616",
+        "description": "Chapter Four evidence study group.",
+        "course_id": 6,
+        "topic": "critical path",
+        "created_by": 4,
+        "created_by_username": "ch4a_fb936616",
+        "created_at": "2026-06-17T22:19:23.265782+00:00",
+        "member_count": 1,
+        "is_member": true
+      },
+      {
+        "id": 4,
+        "name": "we must pass",
+        "description": null,
+        "course_id": 6,
+        "topic": null,
+        "created_by": 3,
+        "created_by_username": "tjking",
+        "created_at": "2026-06-16T23:19:19.551183+00:00",
+        "member_count": 0,
+        "is_member": false
+      },
+      {
+        "id": 3,
+        "name": "MIS415 mis415 Study Group",
+        "description": "Group for discussing MIS415 Project Management Past Question 2022/2023.",
+        "course_id": null,
+        "topic": "mis415",
+        "created_by": 3,
+        "created_by_username": "tjking",
+        "created_at": "2026-06-15T22:37:44.665609+00:00",
+        "member_count": 1,
+        "is_member": false
+      },
+      {
+        "id": 2,
+        "name": "final quad",
+        "description": null,
+        "course_id": 3,
+        "topic": null,
+        "created_by": 3,
+        "created_by_username": "tjking",
+        "created_at": "2026-06-15T20:52:44.332259+00:00",
+        "member_count": 1,
+        "is_member": false
+      },
+      {
+        "id": 1,
+        "name": "Smoke Group",
+        "description": null,
+        "course_id": null,
+        "topic": "Testing",
+        "created_by": 2,
+        "created_by_username": null,
+        "created_at": "2026-06-07T00:26:12.783889+00:00",
+        "member_count": 1,
+        "is_member": false
+      }
+    ]
+  }
+}
