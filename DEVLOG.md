@@ -271,7 +271,7 @@ alms/
 │   ├── auth.py              — JWT issue/verify, get_current_user, require_role
 │   ├── database.py          — SQLAlchemy engine + session
 │   ├── models.py            — User, Course, PastQuestion, LectureNote, DiscussionThread,
-│   │                          ThreadMessage, PracticeAttempt, ReadinessScore, Verification
+│   │                          ThreadMessage, PracticeAttempt, ReadinessScore
 │   ├── schemas.py           — Pydantic v2 request/response models
 │   ├── routers/
 │   │   ├── auth.py          — POST /auth/register, POST /auth/login, GET /auth/me

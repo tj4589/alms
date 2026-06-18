@@ -1496,10 +1496,6 @@ def _delete_past_questions(db: Session, rows: list[models.PastQuestion]) -> Dict
         db.delete(thread)
     summary["discussion_threads_deleted"] = len(threads)
 
-    db.query(models.Verification).filter(
-        models.Verification.document_type == "past_question",
-        models.Verification.document_id.in_(ids),
-    ).delete(synchronize_session=False)
     for row in rows:
         db.delete(row)
     summary["past_questions_deleted"] = len(rows)
@@ -1517,10 +1513,6 @@ def _delete_lecture_notes(db: Session, rows: list[models.LectureNote]) -> Dict[s
         .filter(models.LectureNoteChunk.lecture_note_id.in_(ids))
         .delete(synchronize_session=False)
     )
-    db.query(models.Verification).filter(
-        models.Verification.document_type == "lecture_note",
-        models.Verification.document_id.in_(ids),
-    ).delete(synchronize_session=False)
     for row in rows:
         db.delete(row)
     summary["lecture_notes_deleted"] = len(rows)
@@ -1700,7 +1692,6 @@ def upload_document(
             year=metadata.get("year"),
             semester=metadata.get("semester"),
             file_url=file.filename,
-            verified_status="unverified",
             metadata_json=metadata,
         )
         db.add(note)
@@ -1731,7 +1722,6 @@ def upload_document(
                 content_text=chunk,
                 embedding=embed_or_fail(chunk) if chunk.strip() else None,
                 file_url=file.filename,
-                verified_status="unverified",
                 metadata_json={**metadata, "chunk_index": index, "indexed": bool(chunk.strip())},
             )
             db.add(pq)

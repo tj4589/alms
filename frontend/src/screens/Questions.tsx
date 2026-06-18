@@ -18,7 +18,6 @@ type PastQuestion = {
   semester?: string | null;
   difficulty?: string | null;
   content_text: string;
-  verified_status?: string;
   metadata_json?: {
     course_code?: string;
     topics_covered?: string[];
@@ -33,7 +32,6 @@ type LectureNote = {
   title: string;
   year?: number | null;
   semester?: string | null;
-  verified_status?: string;
   metadata_json?: { course_code?: string; [key: string]: unknown } | null;
 };
 

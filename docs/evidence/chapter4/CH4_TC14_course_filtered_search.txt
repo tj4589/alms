@@ -132,8 +132,7 @@
             ],
             "chunk_index": 2,
             "indexed": true
-          },
-          "verified_status": "unverified"
+          }
         },
         {
           "id": 20,
@@ -242,8 +241,7 @@
             ],
             "chunk_index": 2,
             "indexed": true
-          },
-          "verified_status": "unverified"
+          }
         }
       ],
       "lecture_notes": [],

@@ -1,56 +1,147 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ScreenType, User } from '../types';
 import { apiGet } from '../lib/api';
 
-type CohortTopic = {
-  topic: string;
-  average_score: number;
-  attempts: number;
+type ReadinessEntry = {
+  id: number;
+  topic: string | null;
+  score: number;
+  course_id: number | null;
 };
 
-type CohortAnalytics = {
-  active_students: number;
-  avg_practice_score: number;
-  questions_attempted: number;
-  notes_uploaded: number;
-  most_challenging_topics: CohortTopic[];
+type AttemptEntry = {
+  id: number;
+  score: number;
+  total_questions: number;
+  topic: string | null;
+  completed_at: string;
 };
+
+type StudentAnalytics = {
+  readiness: ReadinessEntry[];
+  attempts: AttemptEntry[];
+};
+
+type TopicStat = {
+  topic: string;
+  attempts: number;
+  questions: number;
+  averageScore: number;
+};
+
+function topicColor(idx: number) {
+  return [
+    'var(--gold)', 'var(--teal)', 'var(--purple)', 'var(--coral)', 'var(--gold)', 'var(--teal)',
+  ][idx] ?? 'var(--text3)';
+}
+
+function topicLabel(topic: string | null): string {
+  const cleaned = String(topic || '').trim();
+  return cleaned || 'General practice';
+}
+
+function scorePercent(attempt: AttemptEntry): number {
+  if (attempt.total_questions > 0 && attempt.score <= attempt.total_questions) {
+    return (attempt.score / attempt.total_questions) * 100;
+  }
+  return attempt.score;
+}
 
 export default function Analytics({
   go,
   notifyUnavailable: _notifyUnavailable,
-  user: _user,
+  user,
 }: {
   go: (s: ScreenType) => void;
   notifyUnavailable: (feature: string) => void;
   user: User | null;
 }) {
-  const [cohort, setCohort] = useState<CohortAnalytics | null>(null);
+  const [analytics, setAnalytics] = useState<StudentAnalytics | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!user?.id) {
+      setAnalytics(null);
+      setError('');
+      return;
+    }
+
     let cancelled = false;
     setError('');
-    apiGet('/analytics/cohort')
-      .then((data) => { if (!cancelled) setCohort(data as CohortAnalytics); })
-      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load analytics.'); });
+
+    apiGet(`/analytics/student/${user.id}`)
+      .then((data) => { if (!cancelled) setAnalytics(data as StudentAnalytics); })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load your analytics.');
+      });
+
     return () => { cancelled = true; };
-  }, []);
+  }, [user?.id]);
 
-  // Derive topic frequency chart — sorted by attempts desc (most frequent first)
-  const topicRows = cohort?.most_challenging_topics
-    ? [...cohort.most_challenging_topics].sort((a, b) => b.attempts - a.attempts).slice(0, 6)
-    : null;
+  const attempts = analytics?.attempts ?? [];
+  const totalQuestions = useMemo(
+    () => attempts.reduce((sum, attempt) => sum + Math.max(0, attempt.total_questions || 0), 0),
+    [attempts],
+  );
 
-  const maxAttempts = topicRows ? Math.max(...topicRows.map((t) => t.attempts), 1) : 1;
+  const averageScore = useMemo(() => {
+    if (!attempts.length) return null;
+    const total = attempts.reduce((sum, attempt) => sum + scorePercent(attempt), 0);
+    return Math.round(total / attempts.length);
+  }, [attempts]);
 
-  function topicColor(idx: number) {
-    return [
-      'var(--gold)', 'var(--gold)', 'var(--teal)', 'var(--teal)', 'var(--purple)', 'var(--coral)',
-    ][idx] ?? 'var(--text3)';
+  const topicRows = useMemo<TopicStat[]>(() => {
+    const byTopic = new Map<string, { attempts: number; questions: number; scoreTotal: number }>();
+    attempts.forEach((attempt) => {
+      const label = topicLabel(attempt.topic);
+      const current = byTopic.get(label) ?? { attempts: 0, questions: 0, scoreTotal: 0 };
+      current.attempts += 1;
+      current.questions += Math.max(0, attempt.total_questions || 0);
+      current.scoreTotal += scorePercent(attempt);
+      byTopic.set(label, current);
+    });
+    return Array.from(byTopic.entries())
+      .map(([topic, stat]) => ({
+        topic,
+        attempts: stat.attempts,
+        questions: stat.questions,
+        averageScore: Math.round(stat.scoreTotal / stat.attempts),
+      }))
+      .sort((a, b) => b.attempts - a.attempts || a.averageScore - b.averageScore);
+  }, [attempts]);
+
+  const hardestTopics = useMemo(
+    () => [...topicRows].sort((a, b) => a.averageScore - b.averageScore).slice(0, 4),
+    [topicRows],
+  );
+
+  const latestReadiness = useMemo(() => {
+    if (!analytics?.readiness.length) return null;
+    const total = analytics.readiness.reduce((sum, item) => sum + item.score, 0);
+    return Math.round(total / analytics.readiness.length);
+  }, [analytics]);
+
+  const maxAttempts = Math.max(...topicRows.map((t) => t.attempts), 1);
+  const hasPracticeData = attempts.length > 0;
+
+  if (!user) {
+    return (
+      <div className="page" id="s-analytics">
+        <div className="pg-head">
+          <div>
+            <div className="pg-title">Exam <em>Intelligence</em></div>
+            <div className="pg-sub">Please sign in to view your analytics.</div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-ttl">Private analytics</div>
+          <p style={{ color: 'var(--text3)', margin: '10px 0 0' }}>
+            Your practice progress is available after you sign in.
+          </p>
+        </div>
+      </div>
+    );
   }
-
-  const hasData = cohort !== null;
 
   return (
     <div className="page" id="s-analytics">
@@ -58,131 +149,98 @@ export default function Analytics({
         <div>
           <div className="pg-title">Exam <em>Intelligence</em></div>
           <div className="pg-sub">
-            {hasData
-              ? `${cohort.active_students} students · ${cohort.questions_attempted} questions attempted · ${cohort.notes_uploaded} resources`
-              : 'Aggregate past question pattern analysis'}
+            {hasPracticeData
+              ? `Your practice history · ${attempts.length} sessions · ${totalQuestions} questions`
+              : 'Complete a practice session to see your analytics.'}
           </div>
         </div>
       </div>
 
       {error && <div className="upload-alert">{error}</div>}
 
-      <div className="ana-stats">
-        <div className="ana-card">
-          <div className="ana-num" style={{ color: 'var(--gold)' }}>
-            {hasData ? cohort.questions_attempted : 847}
-          </div>
-          <div className="ana-lbl">Questions attempted</div>
-          <div className="ana-delta up">
-            {hasData ? `across ${cohort.active_students} students` : '+120 this semester'}
-          </div>
-        </div>
-        <div className="ana-card">
-          <div className="ana-num" style={{ color: 'var(--teal)' }}>
-            {hasData ? cohort.active_students : 12}
-          </div>
-          <div className="ana-lbl">Active students</div>
-          <div className="ana-delta" style={{ color: 'var(--text3)' }}>
-            {hasData ? `${cohort.notes_uploaded} resources uploaded` : '3 departments'}
-          </div>
-        </div>
-        <div className="ana-card">
-          <div className="ana-num" style={{ color: 'var(--coral)' }}>
-            {hasData ? `${Math.round(cohort.avg_practice_score)}%` : '38%'}
-          </div>
-          <div className="ana-lbl">Class avg score</div>
-          <div className={`ana-delta ${hasData && cohort.avg_practice_score >= 60 ? 'up' : 'dn'}`}>
-            {hasData
-              ? cohort.avg_practice_score >= 70 ? 'Above target' : cohort.avg_practice_score >= 50 ? 'Below 70% target' : 'Needs attention'
-              : 'Highest-yield cluster'}
-          </div>
-        </div>
-      </div>
-
-      <div className="two-col">
+      {!hasPracticeData ? (
         <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">
-              {hasData ? 'Topics by practice frequency' : 'Topic frequency · CSC 301 (2014–2023)'}
+          <div className="card-ttl">No practice analytics yet</div>
+          <p style={{ color: 'var(--text3)', margin: '10px 0 16px' }}>
+            Complete a practice session to see your analytics.
+          </p>
+          <button className="cta" onClick={() => go('practice')}>Start practice</button>
+        </div>
+      ) : (
+        <>
+          <div className="ana-stats">
+            <div className="ana-card">
+              <div className="ana-num" style={{ color: 'var(--gold)' }}>
+                {totalQuestions}
+              </div>
+              <div className="ana-lbl">Questions attempted</div>
+              <div className="ana-delta up">
+                {attempts.length} practice {attempts.length === 1 ? 'session' : 'sessions'}
+              </div>
+            </div>
+            <div className="ana-card">
+              <div className="ana-num" style={{ color: 'var(--teal)' }}>
+                {averageScore ?? 0}%
+              </div>
+              <div className="ana-lbl">Your average score</div>
+              <div className={`ana-delta ${(averageScore ?? 0) >= 60 ? 'up' : 'dn'}`}>
+                {(averageScore ?? 0) >= 70 ? 'On track' : (averageScore ?? 0) >= 50 ? 'Keep practising' : 'Needs attention'}
+              </div>
+            </div>
+            <div className="ana-card">
+              <div className="ana-num" style={{ color: 'var(--coral)' }}>
+                {latestReadiness !== null ? `${latestReadiness}%` : 'New'}
+              </div>
+              <div className="ana-lbl">Your readiness</div>
+              <div className="ana-delta" style={{ color: 'var(--text3)' }}>
+                {analytics?.readiness.length ? `${analytics.readiness.length} tracked ${analytics.readiness.length === 1 ? 'topic' : 'topics'}` : 'No readiness score yet'}
+              </div>
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-            {topicRows && topicRows.length > 0 ? (
-              topicRows.map((t, i) => (
-                <div key={t.topic}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 13 }}>{t.topic}</span>
-                    <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: topicColor(i) }}>{t.attempts}</span>
-                  </div>
-                  <div className="prog-track">
-                    <div className="prog-fill" style={{ width: `${Math.round((t.attempts / maxAttempts) * 100)}%`, background: topicColor(i) }}></div>
-                  </div>
-                </div>
-              ))
-            ) : topicRows !== null ? (
-              <div style={{ fontSize: 13, color: 'var(--text3)', padding: '8px 0' }}>
-                No practice data yet. Students complete practice sessions to generate topic frequency.
+
+          <div className="two-col">
+            <div className="card">
+              <div className="card-hd">
+                <div className="card-ttl">Your topics by practice frequency</div>
               </div>
-            ) : (
-              // Static demo while loading
-              <>
-                {[
-                  { name: 'Sorting algorithms', count: 43, pct: 100, color: 'var(--gold)' },
-                  { name: 'Graph algorithms', count: 38, pct: 88, color: 'var(--gold)' },
-                  { name: 'Tree structures', count: 31, pct: 72, color: 'var(--teal)' },
-                  { name: 'Hashing', count: 27, pct: 63, color: 'var(--teal)' },
-                  { name: 'Recursion', count: 22, pct: 51, color: 'var(--purple)' },
-                  { name: 'Dynamic programming', count: 19, pct: 44, color: 'var(--coral)' },
-                ].map((item) => (
-                  <div key={item.name}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                {topicRows.slice(0, 6).map((t, i) => (
+                  <div key={t.topic}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 13 }}>{item.name}</span>
-                      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: item.color }}>{item.count}</span>
+                      <span style={{ fontSize: 13 }}>{t.topic}</span>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: topicColor(i) }}>{t.attempts}</span>
                     </div>
                     <div className="prog-track">
-                      <div className="prog-fill" style={{ width: `${item.pct}%`, background: item.color }}></div>
+                      <div
+                        className="prog-fill"
+                        style={{ width: `${Math.round((t.attempts / maxAttempts) * 100)}%`, background: topicColor(i) }}
+                      />
                     </div>
                   </div>
                 ))}
-              </>
-            )}
-          </div>
-        </div>
+              </div>
+            </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="card">
-            <div className="card-hd"><div className="card-ttl">Hardest topics (lowest avg score)</div></div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {cohort?.most_challenging_topics.slice(0, 4).map((t) => (
-                <div key={t.topic} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 13 }}>{t.topic}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: t.average_score < 50 ? 'var(--coral)' : 'var(--gold)', fontWeight: 600 }}>
-                    {t.average_score}%
-                  </span>
-                </div>
-              )) ?? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', height: 72, marginBottom: 6 }}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}><div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--coral)' }}>48%</div><div style={{ width: '100%', height: 52, background: 'var(--coral2)', border: '1px solid rgba(240,115,90,0.2)', borderRadius: '5px 5px 0 0' }}></div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Hard</div></div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}><div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--gold)' }}>35%</div><div style={{ width: '100%', height: 38, background: 'var(--gold2)', border: '1px solid rgba(232,162,58,0.2)', borderRadius: '5px 5px 0 0' }}></div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Med</div></div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}><div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--teal)' }}>17%</div><div style={{ width: '100%', height: 18, background: 'var(--teal2)', border: '1px solid rgba(62,207,178,0.2)', borderRadius: '5px 5px 0 0' }}></div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Easy</div></div>
-                </div>
-              )}
-              {cohort && (
+            <div className="card">
+              <div className="card-hd"><div className="card-ttl">Your hardest topics</div></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {hardestTopics.map((t) => (
+                  <div key={t.topic} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13 }}>{t.topic}</span>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: t.averageScore < 50 ? 'var(--coral)' : 'var(--gold)', fontWeight: 600 }}>
+                      {t.averageScore}%
+                    </span>
+                  </div>
+                ))}
                 <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 4 }}>
-                  Based on {cohort.questions_attempted} practice attempts across all students.
+                  Based on your completed practice sessions.
                 </div>
-              )}
+                <button className="cta" onClick={() => go('practice')}>Practice these topics</button>
+              </div>
             </div>
           </div>
-
-          <div className="pred-card">
-            <div className="pred-lbl">AI prediction</div>
-            <div className="pred-title">Graph algorithms are <em style={{ color: 'var(--gold)' }}>very likely</em> in 2024</div>
-            <div className="pred-body">Appeared in 8 of the last 10 exams. Dynamic Programming has not appeared since 2021 — high probability of reappearance.</div>
-            <button className="cta" onClick={() => go('practice')}>Practice these topics</button>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

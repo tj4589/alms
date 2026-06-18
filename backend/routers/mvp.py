@@ -1,4 +1,4 @@
-from collections import Counter, defaultdict
+from collections import defaultdict
 import re
 from typing import Optional
 
@@ -13,11 +13,6 @@ from database import get_db
 from routers.rag import run_rag_query
 
 router = APIRouter(tags=["mvp"])
-
-
-class VerifyRequest(BaseModel):
-    document_type: str
-    action: str
 
 
 class PracticeGenerateRequest(BaseModel):
@@ -190,7 +185,6 @@ def serialize_past_question(row: models.PastQuestion) -> dict:
         "difficulty": row.difficulty,
         "content_text": row.content_text,
         "file_url": row.file_url,
-        "verified_status": row.verified_status,
         "created_at": row.created_at,
         "metadata_json": row.metadata_json or {},
     }
@@ -206,7 +200,6 @@ def serialize_lecture_note(row: models.LectureNote) -> dict:
         "year": row.year,
         "semester": row.semester,
         "file_url": row.file_url,
-        "verified_status": row.verified_status,
         "created_at": row.created_at,
         "metadata_json": row.metadata_json or {},
     }
@@ -291,59 +284,6 @@ def list_lecture_notes(
         query = query.filter(models.LectureNote.topic.ilike(f"%{topic}%"))
     rows = query.order_by(models.LectureNote.created_at.desc()).limit(100).all()
     return [serialize_lecture_note(row) for row in rows]
-
-
-@router.post("/verify/{document_id}")
-def verify_document(
-    document_id: int,
-    req: VerifyRequest,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.require_role("student")),
-):
-    if req.document_type not in {"past_question", "lecture_note"}:
-        raise HTTPException(status_code=400, detail="document_type must be past_question or lecture_note.")
-    if req.action not in {"confirm", "flag"}:
-        raise HTTPException(status_code=400, detail="action must be confirm or flag.")
-
-    model = models.LectureNote if req.document_type == "lecture_note" else models.PastQuestion
-    document = db.query(model).filter(model.id == document_id).first()
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found.")
-
-    existing = (
-        db.query(models.Verification)
-        .filter(
-            models.Verification.document_id == document_id,
-            models.Verification.document_type == req.document_type,
-            models.Verification.user_id == current_user.id,
-        )
-        .first()
-    )
-    if existing:
-        existing.action = req.action
-    else:
-        db.add(
-            models.Verification(
-                document_id=document_id,
-                document_type=req.document_type,
-                user_id=current_user.id,
-                action=req.action,
-            )
-        )
-
-    db.flush()
-    counts = Counter(
-        action for (action,) in db.query(models.Verification.action)
-        .filter(models.Verification.document_id == document_id, models.Verification.document_type == req.document_type)
-        .all()
-    )
-    if counts["flag"] >= 3:
-        document.verified_status = "flagged"
-    elif counts["confirm"] >= 3:
-        document.verified_status = "verified"
-
-    db.commit()
-    return {"status": document.verified_status, "confirms": counts["confirm"], "flags": counts["flag"]}
 
 
 @router.get("/analytics/cohort")

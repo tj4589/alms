@@ -63,7 +63,6 @@ export type PastQuestion = {
   chunk_ids?: number[];
   matching_sections?: number;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
-  verified_status?: string | null;
 };
 
 export type SearchActionContext = {
@@ -82,7 +81,6 @@ export type LectureNote = {
   title: string;
   year?: number | null;
   semester?: string | null;
-  verified_status?: string | null;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
 };
 

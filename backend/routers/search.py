@@ -442,7 +442,6 @@ def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[d
                 "chunk_ids": [row.id],
                 "matching_sections": 1,
                 "metadata_json": metadata,
-                "verified_status": row.verified_status,
             }
         else:
             grouped[key]["chunk_ids"].append(row.id)
@@ -467,7 +466,6 @@ def _pq(r: models.PastQuestion) -> dict:
         "chunk_ids": [r.id],
         "matching_sections": 1,
         "metadata_json": metadata,
-        "verified_status": r.verified_status,
     }
 
 
@@ -479,6 +477,5 @@ def _ln(r: models.LectureNote) -> dict:
         "title": r.title,
         "year": r.year,
         "semester": r.semester,
-        "verified_status": r.verified_status,
         "metadata_json": r.metadata_json,
     }

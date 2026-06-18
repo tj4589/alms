@@ -45,7 +45,6 @@ class PastQuestion(Base):
     content_text = Column(Text)
     embedding = Column(Vector(384)) # OpenAI small text embedding dimension
     file_url = Column(String, nullable=True)
-    verified_status = Column(String, default="unverified")
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
@@ -70,7 +69,6 @@ class LectureNote(Base):
     year = Column(Integer, nullable=True)
     semester = Column(String, nullable=True, index=True)
     file_url = Column(String, nullable=True)
-    verified_status = Column(String, default="unverified")
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
@@ -94,16 +92,6 @@ class StudentProgress(Base):
     topic_id = Column(Integer, ForeignKey("topics.id"))
     mastery_score = Column(Integer, default=0) # 0-100
     last_practiced = Column(String, nullable=True)
-
-class Verification(Base):
-    __tablename__ = "verifications"
-
-    id = Column(Integer, primary_key=True, index=True)
-    document_id = Column(Integer, index=True)
-    document_type = Column(String, index=True) # past_question, lecture_note
-    user_id = Column(Integer, ForeignKey("users.id"))
-    action = Column(String) # confirm, flag
-    created_at = Column(DateTime(timezone=True), default=utc_now)
 
 class PracticeAttempt(Base):
     __tablename__ = "practice_attempts"
