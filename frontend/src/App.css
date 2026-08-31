@@ -1261,7 +1261,8 @@
 }
 .auth-page{
   min-height:100vh;
-  overflow:hidden;
+  overflow-x:hidden;
+  overflow-y:auto;
   background:
     radial-gradient(ellipse 80% 60% at 20% 40%,rgba(232,162,58,0.08),transparent 62%),
     radial-gradient(ellipse 62% 50% at 82% 70%,rgba(62,207,178,0.075),transparent 62%),
@@ -1464,6 +1465,96 @@
   text-transform:uppercase;
   letter-spacing:.09em;
 }
+.auth-error{
+  margin-bottom:16px;
+  text-align:left;
+}
+.auth-dev-access{
+  margin-top:20px;
+  padding-top:18px;
+  border-top:1px solid var(--border);
+  text-align:left;
+}
+.auth-dev-heading{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:10px;
+}
+.auth-dev-heading>label{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  cursor:text;
+}
+.auth-dev-heading span{
+  color:var(--text2);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.auth-dev-heading small{
+  color:var(--text3);
+  font-size:10.5px;
+}
+.auth-dev-heading .auth-dev-mode{
+  color:var(--gold);
+  font-family:var(--mono);
+  font-size:10px;
+}
+.auth-dev-error{
+  margin:-2px 0 9px;
+  color:var(--coral);
+  font-size:11.5px;
+  line-height:1.4;
+}
+.auth-dev-form{
+  display:grid;
+  grid-template-columns:18px minmax(0,1fr) 42px;
+  align-items:center;
+  min-height:42px;
+  border:1px solid var(--border);
+  background:var(--bg3);
+}
+.auth-dev-form:focus-within{
+  border-color:var(--gold);
+  box-shadow:0 0 0 3px rgba(232,162,58,0.08);
+}
+.auth-dev-form>svg{
+  width:15px;
+  height:15px;
+  margin-left:11px;
+  color:var(--text3);
+}
+.auth-dev-form input{
+  min-width:0;
+  height:40px;
+  border:0;
+  background:transparent;
+  color:var(--text);
+  padding:0 10px 0 9px;
+  font-family:var(--font);
+  font-size:12.5px;
+  outline:none;
+}
+.auth-dev-form input::placeholder{color:var(--text3);}
+.auth-dev-form button{
+  width:42px;
+  height:40px;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-left:1px solid var(--border);
+  background:var(--gold);
+  color:#090b10;
+  cursor:pointer;
+}
+.auth-dev-form button:hover{background:#f0ad48;}
+.auth-dev-form button:focus-visible{outline:2px solid var(--text);outline-offset:-4px;}
+.auth-dev-form button:disabled{cursor:not-allowed;opacity:.55;}
+.auth-dev-form button svg{width:17px;height:17px;}
 .auth-page{
   min-height:100svh;
   display:grid;

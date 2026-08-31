@@ -1,10 +1,16 @@
 import { Suspense, lazy, useState } from 'react';
+import { ArrowRight, KeyRound } from 'lucide-react';
 import { apiFormPost, apiPost } from '../lib/api';
+import {
+  DEV_AUTH_ENABLED,
+  DEV_AUTH_TOKEN,
+  validateDevAuthPass,
+} from '../lib/devAuth';
 
 const AuthScene3D = lazy(() => import('./AuthScene3D'));
 
 type AuthProps = {
-  onLogin: (token: string) => void;
+  onLogin: (token: string) => void | Promise<void>;
   onBackToLanding?: () => void;
   initialMode?: 'login' | 'register';
 };
@@ -15,14 +21,15 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
+  const [devPass, setDevPass] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [devError, setDevError] = useState('');
 
   const handleSubmit = async () => {
     setLoading(true);
     setError('');
-    setSuccess('');
+    setDevError('');
 
     try {
       if (isLogin) {
@@ -35,7 +42,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
           throw new Error('Login response did not include an access token.');
         }
 
-        onLogin(data.access_token);
+        await onLogin(data.access_token);
         return;
       }
 
@@ -50,9 +57,27 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
         throw new Error('Account created, but automatic sign-in failed. Please sign in with your new details.');
       }
 
-      onLogin(data.access_token);
+      await onLogin(data.access_token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDevAccess = async () => {
+    setDevError('');
+
+    if (!validateDevAuthPass(devPass)) {
+      setDevError('The development pass is incorrect.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await onLogin(DEV_AUTH_TOKEN);
+    } catch {
+      setDevError('Developer access could not be started.');
     } finally {
       setLoading(false);
     }
@@ -61,7 +86,8 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
   const switchMode = () => {
     setIsLogin((current) => !current);
     setError('');
-    setSuccess('');
+    setDevError('');
+    setDevPass('');
   };
 
   return (
@@ -102,18 +128,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
           </div>
 
         {error && (
-          <div className="upload-alert" style={{ marginBottom: 16 }}>{error}</div>
-        )}
-        {success && (
-          <div style={{
-            background: 'var(--teal2)',
-            border: '1px solid rgba(62,207,178,0.25)',
-            color: 'var(--teal)',
-            borderRadius: 'var(--r)',
-            padding: '10px 14px',
-            marginBottom: 16,
-            fontSize: 12.5,
-          }}>{success}</div>
+          <div className="upload-alert auth-error" role="alert">{error}</div>
         )}
 
         <form className="auth-form" onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
@@ -195,6 +210,47 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
             {isLogin ? 'Sign up' : 'Sign in'}
           </button>
         </div>
+
+        {DEV_AUTH_ENABLED && (
+          <div className="auth-dev-access">
+            <div className="auth-dev-heading">
+              <label htmlFor="development-pass">
+                <span>Developer access</span>
+                <small>Local environment only</small>
+              </label>
+              <span className="auth-dev-mode">DEV</span>
+            </div>
+            {devError && (
+              <div className="auth-dev-error" role="alert">{devError}</div>
+            )}
+            <form
+              className="auth-dev-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleDevAccess();
+              }}
+            >
+              <KeyRound aria-hidden="true" />
+              <input
+                id="development-pass"
+                type="password"
+                value={devPass}
+                onChange={(event) => setDevPass(event.target.value)}
+                placeholder="Development pass"
+                autoComplete="off"
+                required
+              />
+              <button
+                type="submit"
+                aria-label="Enter developer workspace"
+                title="Enter developer workspace"
+                disabled={loading}
+              >
+                <ArrowRight aria-hidden="true" />
+              </button>
+            </form>
+          </div>
+        )}
       </div>
       </section>
     </div>
