@@ -452,6 +452,7 @@ def list_past_questions(
 def list_lecture_notes(
     course_id: Optional[int] = None,
     topic: Optional[str] = None,
+    uploaded_by: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
@@ -460,6 +461,8 @@ def list_lecture_notes(
         query = query.filter(models.LectureNote.course_id == course_id)
     if topic:
         query = query.filter(models.LectureNote.topic.ilike(f"%{topic}%"))
+    if uploaded_by is not None:
+        query = query.filter(models.LectureNote.uploaded_by == uploaded_by)
     rows = query.order_by(models.LectureNote.created_at.desc()).limit(100).all()
     return [serialize_lecture_note(row) for row in rows]
 

@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { FormEvent } from 'react';
+import {
+  ArrowRight,
+  BookOpenText,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardCheck,
+  FileQuestion,
+  FileText,
+  FolderOpen,
+  Search,
+  Sparkles,
+  Upload,
+} from 'lucide-react';
 import type { AcademicMetadata, ScreenType, User } from '../types';
 import { apiGet } from '../lib/api';
+import { WorkbenchEmpty, WorkbenchSection } from '../components/workbench/WorkbenchSection';
 
 type ReadinessEntry = {
   id: number;
@@ -15,6 +29,7 @@ type AttemptEntry = {
   score: number;
   total_questions: number;
   topic: string | null;
+  course_id: number | null;
   completed_at: string;
 };
 
@@ -23,67 +38,61 @@ type StudentAnalytics = {
   attempts: AttemptEntry[];
 };
 
+type CourseEntry = {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+};
+
 type MaterialEntry = {
   id: number;
   title?: string | null;
   topic?: string | null;
+  content_text?: string | null;
   year?: number | null;
   semester?: string | null;
+  course_id?: number | null;
+  uploaded_by?: number | null;
+  created_at?: string | null;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
 };
 
-type UploadedMaterial = {
-  id: string;
+type StudySessionEntry = {
+  id: number;
   title: string;
-  type: 'Past Question' | 'Lecture Note';
-  meta: string;
+  topic?: string | null;
+  exam_goal?: string | null;
+  course_id?: number | null;
+  starts_at?: string | null;
+  status?: string | null;
 };
 
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+type ArchiveItem = {
+  id: string;
+  kind: 'Past question' | 'Lecture note';
+  title: string;
+  courseCode: string;
+  meta: string;
+  courseId: number | null;
+  createdAt: string | null;
+};
+
+type CourseWorkspace = {
+  id: string;
+  code: string;
+  name: string;
+  materialCount: number;
+  questionCount: number;
+  readiness: number | null;
+  lastActiveAt: string | null;
+};
 
 function timeOfDay(): string {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good morning';
   if (hour < 17) return 'Good afternoon';
   return 'Good evening';
-}
-
-function readinessColor(score: number): string {
-  if (score >= 80) return 'var(--teal)';
-  if (score >= 50) return 'var(--gold)';
-  return 'var(--coral)';
-}
-
-function metadataString(metadata: AcademicMetadata | Record<string, unknown> | null | undefined, key: string): string {
-  const value = metadata && typeof metadata === 'object' ? metadata[key as keyof typeof metadata] : null;
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function titleFromMaterial(material: MaterialEntry, fallback: string): string {
-  const metadata = material.metadata_json;
-  return (
-    metadataString(metadata, 'document_title') ||
-    material.title ||
-    material.topic ||
-    metadataString(metadata, 'source_file') ||
-    fallback
-  );
-}
-
-function materialMeta(material: MaterialEntry): string {
-  const metadata = material.metadata_json;
-  const parts = [
-    metadataString(metadata, 'course_code'),
-    metadataString(metadata, 'academic_year') || (material.year ? String(material.year) : ''),
-    material.semester || metadataString(metadata, 'semester'),
-  ].filter(Boolean);
-  return parts.join(' · ') || 'Uploaded academic material';
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Recent practice';
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function todayLabel(): string {
@@ -94,333 +103,574 @@ function todayLabel(): string {
   });
 }
 
+function metadataString(
+  metadata: AcademicMetadata | Record<string, unknown> | null | undefined,
+  key: string,
+): string {
+  const value = metadata && typeof metadata === 'object'
+    ? metadata[key as keyof typeof metadata]
+    : null;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function shorten(value: string, max = 86): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max).trim()}...`;
+}
+
+function materialTitle(material: MaterialEntry, kind: ArchiveItem['kind']): string {
+  const metadata = material.metadata_json;
+  return (
+    metadataString(metadata, 'document_title') ||
+    material.title ||
+    material.topic ||
+    (material.content_text ? shorten(material.content_text) : '') ||
+    (kind === 'Past question' ? 'Uploaded past question' : 'Uploaded lecture note')
+  );
+}
+
+function materialMeta(material: MaterialEntry): string {
+  const metadata = material.metadata_json;
+  const parts = [
+    metadataString(metadata, 'academic_year') || (material.year ? String(material.year) : ''),
+    material.semester || metadataString(metadata, 'semester'),
+    metadataString(metadata, 'document_type').replaceAll('_', ' '),
+  ].filter(Boolean);
+  return parts.join(' / ') || 'Indexed academic source';
+}
+
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return 'Recently added';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Recently added';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function formatSchedule(value: string | null | undefined): string {
+  if (!value) return 'Schedule pending';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Schedule pending';
+  return date.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export default function Dashboard({
   go,
   user,
+  onOpenSearch,
 }: {
-  go: (s: ScreenType) => void;
+  go: (screen: ScreenType) => void;
   user: User | null;
-  notifyUnavailable: (feature: string) => void;
+  onOpenSearch: (query: string) => void;
 }) {
   const [analytics, setAnalytics] = useState<StudentAnalytics | null>(null);
-  const [materials, setMaterials] = useState<UploadedMaterial[]>([]);
-  const [materialsLoaded, setMaterialsLoaded] = useState(false);
-  const firstName = user?.name?.split(' ')[0] ?? 'there';
+  const [courses, setCourses] = useState<CourseEntry[]>([]);
+  const [pastQuestions, setPastQuestions] = useState<MaterialEntry[]>([]);
+  const [lectureNotes, setLectureNotes] = useState<MaterialEntry[]>([]);
+  const [studySessions, setStudySessions] = useState<StudySessionEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [archiveView, setArchiveView] = useState<'materials' | 'questions'>('materials');
+  const [archiveQuery, setArchiveQuery] = useState('');
 
-  useEffect(() => {
-    if (!user?.id) return;
-    let cancelled = false;
-
-    apiGet(`/analytics/student/${user.id}`)
-      .then((data) => { if (!cancelled) setAnalytics(data as StudentAnalytics); })
-      .catch(() => { if (!cancelled) setAnalytics({ readiness: [], attempts: [] }); });
-
-    return () => { cancelled = true; };
-  }, [user?.id]);
+  const firstName = user?.name?.split(' ')[0] || 'student';
 
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
 
     Promise.allSettled([
+      apiGet(`/analytics/student/${user.id}`),
+      apiGet('/courses'),
       apiGet(`/past-questions?uploaded_by=${user.id}`),
       apiGet(`/lecture-notes?uploaded_by=${user.id}`),
-    ])
-      .then(([pastQuestions, lectureNotes]) => {
-        if (cancelled) return;
-        const pqRows = pastQuestions.status === 'fulfilled' && Array.isArray(pastQuestions.value)
-          ? pastQuestions.value as MaterialEntry[]
-          : [];
-        const noteRows = lectureNotes.status === 'fulfilled' && Array.isArray(lectureNotes.value)
-          ? lectureNotes.value as MaterialEntry[]
-          : [];
-        const nextMaterials: UploadedMaterial[] = [
-          ...pqRows.slice(0, 4).map((row) => ({
-            id: `pq-${row.id}`,
-            title: titleFromMaterial(row, 'Past question'),
-            type: 'Past Question' as const,
-            meta: materialMeta(row),
-          })),
-          ...noteRows.slice(0, 4).map((row) => ({
-            id: `ln-${row.id}`,
-            title: titleFromMaterial(row, 'Lecture note'),
-            type: 'Lecture Note' as const,
-            meta: materialMeta(row),
-          })),
-        ].slice(0, 5);
-        setMaterials(nextMaterials);
-      })
-      .finally(() => {
-        if (!cancelled) setMaterialsLoaded(true);
-      });
+      apiGet('/study-sessions?active_only=true'),
+    ]).then(([analyticsResult, coursesResult, questionsResult, notesResult, sessionsResult]) => {
+      if (cancelled) return;
+      setAnalytics(
+        analyticsResult.status === 'fulfilled'
+          ? analyticsResult.value as StudentAnalytics
+          : { readiness: [], attempts: [] },
+      );
+      setCourses(
+        coursesResult.status === 'fulfilled' && Array.isArray(coursesResult.value)
+          ? coursesResult.value as CourseEntry[]
+          : [],
+      );
+      setPastQuestions(
+        questionsResult.status === 'fulfilled' && Array.isArray(questionsResult.value)
+          ? questionsResult.value as MaterialEntry[]
+          : [],
+      );
+      setLectureNotes(
+        notesResult.status === 'fulfilled' && Array.isArray(notesResult.value)
+          ? notesResult.value as MaterialEntry[]
+          : [],
+      );
+      setStudySessions(
+        sessionsResult.status === 'fulfilled' && Array.isArray(sessionsResult.value)
+          ? sessionsResult.value as StudySessionEntry[]
+          : [],
+      );
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
 
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  const totalPracticed = useMemo(
-    () => analytics?.attempts.reduce((sum, a) => sum + a.total_questions, 0) ?? 0,
-    [analytics],
+  const courseById = useMemo(
+    () => new Map(courses.map((course) => [course.id, course])),
+    [courses],
   );
 
-  const avgScore = useMemo(() => {
-    if (!analytics?.attempts.length) return null;
-    const sum = analytics.attempts.reduce((acc, a) => acc + a.score, 0);
-    return Math.round(sum / analytics.attempts.length);
-  }, [analytics]);
+  const archiveItems = useMemo<ArchiveItem[]>(() => {
+    const toItem = (material: MaterialEntry, kind: ArchiveItem['kind']): ArchiveItem => {
+      const course = material.course_id ? courseById.get(material.course_id) : null;
+      const courseCode = metadataString(material.metadata_json, 'course_code') || course?.code || 'Archive';
+      return {
+        id: `${kind === 'Past question' ? 'pq' : 'ln'}-${material.id}`,
+        kind,
+        title: materialTitle(material, kind),
+        courseCode,
+        meta: materialMeta(material),
+        courseId: material.course_id || null,
+        createdAt: material.created_at || null,
+      };
+    };
 
-  const masteredCount = useMemo(
-    () => analytics?.readiness.filter((r) => r.score >= 80).length ?? 0,
-    [analytics],
-  );
+    return [
+      ...pastQuestions.map((item) => toItem(item, 'Past question')),
+      ...lectureNotes.map((item) => toItem(item, 'Lecture note')),
+    ].sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [courseById, lectureNotes, pastQuestions]);
 
-  const inProgressCount = useMemo(
-    () => analytics?.readiness.filter((r) => r.score >= 50 && r.score < 80).length ?? 0,
-    [analytics],
-  );
+  const courseWorkspaces = useMemo<CourseWorkspace[]>(() => {
+    const workspaceMap = new Map<string, CourseWorkspace & { readinessScores: number[] }>();
 
-  const sessionCount = useMemo(() => analytics?.attempts.length ?? 0, [analytics]);
+    const ensureWorkspace = (courseId: number | null, fallbackCode = 'Archive') => {
+      const course = courseId ? courseById.get(courseId) : null;
+      const code = course?.code || fallbackCode;
+      const key = courseId ? `course-${courseId}` : `code-${code}`;
+      if (!workspaceMap.has(key)) {
+        workspaceMap.set(key, {
+          id: key,
+          code,
+          name: course?.name || (code === 'Archive' ? 'Unsorted academic sources' : code),
+          materialCount: 0,
+          questionCount: 0,
+          readiness: null,
+          readinessScores: [],
+          lastActiveAt: null,
+        });
+      }
+      return workspaceMap.get(key)!;
+    };
 
-  const overallReadiness = useMemo(() => {
-    if (!analytics?.readiness.length) return null;
-    const sum = analytics.readiness.reduce((acc, item) => acc + item.score, 0);
-    return Math.round(sum / analytics.readiness.length);
-  }, [analytics]);
+    archiveItems.forEach((item) => {
+      const workspace = ensureWorkspace(item.courseId, item.courseCode);
+      workspace.materialCount += 1;
+      if (item.kind === 'Past question') workspace.questionCount += 1;
+      if (item.createdAt && (!workspace.lastActiveAt || item.createdAt > workspace.lastActiveAt)) {
+        workspace.lastActiveAt = item.createdAt;
+      }
+    });
+
+    analytics?.readiness.forEach((entry) => {
+      if (!entry.course_id) return;
+      const workspace = ensureWorkspace(entry.course_id);
+      workspace.readinessScores.push(entry.score);
+    });
+
+    analytics?.attempts.forEach((attempt) => {
+      if (!attempt.course_id) return;
+      const workspace = ensureWorkspace(attempt.course_id);
+      if (!workspace.lastActiveAt || attempt.completed_at > workspace.lastActiveAt) {
+        workspace.lastActiveAt = attempt.completed_at;
+      }
+    });
+
+    if (!workspaceMap.size) {
+      courses.slice(0, 4).forEach((course) => ensureWorkspace(course.id));
+    }
+
+    return [...workspaceMap.values()]
+      .map(({ readinessScores, ...workspace }) => ({
+        ...workspace,
+        readiness: readinessScores.length
+          ? Math.round(readinessScores.reduce((sum, score) => sum + score, 0) / readinessScores.length)
+          : null,
+      }))
+      .sort((a, b) => {
+        const activityDelta = (b.materialCount + b.questionCount) - (a.materialCount + a.questionCount);
+        if (activityDelta) return activityDelta;
+        return a.code.localeCompare(b.code);
+      })
+      .slice(0, 5);
+  }, [analytics, archiveItems, courseById, courses]);
 
   const weakestTopic = useMemo(() => {
     if (!analytics?.readiness.length) return null;
     return [...analytics.readiness]
-      .filter((r) => r.topic)
-      .sort((a, b) => a.score - b.score)[0] ?? null;
+      .filter((entry) => entry.topic)
+      .sort((a, b) => a.score - b.score)[0] || null;
   }, [analytics]);
 
-  const topReadiness = useMemo(() => {
-    if (!analytics?.readiness.length) return [];
-    return [...analytics.readiness]
-      .filter((r) => r.topic)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 4);
+  const overallReadiness = useMemo(() => {
+    if (!analytics?.readiness.length) return null;
+    return Math.round(
+      analytics.readiness.reduce((sum, entry) => sum + entry.score, 0) / analytics.readiness.length,
+    );
   }, [analytics]);
 
-  const recentAttempts = useMemo(() => {
-    if (!analytics?.attempts.length) return [];
-    return [...analytics.attempts]
-      .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
-      .slice(0, 4);
-  }, [analytics]);
+  const recentActivity = useMemo(() => {
+    const materialActivity = archiveItems.map((item) => ({
+      id: `material-${item.id}`,
+      type: item.kind,
+      title: item.title,
+      meta: `${item.courseCode} / ${item.meta}`,
+      date: item.createdAt,
+      icon: item.kind === 'Past question' ? FileQuestion : FileText,
+    }));
+    const practiceActivity = (analytics?.attempts || []).map((attempt) => ({
+      id: `attempt-${attempt.id}`,
+      type: 'Practice',
+      title: attempt.topic ? `Practiced ${attempt.topic}` : 'Completed practice session',
+      meta: `${attempt.score}% score / ${attempt.total_questions} question${attempt.total_questions === 1 ? '' : 's'}`,
+      date: attempt.completed_at,
+      icon: ClipboardCheck,
+    }));
 
-  const weekBars = useMemo(() => {
-    const counts = [0, 0, 0, 0, 0, 0, 0];
-    const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    weekStart.setHours(0, 0, 0, 0);
+    return [...materialActivity, ...practiceActivity]
+      .sort((a, b) => {
+        const aTime = a.date ? new Date(a.date).getTime() : 0;
+        const bTime = b.date ? new Date(b.date).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, 6);
+  }, [analytics, archiveItems]);
 
-    analytics?.attempts.forEach((attempt) => {
-      const date = new Date(attempt.completed_at);
-      if (date >= weekStart) {
-        const day = date.getDay();
-        counts[day === 0 ? 6 : day - 1]++;
-      }
-    });
+  const upcomingSessions = useMemo(() => {
+    return studySessions
+      .filter((session) => session.starts_at)
+      .sort((a, b) => new Date(a.starts_at!).getTime() - new Date(b.starts_at!).getTime())
+      .slice(0, 2);
+  }, [studySessions]);
 
-    const max = Math.max(...counts, 1);
-    return counts.map((count) => ({ count, height: count ? Math.max(Math.round((count / max) * 64), 8) : 4 }));
-  }, [analytics]);
+  const hasUploads = archiveItems.length > 0;
+  const latestMaterial = archiveItems[0] || null;
+  const visibleArchiveItems = archiveView === 'questions'
+    ? archiveItems.filter((item) => item.kind === 'Past question').slice(0, 5)
+    : archiveItems.slice(0, 5);
 
-  const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
-  const hasUploads = materials.length > 0;
-  const hasPracticeData = Boolean(analytics && analytics.attempts.length > 0);
+  const handleArchiveSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = archiveQuery.trim();
+    if (query) onOpenSearch(query);
+  };
 
   return (
-    <div className="page dashboard-page" id="s-dashboard">
-      <div className="pg-head dashboard-head">
+    <div className="page workbench-page" id="s-dashboard">
+      <header className="wb-page-head">
         <div>
-          <div className="pg-title">{timeOfDay()}, <em>{firstName}.</em></div>
-          <div className="pg-sub">
-            {hasPracticeData
-              ? `${masteredCount} topics mastered · ${inProgressCount} in progress · ${sessionCount} practice sessions`
-              : 'Your student dashboard is ready for uploaded materials, practice, and progress tracking.'}
-          </div>
+          <p className="wb-date">{todayLabel()}</p>
+          <h1>{timeOfDay()}, <em>{firstName}.</em></h1>
+          <p className="wb-page-intro">Your courses, sources, and next study decision in one focused workspace.</p>
         </div>
-        <div className="dashboard-head-actions">
-          <button className="cta cta-ghost" onClick={() => go('search')}>Search archive</button>
-          <button className="cta" onClick={() => go('upload')}>Upload material</button>
+        <div className="wb-head-actions">
+          <button type="button" className="wb-button wb-button-secondary" onClick={() => go('search')}>
+            <Search aria-hidden="true" />
+            Search archive
+          </button>
+          <button type="button" className="wb-button wb-button-primary" onClick={() => go('upload')}>
+            <Upload aria-hidden="true" />
+            Upload material
+          </button>
         </div>
-      </div>
+      </header>
 
-      <div className="focus-card dashboard-focus welcome-card">
-        <div className="focus-left">
-          <div className="focus-pill">Student dashboard · {todayLabel()}</div>
-          <div className="focus-course">
+      <section className="wb-briefing" aria-labelledby="study-briefing-title">
+        <div className="wb-briefing-copy">
+          <p className="wb-kicker"><span aria-hidden="true"></span> Study briefing</p>
+          <h2 id="study-briefing-title">
             {weakestTopic
-              ? <>Revise <em>{weakestTopic.topic}</em></>
+              ? <>Strengthen <em>{weakestTopic.topic}</em></>
               : hasUploads
-                ? <>Generate practice from <em>uploaded materials</em></>
+                ? <>Turn your sources into <em>exam practice</em></>
                 : <>Build your <em>academic archive</em></>}
-          </div>
-          <div className="focus-meta">
+          </h2>
+          <p>
             {weakestTopic
-              ? `Current readiness is ${weakestTopic.score}%. Practice can help strengthen this topic.`
+              ? `${weakestTopic.topic} is currently at ${weakestTopic.score}% readiness. A focused practice set is the strongest next move.`
               : hasUploads
-                ? 'Your uploads are ready for search, AI questions, and practice generation.'
-                : 'Upload past questions or lecture notes to unlock cleaner search, AI retrieval, and practice.'}
-          </div>
+                ? 'Your indexed materials are ready for source-grounded search, explanations, and practice generation.'
+                : 'Upload lecture notes or past questions to make every search and AI answer traceable to your coursework.'}
+          </p>
+          <button type="button" className="wb-briefing-action" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
+            {hasUploads ? 'Start focused practice' : 'Upload your first source'}
+            <ArrowRight aria-hidden="true" />
+          </button>
         </div>
-        <div
-          className="focus-right compact-readiness readiness-ring"
-          style={{ '--ring-score': `${overallReadiness ?? 0}%` } as CSSProperties}
+        <dl className="wb-pulse" aria-label="Academic archive summary">
+          <div>
+            <dt>Readiness</dt>
+            <dd>{overallReadiness !== null ? `${overallReadiness}%` : '--'}</dd>
+          </div>
+          <div>
+            <dt>Indexed sources</dt>
+            <dd>{loading ? '--' : archiveItems.length}</dd>
+          </div>
+          <div>
+            <dt>Past questions</dt>
+            <dd>{loading ? '--' : pastQuestions.length}</dd>
+          </div>
+          <div>
+            <dt>Practice sessions</dt>
+            <dd>{analytics?.attempts.length || 0}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <form className="wb-grounded-search" onSubmit={handleArchiveSearch}>
+        <div className="wb-search-mark" aria-hidden="true"><Sparkles /></div>
+        <div className="wb-search-copy">
+          <label htmlFor="archive-grounded-search">Grounded AI search</label>
+          <span><CheckCircle2 aria-hidden="true" /> Answers trace back to your uploaded course material</span>
+        </div>
+        <div className="wb-search-control">
+          <Search aria-hidden="true" />
+          <input
+            id="archive-grounded-search"
+            type="search"
+            value={archiveQuery}
+            onChange={(event) => setArchiveQuery(event.target.value)}
+            placeholder="Ask about a topic, course, lecturer, or past question"
+            required
+          />
+          <button type="submit" aria-label="Search your academic archive" title="Search archive">
+            <ArrowRight aria-hidden="true" />
+          </button>
+        </div>
+      </form>
+
+      <div className="wb-primary-grid">
+        <WorkbenchSection
+          id="course-workspaces"
+          index="01"
+          title="Course workspaces"
+          description="Open the archive, questions, and readiness context for a course."
+          action={(
+            <button type="button" className="wb-text-action" onClick={() => go('search')}>
+              View archive <ArrowRight aria-hidden="true" />
+            </button>
+          )}
         >
-          <div className="cd-unit">
-            <span className="cd-num">{overallReadiness !== null ? overallReadiness : '--'}</span>
-            <div className="cd-lbl">readiness</div>
-          </div>
-        </div>
-        <button className="focus-cta" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
-          {hasUploads ? 'Start practice' : 'Upload first'}
-        </button>
-      </div>
-
-      <div className="stats">
-        <div className="stat">
-          <div className="stat-glow" style={{ background: 'var(--gold)' }}></div>
-          <div className="stat-lbl">Uploaded materials</div>
-          <div className="stat-val" style={{ color: 'var(--gold)' }}>{materialsLoaded ? materials.length : '--'}</div>
-          <div className="stat-delta">{hasUploads ? 'ready for retrieval' : 'add PDFs to begin'}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-glow" style={{ background: 'var(--teal)' }}></div>
-          <div className="stat-lbl">Questions practiced</div>
-          <div className="stat-val" style={{ color: 'var(--teal)' }}>{totalPracticed}</div>
-          <div className="stat-delta">across {sessionCount} session{sessionCount === 1 ? '' : 's'}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-glow" style={{ background: 'var(--coral)' }}></div>
-          <div className="stat-lbl">Average score</div>
-          <div className="stat-val" style={{ color: 'var(--coral)' }}>{avgScore !== null ? `${avgScore}%` : '--'}</div>
-          <div className="stat-delta">{avgScore !== null ? 'from completed practice' : 'no attempts yet'}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-glow" style={{ background: 'var(--purple)' }}></div>
-          <div className="stat-lbl">Topics tracked</div>
-          <div className="stat-val" style={{ color: 'var(--purple)' }}>{analytics?.readiness.length ?? 0}</div>
-          <div className="stat-delta">{masteredCount} mastered · {inProgressCount} in progress</div>
-        </div>
-      </div>
-
-      <div className="two-col">
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Recent uploads</div>
-            <button className="card-lnk as-button" onClick={() => go('upload')}>Upload more</button>
-          </div>
-          {hasUploads ? (
-            <div className="dashboard-list">
-              {materials.map((material) => (
-                <button className="dashboard-row" key={material.id} onClick={() => go('search')}>
-                  <span className="dashboard-row-type">{material.type}</span>
-                  <span className="dashboard-row-main">
-                    <strong>{material.title}</strong>
-                    <small>{material.meta}</small>
+          {loading ? (
+            <div className="wb-loading-list" aria-label="Loading course workspaces">
+              <span></span><span></span><span></span>
+            </div>
+          ) : courseWorkspaces.length ? (
+            <div className="wb-course-list">
+              {courseWorkspaces.map((course) => (
+                <button
+                  type="button"
+                  className="wb-course-row"
+                  key={course.id}
+                  onClick={() => onOpenSearch(course.code === 'Archive' ? course.name : course.code)}
+                >
+                  <span className="wb-course-code">{course.code}</span>
+                  <span className="wb-course-main">
+                    <strong>{course.name}</strong>
+                    <small>
+                      {course.materialCount} source{course.materialCount === 1 ? '' : 's'} / {course.questionCount} past question{course.questionCount === 1 ? '' : 's'}
+                    </small>
                   </span>
+                  <span className="wb-course-status">
+                    <small>{course.lastActiveAt ? `Active ${formatShortDate(course.lastActiveAt)}` : 'Ready to begin'}</small>
+                    <strong>{course.readiness !== null ? `${course.readiness}%` : '--'}</strong>
+                  </span>
+                  <ArrowRight aria-hidden="true" />
                 </button>
               ))}
             </div>
           ) : (
-            <div className="dashboard-empty">
-              <div className="dashboard-empty-title">No uploaded materials yet</div>
-              <p>Upload past questions or lecture notes to make ExamMind searchable and useful for AI retrieval.</p>
-              <button className="cta" onClick={() => go('upload')}>Upload academic PDF</button>
-            </div>
+            <WorkbenchEmpty
+              icon={BookOpenText}
+              title="No course workspaces yet"
+              body="Upload a course document and ExamMind will organize it into a searchable workspace."
+              action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Upload material</button>}
+            />
           )}
-        </div>
+        </WorkbenchSection>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="card">
-            <div className="card-hd">
-              <div className="card-ttl">Topic readiness</div>
-              <button className="card-lnk as-button" onClick={() => go('progress')}>Details</button>
-            </div>
-            <div className="prog-list">
-              {topReadiness.length ? (
-                topReadiness.map((entry) => (
-                  <div key={entry.id}>
-                    <div className="prog-top">
-                      <span className="prog-nm">{entry.topic}</span>
-                      <span className="prog-pct">{entry.score}%</span>
-                    </div>
-                    <div className="prog-track">
-                      <div className="prog-fill" style={{ width: `${entry.score}%`, background: readinessColor(entry.score) }}></div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="dashboard-empty compact">
-                  <div className="dashboard-empty-title">No readiness data yet</div>
-                  <p>Complete practice sessions to build topic readiness and progress insights.</p>
-                </div>
-              )}
-            </div>
-          </div>
+        <WorkbenchSection
+          id="academic-queue"
+          index="02"
+          title="Academic queue"
+          description="The next useful actions based on your real study activity."
+          className="wb-queue-section"
+        >
+          <div className="wb-queue-list">
+            {upcomingSessions.map((session) => (
+              <button type="button" className="wb-queue-row" key={`session-${session.id}`} onClick={() => go('groups')}>
+                <span className="wb-queue-icon"><CalendarDays aria-hidden="true" /></span>
+                <span>
+                  <small>{formatSchedule(session.starts_at)}</small>
+                  <strong>{session.title}</strong>
+                  <em>{session.exam_goal || session.topic || 'Scheduled study session'}</em>
+                </span>
+                <ArrowRight aria-hidden="true" />
+              </button>
+            ))}
 
-          <div className="card">
-            <div className="card-hd"><div className="card-ttl">This week</div></div>
-            <div className="bar-chart">
-              {weekBars.map((bar, index) => (
-                <div className="bc-col" key={DAY_LABELS[index]}>
-                  <div
-                    className={`bc-bar${index === todayIdx ? ' on' : ''}`}
-                    style={{ height: bar.height }}
-                    title={`${bar.count} session${bar.count === 1 ? '' : 's'}`}
-                  ></div>
-                  <span className="bc-lbl">{DAY_LABELS[index]}</span>
-                </div>
-              ))}
-            </div>
-            <div className="dashboard-week-note">
-              {weekBars.reduce((sum, bar) => sum + bar.count, 0)} session{weekBars.reduce((sum, bar) => sum + bar.count, 0) === 1 ? '' : 's'} this week
-            </div>
+            {weakestTopic ? (
+              <button type="button" className="wb-queue-row" onClick={() => go('practice')}>
+                <span className="wb-queue-icon"><ClipboardCheck aria-hidden="true" /></span>
+                <span>
+                  <small>Recommended next</small>
+                  <strong>Practice {weakestTopic.topic}</strong>
+                  <em>{weakestTopic.score}% readiness / strengthen before review</em>
+                </span>
+                <ArrowRight aria-hidden="true" />
+              </button>
+            ) : (
+              <button type="button" className="wb-queue-row" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
+                <span className="wb-queue-icon">{hasUploads ? <ClipboardCheck aria-hidden="true" /> : <Upload aria-hidden="true" />}</span>
+                <span>
+                  <small>Recommended next</small>
+                  <strong>{hasUploads ? 'Complete your first practice set' : 'Add your first academic source'}</strong>
+                  <em>{hasUploads ? 'Build a readiness baseline from indexed material' : 'Lecture notes and past questions work best'}</em>
+                </span>
+                <ArrowRight aria-hidden="true" />
+              </button>
+            )}
+
+            {latestMaterial && (
+              <button type="button" className="wb-queue-row" onClick={() => onOpenSearch(latestMaterial.courseCode)}>
+                <span className="wb-queue-icon"><FolderOpen aria-hidden="true" /></span>
+                <span>
+                  <small>Archive follow-up</small>
+                  <strong>{shorten(latestMaterial.title, 54)}</strong>
+                  <em>Search and review the latest indexed source</em>
+                </span>
+                <ArrowRight aria-hidden="true" />
+              </button>
+            )}
           </div>
-        </div>
+        </WorkbenchSection>
       </div>
 
-      <div className="two-col dashboard-bottom">
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Recent practice</div>
-            <button className="card-lnk as-button" onClick={() => go('practice')}>Practice</button>
-          </div>
-          {recentAttempts.length ? (
-            <div className="dashboard-list">
-              {recentAttempts.map((attempt) => (
-                <div className="dashboard-row static" key={attempt.id}>
-                  <span className="dashboard-row-type">{formatDate(attempt.completed_at)}</span>
-                  <span className="dashboard-row-main">
-                    <strong>{attempt.topic || 'Practice session'}</strong>
-                    <small>{attempt.score}% · {attempt.total_questions} question{attempt.total_questions === 1 ? '' : 's'}</small>
+      <div className="wb-secondary-grid">
+        <WorkbenchSection
+          id="archive-evidence"
+          index="03"
+          title="Archive evidence"
+          description="The uploaded sources that ground search, AI answers, and practice."
+          action={(
+            <div className="wb-view-tabs" role="tablist" aria-label="Archive view">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={archiveView === 'materials'}
+                className={archiveView === 'materials' ? 'is-active' : ''}
+                onClick={() => setArchiveView('materials')}
+              >
+                Materials <span>{archiveItems.length}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={archiveView === 'questions'}
+                className={archiveView === 'questions' ? 'is-active' : ''}
+                onClick={() => setArchiveView('questions')}
+              >
+                Past questions <span>{pastQuestions.length}</span>
+              </button>
+            </div>
+          )}
+        >
+          {loading ? (
+            <div className="wb-loading-list" aria-label="Loading archive sources">
+              <span></span><span></span><span></span>
+            </div>
+          ) : visibleArchiveItems.length ? (
+            <div className="wb-archive-list" role="tabpanel">
+              {visibleArchiveItems.map((item) => (
+                <button type="button" className="wb-archive-row" key={item.id} onClick={() => onOpenSearch(item.courseCode)}>
+                  <span className="wb-file-icon">
+                    {item.kind === 'Past question' ? <FileQuestion aria-hidden="true" /> : <FileText aria-hidden="true" />}
                   </span>
-                </div>
+                  <span className="wb-archive-main">
+                    <small>{item.courseCode} / {item.kind}</small>
+                    <strong>{item.title}</strong>
+                    <em>{item.meta}</em>
+                  </span>
+                  <span className="wb-archive-date">{formatShortDate(item.createdAt)}</span>
+                  <ArrowRight aria-hidden="true" />
+                </button>
               ))}
             </div>
           ) : (
-            <div className="dashboard-empty compact">
-              <div className="dashboard-empty-title">No practice attempts yet</div>
-              <p>Start a practice session once you have uploaded enough academic material.</p>
-            </div>
+            <WorkbenchEmpty
+              icon={archiveView === 'questions' ? FileQuestion : FolderOpen}
+              title={archiveView === 'questions' ? 'No past questions indexed' : 'Your archive is empty'}
+              body={archiveView === 'questions'
+                ? 'Upload a past paper to unlock exam-style retrieval and practice generation.'
+                : 'Add lecture notes or past questions to create a source-grounded study archive.'}
+              action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Upload PDF</button>}
+            />
           )}
-        </div>
+        </WorkbenchSection>
 
-        <div className="card dashboard-ai-card">
-          <div className="card-hd"><div className="card-ttl">AI study insight</div></div>
-          <p>
-            {hasUploads
-              ? 'Your uploaded academic materials can now ground search results, AI Assistant answers, and practice generation.'
-              : 'Upload course materials first so the AI Assistant can answer from your academic archive instead of generic context.'}
-          </p>
-          <div className="dashboard-action-row">
-            <button className="cta" onClick={() => go('assistant')}>Ask AI</button>
-            <button className="cta cta-ghost" onClick={() => go('collab')}>Open study spaces</button>
-          </div>
-        </div>
+        <WorkbenchSection
+          id="recent-activity"
+          index="04"
+          title="Recent study activity"
+          description="A concise record of uploads and completed practice."
+          action={(
+            <button type="button" className="wb-text-action" onClick={() => go('progress')}>
+              Progress <ArrowRight aria-hidden="true" />
+            </button>
+          )}
+        >
+          {loading ? (
+            <div className="wb-loading-list" aria-label="Loading recent activity">
+              <span></span><span></span><span></span>
+            </div>
+          ) : recentActivity.length ? (
+            <ol className="wb-activity-list">
+              {recentActivity.map((activity) => {
+                const ActivityIcon = activity.icon;
+                return (
+                  <li key={activity.id}>
+                    <span className="wb-activity-marker"><ActivityIcon aria-hidden="true" /></span>
+                    <span>
+                      <small>{activity.type} / {formatShortDate(activity.date)}</small>
+                      <strong>{activity.title}</strong>
+                      <em>{activity.meta}</em>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <WorkbenchEmpty
+              icon={ClipboardCheck}
+              title="No study activity yet"
+              body="Uploads and completed practice sessions will appear here in chronological order."
+              action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Start with an upload</button>}
+            />
+          )}
+        </WorkbenchSection>
       </div>
     </div>
   );

@@ -1,158 +1,155 @@
+import {
+  ArrowRight,
+  BarChart3,
+  Bot,
+  Check,
+  FileSearch,
+  FileText,
+  Library,
+  ScanLine,
+  Search,
+  Sparkles,
+  Upload,
+} from 'lucide-react';
+import heroDesk from '../assets/exammind-study-desk-hero-orange.jpg';
+
 type LandingProps = {
   onGetStarted: () => void;
   onSignIn: () => void;
 };
 
-type IconName = 'search' | 'ai' | 'practice' | 'analytics';
-
-const featureCards = [
+const capabilities = [
   {
-    label: 'Semantic Search',
-    icon: 'search' as IconName,
-    title: 'Retrieve exact academic concepts',
-    body: 'Search uploaded past questions and lecture notes by course, topic, session, or exam phrase.',
+    number: '01',
+    icon: Search,
+    label: 'Semantic retrieval',
+    title: 'Find the idea, not just the exact phrase.',
+    body: 'Search past questions and lecture notes by course, topic, session, or academic concept.',
   },
   {
-    label: 'AI Study Assistant',
-    icon: 'ai' as IconName,
-    title: 'Ask from your own source materials',
-    body: 'Receive grounded answers from retrieved uploaded materials, with source context when relevant.',
+    number: '02',
+    icon: Bot,
+    label: 'Grounded answers',
+    title: 'Ask questions against material you trust.',
+    body: 'ExamMind retrieves relevant uploaded content before the assistant responds with source context.',
   },
   {
-    label: 'Practice Questions',
-    icon: 'practice' as IconName,
-    title: 'Generate revision sessions',
-    body: 'Create self-marked practice from uploaded past questions when ExamMind has enough course material.',
+    number: '03',
+    icon: FileSearch,
+    label: 'Exam practice',
+    title: 'Turn an archive into a revision session.',
+    body: 'Generate focused practice from the material already indexed in your private study workspace.',
   },
   {
-    label: 'Examination Analytics',
-    icon: 'analytics' as IconName,
-    title: 'Track progress and weak topics',
-    body: 'Visualize readiness, practice history, and topics that need more attention before exams.',
+    number: '04',
+    icon: BarChart3,
+    label: 'Readiness',
+    title: 'See which topics still need attention.',
+    body: 'Track practice history, topic readiness, and weak areas as revision progresses.',
   },
 ];
 
-function LineIcon({ name }: { name: IconName }) {
-  if (name === 'search') {
-    return (
-      <svg viewBox="0 0 32 32" aria-hidden="true">
-        <path d="M4 8h10M4 16h7M4 24h11" />
-        <circle cx="20" cy="14" r="6" />
-        <path d="m24.5 18.5 4.5 4.5" />
-      </svg>
-    );
-  }
-
-  if (name === 'ai') {
-    return (
-      <svg viewBox="0 0 32 32" aria-hidden="true">
-        <rect x="8" y="9" width="16" height="15" rx="4" />
-        <path d="M13 9V5M19 9V5M13 24v3M19 24v3M8 14H4M8 20H4M28 14h-4M28 20h-4" />
-        <circle cx="13" cy="16" r="1" />
-        <circle cx="19" cy="16" r="1" />
-        <path d="M13 20h6" />
-      </svg>
-    );
-  }
-
-  if (name === 'practice') {
-    return (
-      <svg viewBox="0 0 32 32" aria-hidden="true">
-        <rect x="8" y="5" width="16" height="22" rx="2" />
-        <path d="M12 10h8M12 23h8M16 17c0-3 4-2.5 4-5 0-1.7-1.4-3-3.5-3-1.8 0-3 .9-3.6 2.2" />
-        <path d="M16 20h.1" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true">
-      <rect x="6" y="6" width="20" height="20" rx="2" />
-      <path d="M11 22v-6M16 22V10M21 22v-9" />
-      <path d="M10 26h14" />
-    </svg>
-  );
-}
-
-function GraduationMark() {
-  return (
-    <svg viewBox="0 0 96 72" aria-hidden="true">
-      <path d="M8 22 48 4l40 18-40 20L8 22Z" />
-      <path d="M22 31v20l26 14 26-14V31" />
-      <path d="M88 24v30" />
-    </svg>
-  );
-}
+const workflow = [
+  {
+    icon: Upload,
+    title: 'Upload',
+    body: 'Add past questions, lecture notes, or scanned PDFs to your student archive.',
+  },
+  {
+    icon: ScanLine,
+    title: 'Index',
+    body: 'ExamMind reads the material, extracts academic metadata, and makes it searchable.',
+  },
+  {
+    icon: Sparkles,
+    title: 'Revise',
+    body: 'Search concepts, ask grounded questions, and generate practice from your sources.',
+  },
+];
 
 export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   return (
-    <main className="landing-page">
-      <nav className="landing-nav" aria-label="Public navigation">
-        <div className="landing-brand">
-          <span>Exam<em>Mind</em></span>
-        </div>
-        <div className="landing-nav-links">
-          <a href="#product">Product</a>
-          <a href="#capabilities">Research</a>
-          <a href="#start">Students</a>
-        </div>
-        <div className="landing-nav-actions">
-          <button className="landing-link" onClick={onSignIn}>Log in</button>
-          <button className="landing-nav-cta" onClick={onGetStarted}>Get started</button>
-        </div>
-      </nav>
+    <main className="em-landing">
+      <section
+        className="em-hero"
+        id="product"
+        style={{ '--em-hero-image': `url(${heroDesk})` } as React.CSSProperties}
+      >
+        <div className="em-hero-shade" aria-hidden="true" />
 
-      <section className="landing-hero" id="product">
-        <div className="landing-copy">
-          <h1>Study Smarter. Retrieve Faster. Revise With Confidence.</h1>
-          <p>
-            An AI-powered academic knowledge system for authenticated university students,
-            grounded in uploaded course materials, past questions, and lecture notes.
+        <nav className="em-nav" aria-label="Public navigation">
+          <a className="em-brand" href="#product" aria-label="ExamMind home">
+            <span className="em-brand-mark">E</span>
+            <span>ExamMind</span>
+          </a>
+
+          <div className="em-nav-links">
+            <a href="#capabilities">Capabilities</a>
+            <a href="#workflow">How it works</a>
+            <a href="#integrity">Integrity</a>
+          </div>
+
+          <div className="em-nav-actions">
+            <button type="button" className="em-text-button" onClick={onSignIn}>Log in</button>
+            <button type="button" className="em-small-cta" onClick={onGetStarted}>
+              Start free
+              <ArrowRight aria-hidden="true" />
+            </button>
+          </div>
+        </nav>
+
+        <div className="em-hero-content">
+          <div className="em-eyebrow"><span />Your private academic index</div>
+          <h1>ExamMind.</h1>
+          <p className="em-hero-lede">Turn the course material you already have into answers you can trust.</p>
+          <p className="em-hero-copy">
+            Search uploaded notes and past questions, ask grounded questions, and build focused practice
+            from one student workspace.
           </p>
-          <div className="landing-actions">
-            <button className="landing-primary" onClick={onGetStarted}>Get Started - It's Free</button>
-            <a className="landing-secondary" href="#capabilities">See How It Works</a>
+          <div className="em-hero-actions">
+            <button type="button" className="em-primary-cta" onClick={onGetStarted}>
+              Build your study archive
+              <ArrowRight aria-hidden="true" />
+            </button>
+            <a className="em-secondary-link" href="#workflow">See how it works</a>
+          </div>
+          <div className="em-proof-line" aria-label="ExamMind benefits">
+            <span><Check aria-hidden="true" />Student account</span>
+            <span><Check aria-hidden="true" />Source-grounded</span>
+            <span><Check aria-hidden="true" />No credit card</span>
           </div>
         </div>
 
-        <div className="landing-device-wrap" aria-label="ExamMind interface preview">
-          <div className="landing-device">
-            <div className="landing-product">
-              <div className="landing-product-top">
-                <div>
-                  <span className="lp-dot"></span>
-                  <span className="lp-dot"></span>
-                  <span className="lp-dot"></span>
-                </div>
-                <span>Student dashboard</span>
+        <div className="em-product-window" aria-label="ExamMind grounded answer preview">
+          <div className="em-window-bar">
+            <div className="em-window-dots" aria-hidden="true"><span /><span /><span /></div>
+            <span className="em-window-title">ExamMind / Study archive</span>
+            <span className="em-window-status"><span />Sources ready</span>
+          </div>
+          <div className="em-product-layout">
+            <aside className="em-product-nav" aria-label="Product preview navigation">
+              <div className="em-product-logo">EM</div>
+              <div className="em-product-nav-item is-active"><Search aria-hidden="true" /><span>Search</span></div>
+              <div className="em-product-nav-item"><Library aria-hidden="true" /><span>Library</span></div>
+              <div className="em-product-nav-item"><Bot aria-hidden="true" /><span>Assistant</span></div>
+            </aside>
+            <div className="em-product-main">
+              <div className="em-product-kicker">Course workspace</div>
+              <div className="em-demo-search">
+                <Search aria-hidden="true" />
+                <span>What is the critical path method?</span>
+                <kbd>Enter</kbd>
               </div>
-              <div className="landing-product-grid">
-                <aside className="lp-side">
-                  <div className="lp-side-brand">ExamMind</div>
-                  <div className="lp-side-sub">Academic Excellence</div>
-                  <div className="lp-side-row on"><span>⌘</span>Dashboard</div>
-                  <div className="lp-side-row"><span>◇</span>AI Assistant</div>
-                  <div className="lp-side-row"><span>⇧</span>Upload</div>
-                  <div className="lp-side-row"><span>□</span>Practice</div>
-                </aside>
-                <div className="lp-main">
-                  <div className="lp-hero-card">
-                    <span>Good morning</span>
-                    <strong>Ready for revision.</strong>
-                    <p>Search uploaded materials, ask grounded questions, and generate practice from indexed documents.</p>
-                  </div>
-                  <div className="lp-stat-row">
-                    <div><span>Search</span><strong>Live</strong></div>
-                    <div><span>OCR</span><strong>Clean</strong></div>
-                    <div><span>AI</span><strong>Grounded</strong></div>
-                  </div>
-                  <div className="lp-answer-card">
-                    <span>AI study board</span>
-                    <p>
-                      Answers are generated from retrieved uploaded content and cite source material
-                      when relevant.
-                    </p>
-                  </div>
+              <div className="em-answer-grid">
+                <div className="em-answer-copy">
+                  <div className="em-answer-label"><Sparkles aria-hidden="true" />Grounded answer</div>
+                  <h2>The critical path is the longest sequence of dependent project activities.</h2>
+                  <p>It determines the shortest possible completion time and identifies tasks with no scheduling flexibility.</p>
+                </div>
+                <div className="em-source-panel">
+                  <div className="em-source-title">Retrieved sources</div>
+                  <div className="em-source-row"><FileText aria-hidden="true" /><span><strong>Project Management Notes</strong><small>Scheduling methods</small></span></div>
+                  <div className="em-source-row"><FileText aria-hidden="true" /><span><strong>Past Question</strong><small>Project planning</small></span></div>
                 </div>
               </div>
             </div>
@@ -160,40 +157,94 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </section>
 
-      <section className="landing-capabilities" id="capabilities">
-        <div className="landing-section-kicker">Capabilities</div>
-        <h2>Precision support for student revision</h2>
-        <div className="landing-feature-grid" aria-label="ExamMind capabilities">
-          {featureCards.map((card, index) => (
-            <article className={`landing-feature ${index === 2 ? 'is-featured' : ''}`} key={card.label}>
-              <div className="landing-feature-icon"><LineIcon name={card.icon} /></div>
-              <span>{card.label}</span>
-              <h2>{card.title}</h2>
-              <p>{card.body}</p>
-            </article>
-          ))}
+      <section className="em-material-band" aria-label="Supported study materials">
+        <div className="em-material-label">Built for the material students actually use</div>
+        <div className="em-material-list">
+          <span>Past questions</span>
+          <span>Lecture notes</span>
+          <span>Scanned PDFs</span>
+          <span>Course topics</span>
         </div>
       </section>
 
-      <section className="landing-final-cta" id="start">
-        <div className="landing-cap-icon"><GraduationMark /></div>
-        <h2>Ready to start?</h2>
-        <p>Upload your academic materials and build a searchable revision archive for your courses.</p>
-        <button className="landing-primary" onClick={onGetStarted}>Get Started For Free</button>
-        <small>Student account required. Uploaded materials remain part of your ExamMind study workspace.</small>
+      <section className="em-statement" id="integrity">
+        <div className="em-section-index">01 / The problem</div>
+        <div className="em-statement-grid">
+          <h2>Your course material should not disappear into folders.</h2>
+          <div>
+            <p>ExamMind turns a scattered archive into a study system you can search, question, and practice against.</p>
+            <p className="em-integrity-note"><Check aria-hidden="true" />AI answers stay connected to retrieved academic sources.</p>
+          </div>
+        </div>
       </section>
 
-      <footer className="landing-footer">
+      <section className="em-capabilities" id="capabilities">
+        <div className="em-section-heading">
+          <div className="em-section-index">02 / Capabilities</div>
+          <h2>One archive.<br /><em>Four ways forward.</em></h2>
+          <p>Every feature begins with the material in your own academic workspace.</p>
+        </div>
+        <div className="em-capability-grid">
+          {capabilities.map((capability) => {
+            const Icon = capability.icon;
+            return (
+              <article className="em-capability" key={capability.number}>
+                <div className="em-capability-top"><span>{capability.number}</span><Icon aria-hidden="true" /></div>
+                <div className="em-capability-label">{capability.label}</div>
+                <h3>{capability.title}</h3>
+                <p>{capability.body}</p>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="em-workflow" id="workflow">
+        <div className="em-section-index">03 / How it works</div>
+        <div className="em-workflow-intro">
+          <h2>From upload to useful<br />in three deliberate steps.</h2>
+          <p>No blank chatbot. No disconnected revision tool. Your source material stays at the center.</p>
+        </div>
+        <div className="em-workflow-grid">
+          {workflow.map((step, index) => {
+            const Icon = step.icon;
+            return (
+              <article className="em-workflow-step" key={step.title}>
+                <div className="em-step-number">0{index + 1}</div>
+                <Icon aria-hidden="true" />
+                <h3>{step.title}</h3>
+                <p>{step.body}</p>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="em-final-cta" id="start">
         <div>
-          <div className="landing-footer-brand">ExamMind</div>
-          <p>AI-powered academic knowledge retrieval and collaborative study for university students.</p>
+          <div className="em-final-label">Your next revision session starts here.</div>
+          <h2>Make your material<br />work harder.</h2>
         </div>
-        <div className="landing-footer-links">
-          <button onClick={onSignIn}>Student login</button>
-          <a href="#product">Product</a>
+        <div className="em-final-action">
+          <p>Create your student account and build a searchable academic archive.</p>
+          <button type="button" onClick={onGetStarted}>
+            Start with ExamMind
+            <ArrowRight aria-hidden="true" />
+          </button>
+        </div>
+      </section>
+
+      <footer className="em-footer">
+        <a className="em-brand" href="#product" aria-label="ExamMind home">
+          <span className="em-brand-mark">E</span>
+          <span>ExamMind</span>
+        </a>
+        <p>Source-grounded academic retrieval and revision for university students.</p>
+        <div className="em-footer-links">
+          <button type="button" onClick={onSignIn}>Student login</button>
           <a href="#capabilities">Capabilities</a>
+          <a href="#workflow">How it works</a>
         </div>
-        <div className="landing-footer-copy">Academic integrity first.</div>
       </footer>
     </main>
   );

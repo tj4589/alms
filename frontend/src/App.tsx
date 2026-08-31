@@ -1,4 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  BarChart3,
+  Bell,
+  Bot,
+  ChartNoAxesCombined,
+  ClipboardCheck,
+  FolderDown,
+  LayoutDashboard,
+  Library,
+  LogOut,
+  Menu,
+  MessageSquareText,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  Upload as UploadIcon,
+  UsersRound,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import './App.css';
 import type {
   ChatMessage,
@@ -33,6 +51,53 @@ import OfflineStatus from './components/OfflineStatus';
 import { Auth } from './components/Auth';
 import Landing from './components/Landing';
 import { apiGet } from './lib/api';
+
+type NavigationItem = {
+  label: string;
+  screen: ScreenType;
+  icon: LucideIcon;
+};
+
+const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
+  {
+    label: 'Main',
+    items: [
+      { label: 'Dashboard', screen: 'dashboard', icon: LayoutDashboard },
+      { label: 'AI Assistant', screen: 'assistant', icon: Bot },
+      { label: 'Upload', screen: 'upload', icon: UploadIcon },
+      { label: 'Offline Library', screen: 'offline', icon: Library },
+      { label: 'Practice', screen: 'practice', icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { label: 'Exam Analytics', screen: 'analytics', icon: ChartNoAxesCombined },
+      { label: 'My Progress', screen: 'progress', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Community',
+    items: [
+      { label: 'Collaboration', screen: 'collab', icon: MessageSquareText },
+      { label: 'Study Groups', screen: 'groups', icon: UsersRound },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [
+      { label: 'Settings', screen: 'settings', icon: SettingsIcon },
+    ],
+  },
+];
+
+const MOBILE_NAV_ITEMS: NavigationItem[] = [
+  { label: 'Home', screen: 'dashboard', icon: LayoutDashboard },
+  { label: 'Upload', screen: 'upload', icon: UploadIcon },
+  { label: 'AI', screen: 'assistant', icon: Bot },
+  { label: 'Offline', screen: 'offline', icon: FolderDown },
+  { label: 'Community', screen: 'collab', icon: MessageSquareText },
+];
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -260,13 +325,13 @@ export default function App() {
     go(action === 'discussion' ? 'collab' : 'groups');
   };
 
-  const handleGlobalSearchEnter = async () => {
-    const query = searchQuery.trim();
+  const openSearchResults = async (rawQuery: string) => {
+    const query = rawQuery.trim();
     if (!query) return;
 
-    // Navigate to the full Search Results screen immediately; close the dropdown.
-    setActiveScreen('search');
+    go('search');
     setSearchOpen(false);
+    setSearchQuery(query);
     setSubmittedQuery(query);
     setSubmittedResult(null);
     setSubmittedLoading(true);
@@ -284,6 +349,10 @@ export default function App() {
     } finally {
       setSubmittedLoading(false);
     }
+  };
+
+  const handleGlobalSearchEnter = async () => {
+    await openSearchResults(searchQuery);
   };
 
   const refreshSubmittedSearchAfterDelete = async () => {
@@ -329,7 +398,6 @@ export default function App() {
   }
 
   const userInitials = user ? initials(user.name) : '?';
-  const searchResults = searchResult?.past_questions || [];
   const discussionContext =
     communityContext?.action === 'discussion'
       ? (communityContext as SearchActionContext & { action: 'discussion' })
@@ -341,52 +409,80 @@ export default function App() {
 
   return (
     <div className="shell">
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} id="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} id="sidebar" aria-label="Primary navigation">
         <div className="logo">
           <div className="logo-mark">E</div>
           <div className="logo-name">Exam<span>Mind</span></div>
         </div>
         <nav className="nav">
-          <div className="nav-section">Main</div>
-          <div className={`ni ${activeScreen === 'dashboard' ? 'on' : ''}`} onClick={() => go('dashboard')}><span className="ni-ico">*</span>Dashboard</div>
-          <div className={`ni ${activeScreen === 'assistant' ? 'on' : ''}`} onClick={() => go('assistant')}><span className="ni-ico">AI</span>AI Assistant</div>
-          <div className={`ni ${activeScreen === 'upload' ? 'on' : ''}`} onClick={() => go('upload')}><span className="ni-ico">+</span>Upload</div>
-          <div className={`ni ${activeScreen === 'offline' ? 'on' : ''}`} onClick={() => go('offline')}><span className="ni-ico">D</span>Offline Library</div>
-          <div className={`ni ${activeScreen === 'practice' ? 'on' : ''}`} onClick={() => go('practice')}><span className="ni-ico">P</span>Practice</div>
-          <div className="nav-section">Insights</div>
-          <div className={`ni ${activeScreen === 'analytics' ? 'on' : ''}`} onClick={() => go('analytics')}><span className="ni-ico">A</span>Exam Analytics</div>
-          <div className={`ni ${activeScreen === 'progress' ? 'on' : ''}`} onClick={() => go('progress')}><span className="ni-ico">%</span>My Progress</div>
-          <div className="nav-section">Community</div>
-          <div className={`ni ${activeScreen === 'collab' ? 'on' : ''}`} onClick={() => go('collab')}><span className="ni-ico">C</span>Collaboration</div>
-          <div className={`ni ${activeScreen === 'groups' ? 'on' : ''}`} onClick={() => go('groups')}><span className="ni-ico">G</span>Study Groups</div>
-          <div className="nav-section">Account</div>
-          <div className={`ni ${activeScreen === 'settings' ? 'on' : ''}`} onClick={() => go('settings')}><span className="ni-ico">S</span>Settings</div>
+          {NAV_GROUPS.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <div className="nav-section">{group.label}</div>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeScreen === item.screen;
+                return (
+                  <button
+                    type="button"
+                    className={`ni ${isActive ? 'on' : ''}`}
+                    onClick={() => go(item.screen)}
+                    aria-current={isActive ? 'page' : undefined}
+                    key={item.screen}
+                  >
+                    <Icon className="ni-ico" aria-hidden="true" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="user-row">
-          <div className="user-btn">
+          <button type="button" className="user-btn" onClick={() => go('settings')} aria-label="Open account settings">
             <div className="ava">{userInitials}</div>
-            <div>
+            <div className="user-copy">
               <div className="ava-name">{user?.name ?? 'Loading...'}</div>
               <div className="ava-role">{user?.username ? `@${user.username}` : 'Student'}</div>
             </div>
-          </div>
+            <SettingsIcon className="user-settings-icon" aria-hidden="true" />
+          </button>
           <button
-            className="cta cta-ghost"
-            style={{ width: '100%', justifyContent: 'center', marginTop: 10, fontSize: 12 }}
+            type="button"
+            className="logout-btn"
             onClick={handleLogout}
           >
-            Logout
+            <LogOut aria-hidden="true" />
+            <span>Log out</span>
           </button>
         </div>
       </aside>
 
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-scrim"
+          aria-label="Close navigation"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <main className="main">
-        <div className="topbar">
-          <button className="mob-menu" onClick={() => setSidebarOpen(!sidebarOpen)}>Menu</button>
+        <header className="topbar">
+          <button
+            type="button"
+            className="mob-menu"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+            aria-controls="sidebar"
+            aria-expanded={sidebarOpen}
+          >
+            <Menu aria-hidden="true" />
+          </button>
           <div className="search global-search" ref={searchBoxRef}>
-            <span className="search-ico">Search</span>
+            <SearchIcon className="search-ico" aria-hidden="true" />
             <input
               type="text"
+              aria-label="Search ExamMind"
               placeholder="Search topics, notes, past questions, groups, rooms..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -403,7 +499,7 @@ export default function App() {
               }}
             />
             {searchOpen && (
-              <div className="global-search-panel gs-preview-panel">
+              <div className="global-search-panel gs-preview-panel" aria-live="polite">
                 <div className="global-search-preview">
                   <div className="gsp-header">
                     <div>
@@ -452,22 +548,22 @@ export default function App() {
                       {resultCount(searchResult) > 0 ? (
                         <div className="gsp-results">
                           {searchResult.lecture_notes.slice(0, 1).map(note => (
-                            <div key={`prev-note-${note.id}`} className="gsp-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
+                            <button type="button" key={`prev-note-${note.id}`} className="gsp-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
                               <span className="gsp-row-type">Note</span>
                               <span>
                                 <span className="gsp-row-title">{note.title}</span>
                                 <span className="gsp-row-meta">{note.topic || 'Lecture note'}</span>
                               </span>
-                            </div>
+                            </button>
                           ))}
                           {searchResult.past_questions.slice(0, 1).map(item => (
-                            <div key={`prev-pq-${item.id}`} className="gsp-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
+                            <button type="button" key={`prev-pq-${item.id}`} className="gsp-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
                               <span className="gsp-row-type">Question</span>
                               <span>
                                 <span className="gsp-row-title">{textPreview(item.content_text, 'Past question', 78)}</span>
                                 <span className="gsp-row-meta">Past question preview</span>
                               </span>
-                            </div>
+                            </button>
                           ))}
                         </div>
                       ) : (
@@ -489,7 +585,7 @@ export default function App() {
                   {!searchLoading && !searchGuidance && !searchError && !searchResult && (
                     <div className="gsp-card">
                       <div className="gsp-card-title">Ready to search</div>
-                      <div className="gsp-card-body">Press Enter to open full results across the academic brain.</div>
+                      <div className="gsp-card-body">Press Enter to open all ExamMind results.</div>
                     </div>
                   )}
 
@@ -497,94 +593,24 @@ export default function App() {
                 </div>
               </div>
             )}
-            {false && searchOpen && (
-              <div className="global-search-panel gs-preview-panel">
-                {/* Loading */}
-                {searchLoading && (
-                  <div className="gs-loading"><span className="ai-dot"></span>Searching…</div>
-                )}
-
-                {/* Guidance (conversational query) */}
-                {!searchLoading && searchGuidance && (
-                  <div className="gs-preview-guide">
-                    {searchGuidance}
-                    <div className="gs-preview-actions">
-                      <button className="gs-action" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>Search anyway</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Error */}
-                {!searchLoading && searchError && (
-                  <div className="gs-preview-guide">
-                    Search is offline — check the backend.
-                    <div className="gs-preview-actions">
-                      <button className="gs-action" onMouseDown={(e) => { e.preventDefault(); void runGlobalSearch(searchQuery, true); }}>Retry</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Compact results preview */}
-                {!searchLoading && !searchGuidance && !searchError && searchResult && (
-                  <>
-                    {(searchResult?.lecture_notes || []).slice(0, 1).map(note => (
-                      <div key={`prev-note-${note.id}`} className="gs-preview-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
-                        <span className="gs-preview-tag">Note</span>
-                        <span className="gs-preview-text">{note.title}</span>
-                      </div>
-                    ))}
-                    {(searchResult?.past_questions || []).slice(0, 2).map(item => (
-                      <div key={`prev-pq-${item.id}`} className="gs-preview-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
-                        <span className="gs-preview-tag">Q</span>
-                        <span className="gs-preview-text">{textPreview(item.content_text, 'Past question', 72)}</span>
-                      </div>
-                    ))}
-                    {resultCount(searchResult) === 0 && (
-                      <div className="gs-preview-guide">No uploaded matches yet.</div>
-                    )}
-                    <div className="gs-preview-enter">Press Enter to see full results ↵</div>
-                  </>
-                )}
-
-                {/* Default hint (query ready but search hasn't returned yet) */}
-                {!searchLoading && !searchGuidance && !searchError && !searchResult && (
-                  <div className="gs-preview-guide">Press Enter to search</div>
-                )}
-              </div>
-            )}
-            {false && searchOpen && searchResults.length > 0 && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 12px 30px rgba(0,0,0,0.22)', zIndex: 200, overflow: 'hidden' }}>
-                {searchResults.map((r) => {
-                  const meta = r.metadata_json as { course_code?: string; topics_covered?: string[] } | null;
-                  const preview = (r.content_text ?? '').slice(0, 80).trim();
-                  return (
-                    <div
-                      key={r.id}
-                      style={{ padding: '9px 13px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: 12.5 }}
-                      onMouseDown={() => { askQuestion(r.content_text ?? ''); setSearchQuery(''); setSearchOpen(false); }}
-                    >
-                      <div style={{ fontWeight: 500, color: 'var(--text)' }}>{preview || 'Question'}{preview.length === 80 ? '...' : ''}</div>
-                      <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 2 }}>
-                        {meta?.course_code ?? 'Unknown course'}{r.year ? ` · ${r.year}` : ''}
-                        {meta?.topics_covered?.[0] ? ` · ${meta.topics_covered[0]}` : ''}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
           <div className="tb-right">
             <OfflineStatus />
-            <button className="ico-btn" title="Settings" onClick={() => go('settings')}>S</button>
-            <button className="ico-btn" title="Notifications" onClick={() => notifyUnavailable('Notifications')}>!<span className="notif-pip"></span></button>
-            <div className="ava" style={{ width: 32, height: 32, fontSize: 11 }}>{userInitials}</div>
+            <button type="button" className="ico-btn" aria-label="Open settings" title="Settings" onClick={() => go('settings')}><SettingsIcon aria-hidden="true" /></button>
+            <button type="button" className="ico-btn" aria-label="Open notifications" title="Notifications" onClick={() => notifyUnavailable('Notifications')}><Bell aria-hidden="true" /><span className="notif-pip"></span></button>
+            <button type="button" className="topbar-avatar" aria-label="Open account settings" onClick={() => go('settings')}>{userInitials}</button>
           </div>
-        </div>
+        </header>
 
-        {toast && <div className="app-toast">{toast}</div>}
+        {toast && <div className="app-toast" role="status">{toast}</div>}
 
-        {activeScreen === 'dashboard' && <Dashboard go={go} user={user} notifyUnavailable={notifyUnavailable} />}
+        {activeScreen === 'dashboard' && (
+          <Dashboard
+            go={go}
+            user={user}
+            onOpenSearch={(query) => { void openSearchResults(query); }}
+          />
+        )}
         {activeScreen === 'questions' && <Questions go={go} onAskQuestion={askQuestion} user={user} onGoToPractice={handleGoToPractice} />}
         {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} user={user} />}
         {activeScreen === 'upload' && <Upload go={go} user={user} />}
@@ -611,13 +637,24 @@ export default function App() {
         )}
       </main>
 
-      <nav className="mob-nav">
+      <nav className="mob-nav" aria-label="Mobile navigation">
         <div className="mob-tabs">
-          <div className={`mob-tab ${activeScreen === 'dashboard' ? 'on' : ''}`} onClick={() => go('dashboard')}><div className="mob-tab-ico">*</div>Home</div>
-          <div className={`mob-tab ${activeScreen === 'upload' ? 'on' : ''}`} onClick={() => go('upload')}><div className="mob-tab-ico">+</div>Upload</div>
-          <div className={`mob-tab ${activeScreen === 'assistant' ? 'on' : ''}`} onClick={() => go('assistant')}><div className="mob-tab-ico">AI</div>AI</div>
-          <div className={`mob-tab ${activeScreen === 'offline' ? 'on' : ''}`} onClick={() => go('offline')}><div className="mob-tab-ico">D</div>Offline</div>
-          <div className={`mob-tab ${activeScreen === 'collab' ? 'on' : ''}`} onClick={() => go('collab')}><div className="mob-tab-ico">C</div>Community</div>
+          {MOBILE_NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeScreen === item.screen;
+            return (
+              <button
+                type="button"
+                className={`mob-tab ${isActive ? 'on' : ''}`}
+                onClick={() => go(item.screen)}
+                aria-current={isActive ? 'page' : undefined}
+                key={item.screen}
+              >
+                <Icon className="mob-tab-ico" aria-hidden="true" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </nav>
     </div>
