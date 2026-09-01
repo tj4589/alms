@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  ArrowRight,
+  ClipboardCheck,
+  FileQuestion,
+  RefreshCw,
+} from 'lucide-react';
 import type { ScreenType } from '../types';
 import { apiGet } from '../lib/api';
+import './Progress.css';
 
 type ReadinessEntry = {
   id: number;
@@ -22,283 +30,238 @@ type StudentAnalytics = {
   attempts: AttemptEntry[];
 };
 
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+type LoadState = 'loading' | 'empty' | 'error' | 'ready';
 
-function readinessColor(score: number): string {
-  if (score >= 80) return 'var(--teal)';
-  if (score >= 50) return 'var(--gold)';
-  return 'var(--coral)';
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function calcStreak(attempts: AttemptEntry[]): number {
-  if (!attempts.length) return 0;
-  const days = new Set(attempts.map((a) => new Date(a.completed_at).toDateString()));
-  let streak = 0;
-  const cursor = new Date();
-  while (days.has(cursor.toDateString())) {
-    streak++;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
+function topicLabel(value: string | null): string {
+  const topic = value?.trim();
+  return topic || 'Mixed revision';
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Date unavailable';
+  return date.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
-export default function Progress({ go, userId }: { go: (s: ScreenType) => void; userId: number | null }) {
+export default function Progress({ go, userId }: { go: (screen: ScreenType) => void; userId: number | null }) {
   const [analytics, setAnalytics] = useState<StudentAnalytics | null>(null);
-  const [error, setError] = useState('');
+  const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [requestVersion, setRequestVersion] = useState(0);
 
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    setError('');
 
     apiGet(`/analytics/student/${userId}`)
-      .then((data) => { if (!cancelled) setAnalytics(data as StudentAnalytics); })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load progress data.');
+      .then((data) => {
+        if (cancelled) return;
+        const next = data as StudentAnalytics;
+        const normalized = {
+          readiness: Array.isArray(next.readiness) ? next.readiness : [],
+          attempts: Array.isArray(next.attempts) ? next.attempts : [],
+        };
+        setAnalytics(normalized);
+        setLoadState(normalized.readiness.length || normalized.attempts.length ? 'ready' : 'empty');
+      })
+      .catch(() => {
+        if (!cancelled) setLoadState('error');
       });
 
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [requestVersion, userId]);
 
-  // ── Derived stats ──────────────────────────────────────────
-  const overallMastery = useMemo(() => {
-    if (!analytics?.readiness.length) return null;
-    const sum = analytics.readiness.reduce((acc, r) => acc + r.score, 0);
-    return Math.round(sum / analytics.readiness.length);
+  const topicReadiness = useMemo(() => {
+    if (!analytics) return [];
+    return analytics.readiness
+      .filter((entry) => entry.topic?.trim())
+      .map((entry) => ({ ...entry, topic: topicLabel(entry.topic), score: clampScore(entry.score) }))
+      .sort((a, b) => a.score - b.score || a.topic.localeCompare(b.topic));
   }, [analytics]);
 
-  const streak = useMemo(
-    () => (analytics ? calcStreak(analytics.attempts) : null),
-    [analytics],
-  );
+  const weakestTopic = topicReadiness[0] ?? null;
+  const nextWeakestTopic = topicReadiness[1] ?? null;
 
-  const badgeCount = useMemo(
-    () => analytics?.readiness.filter((r) => r.score >= 70).length ?? null,
-    [analytics],
-  );
+  const overallReadiness = useMemo(() => {
+    if (!topicReadiness.length) return null;
+    return Math.round(topicReadiness.reduce((sum, entry) => sum + entry.score, 0) / topicReadiness.length);
+  }, [topicReadiness]);
 
-  // All readiness entries with a topic, sorted weakest-first so gaps are visible
-  const sortedReadiness = useMemo(() => {
-    if (!analytics?.readiness.length) return null;
-    return [...analytics.readiness]
-      .filter((r) => r.topic)
-      .sort((a, b) => a.score - b.score);
-  }, [analytics]);
-
-  // Weekly activity bars
-  const weekBars = useMemo(() => {
-    const counts = [0, 0, 0, 0, 0, 0, 0];
-    const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    weekStart.setHours(0, 0, 0, 0);
-
-    analytics?.attempts.forEach((a) => {
-      const d = new Date(a.completed_at);
-      if (d >= weekStart) {
-        const day = d.getDay();
-        counts[day === 0 ? 6 : day - 1]++;
-      }
-    });
-
-    const max = Math.max(...counts, 1);
-    return counts.map((c) => ({ count: c, height: Math.max(Math.round((c / max) * 64), 4) }));
-  }, [analytics]);
-
-  const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
-
-  const busiestDayIdx = useMemo(() => {
-    const max = Math.max(...weekBars.map((b) => b.count));
-    return max > 0 ? weekBars.findIndex((b) => b.count === max) : null;
-  }, [weekBars]);
-
-  // Last 5 attempts, newest first
   const recentAttempts = useMemo(() => {
-    if (!analytics?.attempts.length) return null;
+    if (!analytics) return [];
     return [...analytics.attempts]
       .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
-      .slice(0, 5);
+      .slice(0, 6);
   }, [analytics]);
 
-  const hasData = analytics !== null;
+  const totalQuestions = useMemo(
+    () => analytics?.attempts.reduce((sum, attempt) => sum + Math.max(0, attempt.total_questions || 0), 0) ?? 0,
+    [analytics],
+  );
+
+  const retry = () => {
+    setLoadState('loading');
+    setRequestVersion((version) => version + 1);
+  };
 
   return (
-    <div className="page" id="s-progress">
-      <div className="pg-head">
-        <div className="pg-title">My <em>Progress</em></div>
-        <div className="pg-sub">
-          {hasData
-            ? `${analytics.attempts.length} practice session${analytics.attempts.length === 1 ? '' : 's'} · ${analytics.readiness.length} topics tracked`
-            : 'Personalized learning journey and performance metrics.'}
+    <div className="page progress-report" id="s-progress">
+      <header className="progress-report-head">
+        <div>
+          <p className="progress-report-kicker">Personal study record</p>
+          <h1>Progress</h1>
+          <p>Readiness is calculated from your completed practice and changes as you submit new results.</p>
         </div>
-      </div>
+      </header>
 
-      {error && <div className="upload-alert">{error}</div>}
+      {!userId ? (
+        <section className="progress-state" aria-labelledby="progress-private-title">
+          <AlertCircle aria-hidden="true" />
+          <div>
+            <h2 id="progress-private-title">Your progress is private</h2>
+            <p>Sign in to view readiness and practice history associated with your account.</p>
+          </div>
+        </section>
+      ) : loadState === 'loading' ? (
+        <section className="progress-loading" aria-label="Loading your progress" aria-live="polite">
+          <div className="progress-loading-lead" />
+          <div className="progress-loading-line" />
+          <div className="progress-loading-table"><span /><span /><span /></div>
+        </section>
+      ) : loadState === 'error' ? (
+        <section className="progress-state progress-state-error" aria-labelledby="progress-error-title" role="alert">
+          <AlertCircle aria-hidden="true" />
+          <div>
+            <h2 id="progress-error-title">Your progress could not be loaded</h2>
+            <p>Your study record is still safe. Try loading this page again.</p>
+            <button type="button" onClick={retry}><RefreshCw aria-hidden="true" /> Try again</button>
+          </div>
+        </section>
+      ) : loadState === 'empty' ? (
+        <section className="progress-state progress-state-empty" aria-labelledby="progress-empty-title">
+          <ClipboardCheck aria-hidden="true" />
+          <div>
+            <p className="progress-state-label">No progress data yet</p>
+            <h2 id="progress-empty-title">Complete a practice session to establish your first readiness score.</h2>
+            <p>Choose a topic, answer the generated questions, and submit the session. ExamMind will use that result to begin your topic progress record.</p>
+            <button type="button" onClick={() => go('practice')}>Start practice <ArrowRight aria-hidden="true" /></button>
+          </div>
+        </section>
+      ) : analytics ? (
+        <>
+          <section className="progress-decision" aria-labelledby="progress-decision-title">
+            <div className="progress-decision-copy">
+              <p className="progress-section-label">What to study next</p>
+              {weakestTopic ? (
+                <>
+                  <h2 id="progress-decision-title">Review <em>{weakestTopic.topic}</em></h2>
+                  <p>
+                    {nextWeakestTopic
+                      ? `At ${weakestTopic.score}%, this is your lowest readiness result. Your next-lowest topic is ${nextWeakestTopic.topic} at ${nextWeakestTopic.score}%.`
+                      : `At ${weakestTopic.score}%, this is your only tracked topic readiness result.`}
+                    {' '}Practise it again to measure whether your understanding has improved.
+                  </p>
+                  <button type="button" onClick={() => go('practice')}>
+                    Practice this topic <ArrowRight aria-hidden="true" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h2 id="progress-decision-title">Establish topic readiness</h2>
+                  <p>Your practice history is recorded, but no topic readiness score is available yet. Complete a topic-focused session to create one.</p>
+                  <button type="button" onClick={() => go('practice')}>
+                    Start topic practice <ArrowRight aria-hidden="true" />
+                  </button>
+                </>
+              )}
+            </div>
 
-      {!userId && !hasData && (
-        <div className="upload-alert">Sign in to see your personalised progress data.</div>
-      )}
+            <div className="progress-primary-measure" aria-label={weakestTopic ? `${weakestTopic.score}% readiness for ${weakestTopic.topic}` : 'No topic readiness score'}>
+              <span>Lowest topic readiness</span>
+              <strong>{weakestTopic ? `${weakestTopic.score}%` : '—'}</strong>
+              <small>{weakestTopic?.topic ?? 'Awaiting topic evidence'}</small>
+            </div>
+          </section>
 
-      <div className="ana-stats">
-        <div className="ana-card">
-          <div className="ana-num" style={{ color: overallMastery !== null ? readinessColor(overallMastery) : undefined }}>
-            {overallMastery !== null ? `${overallMastery}%` : '84%'}
-          </div>
-          <div className="ana-lbl">Overall Mastery</div>
-          <div className={`ana-delta ${overallMastery !== null && overallMastery >= 70 ? 'up' : 'dn'}`}>
-            {overallMastery !== null
-              ? overallMastery >= 80 ? 'Excellent standing' : overallMastery >= 60 ? 'Good progress' : 'Needs attention'
-              : '+4% this month'}
-          </div>
-        </div>
-        <div className="ana-card">
-          <div className="ana-num">{streak !== null ? streak : 12}</div>
-          <div className="ana-lbl">Study Streak (Days)</div>
-          <div className="ana-delta up">
-            {streak !== null
-              ? streak === 0 ? 'Start today!' : streak === 1 ? 'Day 1 — keep going!' : `${streak} days in a row`
-              : 'New personal record!'}
-          </div>
-        </div>
-        <div className="ana-card">
-          <div className="ana-num">{badgeCount !== null ? badgeCount : 142}</div>
-          <div className="ana-lbl">Concept Badges</div>
-          <div className="ana-delta up">
-            {badgeCount !== null ? `topics scored ≥ 70%` : '+3 recently'}
-          </div>
-        </div>
-      </div>
+          <dl className="progress-evidence" aria-label="Evidence behind this recommendation">
+            <div><dt>Overall readiness</dt><dd>{overallReadiness !== null ? `${overallReadiness}%` : 'Not available'}</dd></div>
+            <div><dt>Tracked topics</dt><dd>{topicReadiness.length}</dd></div>
+            <div><dt>Practice sessions</dt><dd>{analytics.attempts.length}</dd></div>
+            <div><dt>Questions answered</dt><dd>{totalQuestions}</dd></div>
+          </dl>
 
-      <div className="two-col">
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Topic Breakdown</div>
-            {hasData && <div style={{ fontSize: 11, color: 'var(--text3)' }}>Weakest first</div>}
-          </div>
-          <div className="prog-list">
-            {sortedReadiness ? (
-              sortedReadiness.length > 0 ? sortedReadiness.map((r) => (
-                <div key={r.id} className="prog-item">
-                  <div className="prog-top">
-                    <span className="prog-nm">{r.topic}</span>
-                    <span className="prog-pct">{r.score}%</span>
-                  </div>
-                  <div className="prog-track">
-                    <div className="prog-fill" style={{ width: `${r.score}%`, background: readinessColor(r.score) }}></div>
-                  </div>
-                </div>
-              )) : (
-                <div style={{ fontSize: 13, color: 'var(--text3)', padding: '12px 0' }}>
-                  No readiness data yet. Complete a practice test to start tracking topics.
-                </div>
-              )
+          <section className="progress-section" aria-labelledby="topic-readiness-title">
+            <div className="progress-section-head">
+              <div>
+                <p className="progress-section-label">Current evidence</p>
+                <h2 id="topic-readiness-title">Topic readiness</h2>
+              </div>
+              <span>Lowest readiness first</span>
+            </div>
+
+            {topicReadiness.length ? (
+              <ol className="progress-topic-list">
+                {topicReadiness.map((entry, index) => (
+                  <li key={entry.id}>
+                    <span className="progress-topic-rank">{String(index + 1).padStart(2, '0')}</span>
+                    <span className="progress-topic-name">{entry.topic}</span>
+                    <span className="progress-topic-bar" aria-hidden="true"><span style={{ width: `${entry.score}%` }} /></span>
+                    <strong>{entry.score}%</strong>
+                  </li>
+                ))}
+              </ol>
             ) : (
-              // Static demo while loading
-              <>
-                {[
-                  { name: 'Data Structures', pct: 92, color: 'var(--teal)' },
-                  { name: 'Algorithms', pct: 78, color: 'var(--gold)' },
-                  { name: 'Operating Systems', pct: 64, color: 'var(--gold)' },
-                  { name: 'Database Systems', pct: 88, color: 'var(--teal)' },
-                  { name: 'Computer Networks', pct: 52, color: 'var(--coral)' },
-                ].map((topic) => (
-                  <div key={topic.name} className="prog-item">
-                    <div className="prog-top">
-                      <span className="prog-nm">{topic.name}</span>
-                      <span className="prog-pct">{topic.pct}%</span>
-                    </div>
-                    <div className="prog-track">
-                      <div className="prog-fill" style={{ width: `${topic.pct}%`, background: topic.color }}></div>
-                    </div>
+              <div className="progress-inline-empty">
+                <span>No topic readiness has been recorded yet.</span>
+                <button type="button" onClick={() => go('practice')}>Create a topic score</button>
+              </div>
+            )}
+          </section>
+
+          <section className="progress-section progress-history" aria-labelledby="practice-history-title">
+            <div className="progress-section-head">
+              <div>
+                <p className="progress-section-label">History</p>
+                <h2 id="practice-history-title">Recent practice</h2>
+              </div>
+              <span>{analytics.attempts.length} total {analytics.attempts.length === 1 ? 'session' : 'sessions'}</span>
+            </div>
+
+            {recentAttempts.length ? (
+              <div className="progress-attempt-table" role="table" aria-label="Recent practice sessions">
+                <div className="progress-attempt-head" role="row">
+                  <span role="columnheader">Date</span><span role="columnheader">Topic</span><span role="columnheader">Questions</span><span role="columnheader">Score</span>
+                </div>
+                {recentAttempts.map((attempt) => (
+                  <div className="progress-attempt-row" role="row" key={attempt.id}>
+                    <span role="cell">{formatDate(attempt.completed_at)}</span>
+                    <strong role="cell">{topicLabel(attempt.topic)}</strong>
+                    <span role="cell">{Math.max(0, attempt.total_questions)} questions</span>
+                    <span role="cell" className="progress-attempt-score">{clampScore(attempt.score)}%</span>
                   </div>
                 ))}
-              </>
+              </div>
+            ) : (
+              <div className="progress-inline-empty">
+                <span>No completed practice sessions are available.</span>
+                <button type="button" onClick={() => go('practice')}>Start practice</button>
+              </div>
             )}
-          </div>
-        </div>
+          </section>
 
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Weekly Activity</div>
-          </div>
-          <div className="bar-chart">
-            {weekBars.map((bar, i) => (
-              <div className="bc-col" key={i}>
-                <div
-                  className={`bc-bar${i === todayIdx ? ' on' : ''}`}
-                  style={{ height: bar.height }}
-                  title={`${bar.count} session${bar.count === 1 ? '' : 's'}`}
-                ></div>
-                <span className="bc-lbl">{DAY_LABELS[i]}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text2)' }}>
-            {hasData
-              ? busiestDayIdx !== null
-                ? `Most active: ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][busiestDayIdx]} (${weekBars[busiestDayIdx].count} session${weekBars[busiestDayIdx].count === 1 ? '' : 's'})`
-                : 'No sessions this week yet — start today!'
-              : "You're most productive on Thursdays and Saturdays. Keep it up!"}
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-hd">
-          <div className="card-ttl">Recent Practice</div>
-          <button className="card-lnk as-button" onClick={() => go('practice')}>New session →</button>
-        </div>
-        {recentAttempts ? (
-          recentAttempts.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-              {recentAttempts.map((attempt) => (
-                <div key={attempt.id} className="qi">
-                  <div className="qi-yr">{fmtDate(attempt.completed_at)}</div>
-                  <div className="qi-body">
-                    <div className="qi-title">{attempt.topic ?? 'Mixed revision'}</div>
-                    <div className="qi-meta">
-                      <span className={`tag ${attempt.score >= 80 ? 'tag-e' : attempt.score >= 60 ? 'tag-m' : 'tag-h'}`}>
-                        {attempt.score >= 80 ? 'Strong' : attempt.score >= 60 ? 'Moderate' : 'Weak'}
-                      </span>
-                      <span className="qi-course">{attempt.total_questions} questions</span>
-                    </div>
-                  </div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 18, fontWeight: 600, color: readinessColor(attempt.score), flexShrink: 0 }}>
-                    {attempt.score}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ fontSize: 13, color: 'var(--text3)', padding: '12px 0' }}>
-              No practice sessions yet.
-              <button className="cta" style={{ marginLeft: 12, marginTop: 0 }} onClick={() => go('practice')}>Start now →</button>
-            </div>
-          )
-        ) : (
-          // Static demo goals while loading
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="qd" style={{ cursor: 'default' }}>
-              <div className="qd-text" style={{ marginBottom: 0 }}>Complete 5 practice tests on <em>Graph Theory</em> before Friday.</div>
-              <div className="qd-meta" style={{ marginTop: 8 }}>
-                <span className="tag tag-m">Priority: High</span>
-                <span style={{ fontSize: 11, color: 'var(--text3)', cursor: 'pointer' }} onClick={() => go('practice')}>Progress: 2/5</span>
-              </div>
-            </div>
-            <div className="qd" style={{ cursor: 'default' }}>
-              <div className="qd-text" style={{ marginBottom: 0 }}>Review 2022 Operating Systems past questions.</div>
-              <div className="qd-meta" style={{ marginTop: 8 }}>
-                <span className="tag tag-e">Priority: Medium</span>
-                <span style={{ fontSize: 11, color: 'var(--text3)' }}>Progress: 0/1</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+          <footer className="progress-report-note">
+            <FileQuestion aria-hidden="true" />
+            <p><strong>How readiness works:</strong> each submitted topic score updates that topic’s running readiness. It is evidence from your own completed practice, not a prediction.</p>
+          </footer>
+        </>
+      ) : null}
     </div>
   );
 }
