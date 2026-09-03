@@ -290,7 +290,7 @@ export default function Collab({
               Active threads
               {threads.length > 0 && <span className="ni-badge" style={{ marginLeft: 8 }}>{threads.length}</span>}
             </div>
-            <button className="cta" style={{ padding: '7px 14px', fontSize: 12, marginTop: 0 }} onClick={() => { setShowForm((v) => !v); setFormError(''); }}>
+            <button className="cta" style={{ padding: '7px 14px', fontSize: 12, marginTop: 0, minHeight: 40 }} onClick={() => { setShowForm((v) => !v); setFormError(''); }}>
               {showForm ? 'Cancel' : '+ New thread'}
             </button>
           </div>

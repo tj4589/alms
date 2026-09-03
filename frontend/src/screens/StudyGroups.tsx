@@ -284,7 +284,7 @@ function RoomDetail({
           {isOnBreak ? (
             <button
               className="cta"
-              style={{ marginTop: 0, fontSize: 12, padding: '7px 14px' }}
+              style={{ marginTop: 0, fontSize: 12, padding: '7px 14px', minHeight: 40 }}
               onClick={() => void backToStudy()}
               disabled={actionLoading}
             >
@@ -881,7 +881,7 @@ export default function StudyGroups({
               </div>
               <button
                 className="cta"
-                style={{ marginTop: 0, padding: '6px 14px', fontSize: 12 }}
+                style={{ marginTop: 0, padding: '6px 14px', fontSize: 12, minHeight: 40 }}
                 onClick={() => { setShowGroupForm((v) => !v); setGroupFormError(''); }}
               >
                 {showGroupForm ? 'Cancel' : '+ Create Group'}
@@ -1044,7 +1044,7 @@ export default function StudyGroups({
               </div>
               <button
                 className="cta"
-                style={{ marginTop: 0, padding: '6px 14px', fontSize: 12 }}
+                style={{ marginTop: 0, padding: '6px 14px', fontSize: 12, minHeight: 40 }}
                 onClick={() => { setShowRoomForm((v) => !v); setRoomFormError(''); }}
               >
                 {showRoomForm ? 'Cancel' : '+ Start Reading Room'}
@@ -1110,7 +1110,7 @@ export default function StudyGroups({
                   {room.status === 'active' && (
                     <button
                       className="cta"
-                      style={{ marginTop: 0, fontSize: 12, padding: '6px 16px', flexShrink: 0 }}
+                      style={{ marginTop: 0, fontSize: 12, padding: '6px 16px', flexShrink: 0, minHeight: 40 }}
                       onClick={() => setSelectedSession(room)}
                     >
                       {room.my_status && room.my_status !== 'left' ? 'Re-enter →' : 'Join Room →'}

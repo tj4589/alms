@@ -440,7 +440,7 @@ export default function SmartSearch({
                 AI Explanation
               </div>
               {!aiResult && !aiLoading && !aiError && (
-                <button className="cta" style={{ marginTop: 0, fontSize: 12, padding: '6px 16px' }} onClick={() => void getAiExplanation()}>
+                <button className="cta" style={{ marginTop: 0, fontSize: 12, padding: '6px 16px', minHeight: 40 }} onClick={() => void getAiExplanation()}>
                   Get AI Explanation
                 </button>
               )}
