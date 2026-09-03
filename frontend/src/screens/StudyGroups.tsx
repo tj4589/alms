@@ -617,7 +617,7 @@ function RoomDetail({
             <div className="card">
               <div className="card-hd">
                 <div className="card-ttl">Discussion</div>
-                <button className="card-lnk" style={{ cursor: 'pointer' }} onClick={() => setRoomTab('chat')}>
+                <button className="card-lnk as-button" style={{ cursor: 'pointer' }} onClick={() => setRoomTab('chat')}>
                   Open →
                 </button>
               </div>
@@ -1020,8 +1020,8 @@ export default function StudyGroups({
                 );
               })}
             </div>
-            <div className="card" style={{ background: 'linear-gradient(135deg, var(--bg2), rgba(155,135,245,0.03))', borderColor: 'rgba(155,135,245,0.18)' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--purple)', marginBottom: 8 }}>How it works</div>
+            <div className="card" style={{ background: 'linear-gradient(135deg, var(--bg2), rgba(232,162,58,0.03))', borderColor: 'rgba(232,162,58,0.18)' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--gold)', marginBottom: 8 }}>How it works</div>
               <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 6 }}>Study together, learn faster</div>
               <div style={{ fontSize: 12.5, color: 'var(--text2)', lineHeight: 1.65 }}>
                 Create a group for your course or topic. Use the <strong>Reading Rooms</strong> tab to start live study sessions with AI-powered study cards that everyone in the room can see.

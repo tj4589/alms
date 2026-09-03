@@ -597,7 +597,7 @@ export default function SmartSearch({
                 )}
               </div>
               <button
-                className="card-lnk"
+                className="card-lnk as-button"
                 style={{ cursor: 'pointer' }}
                 onClick={() => go('collab')}
               >
@@ -643,7 +643,7 @@ export default function SmartSearch({
                   <span className="ni-badge" style={{ marginLeft: 7 }}>{results.study_groups.length}</span>
                 )}
               </div>
-              <button className="card-lnk" style={{ cursor: 'pointer' }} onClick={() => go('groups')}>
+              <button className="card-lnk as-button" style={{ cursor: 'pointer' }} onClick={() => go('groups')}>
                 All groups →
               </button>
             </div>
@@ -707,7 +707,7 @@ export default function SmartSearch({
                   <span className="ni-badge" style={{ marginLeft: 7 }}>{results.study_sessions.length}</span>
                 )}
               </div>
-              <button className="card-lnk" style={{ cursor: 'pointer' }} onClick={() => go('groups')}>
+              <button className="card-lnk as-button" style={{ cursor: 'pointer' }} onClick={() => go('groups')}>
                 All rooms →
               </button>
             </div>

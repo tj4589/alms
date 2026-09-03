@@ -31,7 +31,7 @@ type TopicStat = {
 
 function topicColor(idx: number) {
   return [
-    'var(--gold)', 'var(--teal)', 'var(--purple)', 'var(--coral)', 'var(--gold)', 'var(--teal)',
+    'var(--gold)', 'var(--teal)', 'var(--coral)', 'var(--gold)', 'var(--teal)', 'var(--coral)',
   ][idx] ?? 'var(--text3)';
 }
 

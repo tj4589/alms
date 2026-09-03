@@ -23,10 +23,10 @@ type ThreadMessage = {
 };
 
 const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, var(--teal), var(--purple))',
-  'linear-gradient(135deg, var(--coral), var(--purple))',
+  'linear-gradient(135deg, var(--teal), var(--gold))',
+  'linear-gradient(135deg, var(--coral), var(--gold))',
   'linear-gradient(135deg, var(--gold), var(--coral))',
-  'linear-gradient(135deg, var(--purple), var(--teal))',
+  'linear-gradient(135deg, var(--gold), var(--teal))',
 ];
 
 function avatarGradient(id: number) {
@@ -196,7 +196,7 @@ export default function Collab({
       <div className="card">
         <div className="card-hd">
           <div className="card-ttl">Study groups &amp; rooms</div>
-          <button className="card-lnk" style={{ cursor: 'pointer' }} onClick={() => go('groups')}>
+          <button className="card-lnk as-button" style={{ cursor: 'pointer' }} onClick={() => go('groups')}>
             View all →
           </button>
         </div>

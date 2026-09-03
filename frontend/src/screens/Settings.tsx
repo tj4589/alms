@@ -61,7 +61,7 @@ function InfoCard({
   );
 }
 
-export default function Settings({ go, user }: SettingsProps) {
+export default function Settings({ user }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
 
   return (
@@ -142,17 +142,6 @@ export default function Settings({ go, user }: SettingsProps) {
         />
       </div>
 
-      <div className="success-card" style={{ marginTop: 18 }}>
-        <div className="success-label">Chapter Four Screenshot</div>
-        <div className="success-title">Figure 4.17: Student Settings and Privacy Interface</div>
-        <div className="success-body">
-          This screen documents student account identity, secure authenticated access, student progress privacy, and how uploaded materials are processed for ExamMind retrieval.
-        </div>
-        <div className="empty-actions">
-          <button className="cta" onClick={() => go('upload')}>Review uploads</button>
-          <button className="cta cta-ghost" onClick={() => go('progress')}>View progress</button>
-        </div>
-      </div>
     </div>
   );
 }
