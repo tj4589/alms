@@ -1,23 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  BarChart3,
-  Bell,
-  Bot,
-  ChartNoAxesCombined,
-  ClipboardCheck,
-  FolderDown,
-  LayoutDashboard,
-  Library,
-  LogOut,
-  Menu,
-  MessageSquareText,
-  Search as SearchIcon,
-  Settings as SettingsIcon,
-  Upload as UploadIcon,
-  UsersRound,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { BellIcon } from '@phosphor-icons/react/dist/icons/Bell';
+import { BooksIcon } from '@phosphor-icons/react/dist/icons/Books';
+import { ChartLineUpIcon } from '@phosphor-icons/react/dist/icons/ChartLineUp';
+import { ChatsCircleIcon } from '@phosphor-icons/react/dist/icons/ChatsCircle';
+import { DotsThreeIcon } from '@phosphor-icons/react/dist/icons/DotsThree';
+import { ExamIcon } from '@phosphor-icons/react/dist/icons/Exam';
+import { GaugeIcon } from '@phosphor-icons/react/dist/icons/Gauge';
+import { GearSixIcon } from '@phosphor-icons/react/dist/icons/GearSix';
+import { ListIcon } from '@phosphor-icons/react/dist/icons/List';
+import { MagicWandIcon } from '@phosphor-icons/react/dist/icons/MagicWand';
+import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
+import { SignOutIcon } from '@phosphor-icons/react/dist/icons/SignOut';
+import { SquaresFourIcon } from '@phosphor-icons/react/dist/icons/SquaresFour';
+import { UploadSimpleIcon } from '@phosphor-icons/react/dist/icons/UploadSimple';
+import { UsersThreeIcon } from '@phosphor-icons/react/dist/icons/UsersThree';
+import { XIcon } from '@phosphor-icons/react/dist/icons/X';
+import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import './App.css';
+import './Navigation.css';
 import type {
   ChatMessage,
   GlobalSearchResult,
@@ -56,48 +56,41 @@ import { DEV_AUTH_USER, isDevAuthToken } from './lib/devAuth';
 type NavigationItem = {
   label: string;
   screen: ScreenType;
-  icon: LucideIcon;
+  icon: PhosphorIcon;
 };
 
 const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
   {
     label: 'Main',
     items: [
-      { label: 'Dashboard', screen: 'dashboard', icon: LayoutDashboard },
-      { label: 'AI Assistant', screen: 'assistant', icon: Bot },
-      { label: 'Upload', screen: 'upload', icon: UploadIcon },
-      { label: 'Offline Library', screen: 'offline', icon: Library },
-      { label: 'Practice', screen: 'practice', icon: ClipboardCheck },
+      { label: 'Dashboard', screen: 'dashboard', icon: SquaresFourIcon },
+      { label: 'AI Assistant', screen: 'assistant', icon: MagicWandIcon },
+      { label: 'Upload', screen: 'upload', icon: UploadSimpleIcon },
+      { label: 'Offline Library', screen: 'offline', icon: BooksIcon },
+      { label: 'Practice', screen: 'practice', icon: ExamIcon },
     ],
   },
   {
     label: 'Insights',
     items: [
-      { label: 'Exam Analytics', screen: 'analytics', icon: ChartNoAxesCombined },
-      { label: 'My Progress', screen: 'progress', icon: BarChart3 },
+      { label: 'Exam Analytics', screen: 'analytics', icon: ChartLineUpIcon },
+      { label: 'My Progress', screen: 'progress', icon: GaugeIcon },
     ],
   },
   {
     label: 'Community',
     items: [
-      { label: 'Collaboration', screen: 'collab', icon: MessageSquareText },
-      { label: 'Study Groups', screen: 'groups', icon: UsersRound },
-    ],
-  },
-  {
-    label: 'Account',
-    items: [
-      { label: 'Settings', screen: 'settings', icon: SettingsIcon },
+      { label: 'Collaboration', screen: 'collab', icon: ChatsCircleIcon },
+      { label: 'Study Groups', screen: 'groups', icon: UsersThreeIcon },
     ],
   },
 ];
 
 const MOBILE_NAV_ITEMS: NavigationItem[] = [
-  { label: 'Home', screen: 'dashboard', icon: LayoutDashboard },
-  { label: 'Upload', screen: 'upload', icon: UploadIcon },
-  { label: 'AI', screen: 'assistant', icon: Bot },
-  { label: 'Offline', screen: 'offline', icon: FolderDown },
-  { label: 'Community', screen: 'collab', icon: MessageSquareText },
+  { label: 'Home', screen: 'dashboard', icon: SquaresFourIcon },
+  { label: 'AI', screen: 'assistant', icon: MagicWandIcon },
+  { label: 'Upload', screen: 'upload', icon: UploadSimpleIcon },
+  { label: 'Practice', screen: 'practice', icon: ExamIcon },
 ];
 
 function initials(name: string): string {
@@ -177,6 +170,20 @@ export default function App() {
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuCloseRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    mobileMenuCloseRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setSidebarOpen(false);
+      mobileMenuButtonRef.current?.focus();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [sidebarOpen]);
 
   // Hydrate user info from a stored token on first load
   useEffect(() => {
@@ -419,17 +426,18 @@ export default function App() {
     communityContext && communityContext.action !== 'discussion'
       ? (communityContext as SearchActionContext & { action: 'study_group' | 'reading_room' })
       : null;
+  const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
 
   return (
     <div className="shell">
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} id="sidebar" aria-label="Primary navigation">
-        <div className="logo">
+      <aside className="sidebar" id="sidebar" aria-label="Primary navigation">
+        <div className="logo" aria-label="ExamMind">
           <div className="logo-mark">E</div>
           <div className="logo-name">Exam<span>Mind</span></div>
         </div>
         <nav className="nav">
           {NAV_GROUPS.map((group) => (
-            <div className="nav-group" key={group.label}>
+            <div className="nav-group" role="group" aria-label={group.label} key={group.label}>
               <div className="nav-section">{group.label}</div>
               {group.items.map((item) => {
                 const Icon = item.icon;
@@ -437,13 +445,16 @@ export default function App() {
                 return (
                   <button
                     type="button"
-                    className={`ni ${isActive ? 'on' : ''}`}
+                    className={`ni rail-button ${isActive ? 'on' : ''}`}
                     onClick={() => go(item.screen)}
                     aria-current={isActive ? 'page' : undefined}
+                    aria-label={item.label}
                     key={item.screen}
                   >
-                    <Icon className="ni-ico" aria-hidden="true" />
-                    <span>{item.label}</span>
+                    <span className="rail-item-surface" aria-hidden="true">
+                      <Icon className="ni-ico" weight="regular" />
+                      <span className="rail-item-label">{item.label}</span>
+                    </span>
                   </button>
                 );
               })}
@@ -451,21 +462,43 @@ export default function App() {
           ))}
         </nav>
         <div className="user-row">
-          <button type="button" className="user-btn" onClick={() => go('settings')} aria-label="Open account settings">
-            <div className="ava">{userInitials}</div>
-            <div className="user-copy">
-              <div className="ava-name">{user?.name ?? 'Loading...'}</div>
-              <div className="ava-role">{user?.username ? `@${user.username}` : 'Student'}</div>
-            </div>
-            <SettingsIcon className="user-settings-icon" aria-hidden="true" />
+          <button
+            type="button"
+            className="user-btn rail-button"
+            onClick={() => go('settings')}
+            aria-label={`Open account settings for ${user?.name ?? 'Student'}`}
+          >
+            <span className="rail-item-surface rail-account-surface" aria-hidden="true">
+              <span className="ava">{userInitials}</span>
+              <span className="rail-account-copy">
+                <span className="rail-item-label">{user?.name ?? 'Account'}</span>
+                <span className="rail-account-meta">{user?.username ? `@${user.username}` : 'Student account'}</span>
+              </span>
+            </span>
           </button>
           <button
             type="button"
-            className="logout-btn"
-            onClick={handleLogout}
+            className={`settings-btn rail-button ${activeScreen === 'settings' ? 'on' : ''}`}
+            onClick={() => go('settings')}
+            aria-label="Settings"
+            aria-current={activeScreen === 'settings' ? 'page' : undefined}
           >
-            <LogOut aria-hidden="true" />
-            <span>Log out</span>
+            <span className="rail-item-surface" aria-hidden="true">
+              <GearSixIcon className="rail-control-icon" weight="regular" />
+              <span className="rail-item-label">Settings</span>
+            </span>
+          </button>
+          <span className="rail-account-divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="logout-btn rail-button"
+            onClick={handleLogout}
+            aria-label="Log out"
+          >
+            <span className="rail-item-surface" aria-hidden="true">
+              <SignOutIcon className="rail-control-icon" weight="regular" />
+              <span className="rail-item-label">Log out</span>
+            </span>
           </button>
         </div>
       </aside>
@@ -474,7 +507,7 @@ export default function App() {
         <button
           type="button"
           className="sidebar-scrim"
-          aria-label="Close navigation"
+          aria-label="Close mobile navigation"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -484,15 +517,20 @@ export default function App() {
           <button
             type="button"
             className="mob-menu"
+            ref={mobileMenuButtonRef}
             onClick={() => setSidebarOpen(!sidebarOpen)}
             aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
-            aria-controls="sidebar"
+            aria-controls="mobile-nav-sheet"
             aria-expanded={sidebarOpen}
           >
-            <Menu aria-hidden="true" />
+            {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
+          </button>
+          <button type="button" className="topbar-brand" aria-label="Go to Dashboard" onClick={() => go('dashboard')}>
+            <span className="topbar-brand-mark" aria-hidden="true">E</span>
+            <span className="topbar-brand-name" aria-hidden="true">Exam<span>Mind</span></span>
           </button>
           <div className="search global-search" ref={searchBoxRef}>
-            <SearchIcon className="search-ico" aria-hidden="true" />
+            <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
               type="text"
               aria-label="Search ExamMind"
@@ -609,8 +647,8 @@ export default function App() {
           </div>
           <div className="tb-right">
             <OfflineStatus />
-            <button type="button" className="ico-btn" aria-label="Open settings" title="Settings" onClick={() => go('settings')}><SettingsIcon aria-hidden="true" /></button>
-            <button type="button" className="ico-btn" aria-label="Open notifications" title="Notifications" onClick={() => notifyUnavailable('Notifications')}><Bell aria-hidden="true" /><span className="notif-pip"></span></button>
+            <button type="button" className="ico-btn" aria-label="Open settings" title="Settings" onClick={() => go('settings')}><GearSixIcon aria-hidden="true" weight="regular" /></button>
+            <button type="button" className="ico-btn" aria-label="Open notifications" title="Notifications" onClick={() => notifyUnavailable('Notifications')}><BellIcon aria-hidden="true" weight="regular" /><span className="notif-pip"></span></button>
             <button type="button" className="topbar-avatar" aria-label="Open account settings" onClick={() => go('settings')}>{userInitials}</button>
           </div>
         </header>
@@ -650,6 +688,74 @@ export default function App() {
         )}
       </main>
 
+      {sidebarOpen && (
+        <section
+          className="mobile-nav-sheet"
+          id="mobile-nav-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="All ExamMind destinations"
+        >
+          <header className="mobile-nav-sheet-head">
+            <div>
+              <span className="mobile-nav-sheet-mark">E</span>
+              <strong>Navigate</strong>
+            </div>
+            <button
+              type="button"
+              ref={mobileMenuCloseRef}
+              onClick={() => {
+                setSidebarOpen(false);
+                mobileMenuButtonRef.current?.focus();
+              }}
+              aria-label="Close navigation"
+            >
+              <XIcon aria-hidden="true" weight="regular" />
+            </button>
+          </header>
+          <div className="mobile-nav-sheet-groups">
+            {NAV_GROUPS.map((group) => (
+              <div className="mobile-nav-sheet-group" key={`mobile-${group.label}`}>
+                <p>{group.label}</p>
+                <div>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeScreen === item.screen;
+                    return (
+                      <button
+                        type="button"
+                        className={isActive ? 'is-active' : ''}
+                        onClick={() => go(item.screen)}
+                        aria-current={isActive ? 'page' : undefined}
+                        key={`mobile-sheet-${item.screen}`}
+                      >
+                        <Icon aria-hidden="true" weight={isActive ? 'regular' : 'light'} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <footer className="mobile-nav-sheet-account">
+            <span className="ava">{userInitials}</span>
+            <span><strong>{user?.name ?? 'Student'}</strong><small>{user?.username ? `@${user.username}` : 'Account'}</small></span>
+            <div className="mobile-nav-sheet-account-actions">
+              <button
+                type="button"
+                className={activeScreen === 'settings' ? 'is-active' : ''}
+                onClick={() => go('settings')}
+                aria-current={activeScreen === 'settings' ? 'page' : undefined}
+              >
+                <GearSixIcon aria-hidden="true" weight={activeScreen === 'settings' ? 'regular' : 'light'} /> Settings
+              </button>
+              <button type="button" onClick={handleLogout}><SignOutIcon aria-hidden="true" weight="light" /> Log out</button>
+            </div>
+          </footer>
+        </section>
+      )}
+
       <nav className="mob-nav" aria-label="Mobile navigation">
         <div className="mob-tabs">
           {MOBILE_NAV_ITEMS.map((item) => {
@@ -663,11 +769,22 @@ export default function App() {
                 aria-current={isActive ? 'page' : undefined}
                 key={item.screen}
               >
-                <Icon className="mob-tab-ico" aria-hidden="true" />
+                <Icon className="mob-tab-ico" aria-hidden="true" weight={isActive ? 'regular' : 'light'} />
                 <span>{item.label}</span>
               </button>
             );
           })}
+          <button
+            type="button"
+            className={`mob-tab ${isMobileMoreActive || sidebarOpen ? 'on' : ''}`}
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open all navigation"
+            aria-expanded={sidebarOpen}
+            aria-controls="mobile-nav-sheet"
+          >
+            <DotsThreeIcon className="mob-tab-ico" aria-hidden="true" weight={isMobileMoreActive || sidebarOpen ? 'regular' : 'light'} />
+            <span>More</span>
+          </button>
         </div>
       </nav>
     </div>

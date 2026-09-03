@@ -2,20 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   ArrowRight,
-  BookOpenText,
   CalendarDays,
-  CheckCircle2,
   ClipboardCheck,
   FileQuestion,
   FileText,
   FolderOpen,
   Search,
-  Sparkles,
   Upload,
 } from 'lucide-react';
 import type { AcademicMetadata, ScreenType, User } from '../types';
 import { apiGet } from '../lib/api';
 import { WorkbenchEmpty, WorkbenchSection } from '../components/workbench/WorkbenchSection';
+import './Dashboard.css';
 
 type ReadinessEntry = {
   id: number;
@@ -299,10 +297,6 @@ export default function Dashboard({
       }
     });
 
-    if (!workspaceMap.size) {
-      courses.slice(0, 4).forEach((course) => ensureWorkspace(course.id));
-    }
-
     return [...workspaceMap.values()]
       .map(({ readinessScores, ...workspace }) => ({
         ...workspace,
@@ -316,7 +310,7 @@ export default function Dashboard({
         return a.code.localeCompare(b.code);
       })
       .slice(0, 5);
-  }, [analytics, archiveItems, courseById, courses]);
+  }, [analytics, archiveItems, courseById]);
 
   const weakestTopic = useMemo(() => {
     if (!analytics?.readiness.length) return null;
@@ -371,6 +365,8 @@ export default function Dashboard({
   const visibleArchiveItems = archiveView === 'questions'
     ? archiveItems.filter((item) => item.kind === 'Past question').slice(0, 5)
     : archiveItems.slice(0, 5);
+  const hasQueueItems = upcomingSessions.length > 0 || Boolean(weakestTopic) || Boolean(latestMaterial) || hasUploads;
+  const hasRecentActivity = recentActivity.length > 0;
 
   const handleArchiveSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -380,17 +376,25 @@ export default function Dashboard({
 
   return (
     <div className="page workbench-page" id="s-dashboard">
-      <header className="wb-page-head">
+      <header className="wb-page-head dashboard-command-head">
         <div>
           <p className="wb-date">{todayLabel()}</p>
-          <h1>{timeOfDay()}, <em>{firstName}.</em></h1>
-          <p className="wb-page-intro">Your courses, sources, and next study decision in one focused workspace.</p>
+          <h1>{timeOfDay()}, {firstName}.</h1>
+          <p className="wb-page-intro">
+            {weakestTopic
+              ? <>Your next priority is <strong>{weakestTopic.topic}</strong>.</>
+              : hasUploads
+                ? 'Your academic archive is ready to study.'
+                : 'Start by adding material from one of your courses.'}
+          </p>
         </div>
         <div className="wb-head-actions">
-          <button type="button" className="wb-button wb-button-secondary" onClick={() => go('search')}>
-            <Search aria-hidden="true" />
-            Search archive
-          </button>
+          {hasUploads && (
+            <button type="button" className="wb-button wb-button-secondary" onClick={() => go('search')}>
+              <Search aria-hidden="true" />
+              Search archive
+            </button>
+          )}
           <button type="button" className="wb-button wb-button-primary" onClick={() => go('upload')}>
             <Upload aria-hidden="true" />
             Upload material
@@ -398,81 +402,87 @@ export default function Dashboard({
         </div>
       </header>
 
-      <section className="wb-briefing" aria-labelledby="study-briefing-title">
-        <div className="wb-briefing-copy">
-          <p className="wb-kicker"><span aria-hidden="true"></span> Study briefing</p>
-          <h2 id="study-briefing-title">
-            {weakestTopic
-              ? <>Strengthen <em>{weakestTopic.topic}</em></>
-              : hasUploads
-                ? <>Turn your sources into <em>exam practice</em></>
-                : <>Build your <em>academic archive</em></>}
+      <section className={`dashboard-next-panel ${hasUploads ? 'has-sources' : 'is-empty'}`} aria-labelledby="dashboard-next-title">
+        <div className="dashboard-next-copy">
+          <p className="dashboard-next-label">Next study action</p>
+          <h2 id="dashboard-next-title">
+            {loading
+              ? 'Preparing your workspace'
+              : weakestTopic
+                ? <>Strengthen <em>{weakestTopic.topic}</em></>
+                : hasUploads
+                  ? 'Build your first readiness signal'
+                  : 'Start with one course source'}
           </h2>
           <p>
-            {weakestTopic
-              ? `${weakestTopic.topic} is currently at ${weakestTopic.score}% readiness. A focused practice set is the strongest next move.`
-              : hasUploads
-                ? 'Your indexed materials are ready for source-grounded search, explanations, and practice generation.'
-                : 'Upload lecture notes or past questions to make every search and AI answer traceable to your coursework.'}
+            {loading
+              ? 'Checking your courses, indexed material, and practice record.'
+              : weakestTopic
+                ? `${weakestTopic.topic} is your lowest tracked topic at ${weakestTopic.score}% readiness.`
+                : hasUploads
+                  ? 'Your material is indexed. Complete a focused practice session to begin measuring topic readiness.'
+                  : 'Upload lecture notes or a past question. ExamMind will organise it into a course workspace you can search and practise from.'}
           </p>
-          <button type="button" className="wb-briefing-action" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
-            {hasUploads ? 'Start focused practice' : 'Upload your first source'}
-            <ArrowRight aria-hidden="true" />
-          </button>
+          {!loading && (
+            <button type="button" className="dashboard-next-action" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
+              {weakestTopic ? 'Practise this topic' : hasUploads ? 'Start practice' : 'Upload course material'}
+              <ArrowRight aria-hidden="true" />
+            </button>
+          )}
+
+          {!loading && (overallReadiness !== null || archiveItems.length > 0 || (analytics?.attempts.length || 0) > 0) && (
+            <dl className="dashboard-next-evidence" aria-label="Current study evidence">
+              {overallReadiness !== null && <div><dt>Overall readiness</dt><dd>{overallReadiness}%</dd></div>}
+              {archiveItems.length > 0 && <div><dt>Indexed sources</dt><dd>{archiveItems.length}</dd></div>}
+              {(analytics?.attempts.length || 0) > 0 && <div><dt>Practice sessions</dt><dd>{analytics?.attempts.length}</dd></div>}
+            </dl>
+          )}
         </div>
-        <dl className="wb-pulse" aria-label="Academic archive summary">
-          <div>
-            <dt>Readiness</dt>
-            <dd>{overallReadiness !== null ? `${overallReadiness}%` : '--'}</dd>
+
+        <div className="dashboard-document-stack" aria-label={hasUploads ? `${archiveItems.length} indexed academic sources` : 'No academic sources indexed yet'}>
+          <span className="dashboard-document-sheet sheet-back" aria-hidden="true" />
+          <span className="dashboard-document-sheet sheet-middle" aria-hidden="true" />
+          <div className="dashboard-document-sheet sheet-front">
+            <FileText aria-hidden="true" />
+            <small>{hasUploads ? 'Academic archive' : 'New workspace'}</small>
+            <strong>{hasUploads ? `${archiveItems.length} source${archiveItems.length === 1 ? '' : 's'} indexed` : 'Waiting for your first source'}</strong>
+            <span>{hasUploads && latestMaterial ? shorten(latestMaterial.title, 42) : 'PDF / scan / lecture note'}</span>
           </div>
-          <div>
-            <dt>Indexed sources</dt>
-            <dd>{loading ? '--' : archiveItems.length}</dd>
-          </div>
-          <div>
-            <dt>Past questions</dt>
-            <dd>{loading ? '--' : pastQuestions.length}</dd>
-          </div>
-          <div>
-            <dt>Practice sessions</dt>
-            <dd>{analytics?.attempts.length || 0}</dd>
-          </div>
-        </dl>
+        </div>
       </section>
 
-      <form className="wb-grounded-search" onSubmit={handleArchiveSearch}>
-        <div className="wb-search-mark" aria-hidden="true"><Sparkles /></div>
-        <div className="wb-search-copy">
-          <label htmlFor="archive-grounded-search">Grounded AI search</label>
-          <span><CheckCircle2 aria-hidden="true" /> Answers trace back to your uploaded course material</span>
-        </div>
-        <div className="wb-search-control">
-          <Search aria-hidden="true" />
-          <input
-            id="archive-grounded-search"
-            type="search"
-            value={archiveQuery}
-            onChange={(event) => setArchiveQuery(event.target.value)}
-            placeholder="Ask about a topic, course, lecturer, or past question"
-            required
-          />
-          <button type="submit" aria-label="Search your academic archive" title="Search archive">
-            <ArrowRight aria-hidden="true" />
-          </button>
-        </div>
-      </form>
+      {hasUploads && (
+        <form className="dashboard-archive-command" onSubmit={handleArchiveSearch}>
+          <label htmlFor="archive-grounded-search">Search your sources</label>
+          <div className="wb-search-control">
+            <Search aria-hidden="true" />
+            <input
+              id="archive-grounded-search"
+              type="search"
+              value={archiveQuery}
+              onChange={(event) => setArchiveQuery(event.target.value)}
+              placeholder="Course, topic, lecturer, or past question"
+              required
+            />
+            <button type="submit" aria-label="Search your academic archive" title="Search archive">
+              <ArrowRight aria-hidden="true" />
+            </button>
+          </div>
+          <span>Grounded in your indexed material</span>
+        </form>
+      )}
 
-      <div className="wb-primary-grid">
+      <div className={`dashboard-workspace-grid ${hasQueueItems ? '' : 'is-single'}`}>
         <WorkbenchSection
           id="course-workspaces"
           index="01"
-          title="Course workspaces"
-          description="Open the archive, questions, and readiness context for a course."
-          action={(
+          title="Your courses"
+          description="Sources, past questions, and current readiness."
+          action={hasUploads ? (
             <button type="button" className="wb-text-action" onClick={() => go('search')}>
               View archive <ArrowRight aria-hidden="true" />
             </button>
-          )}
+          ) : undefined}
         >
           {loading ? (
             <div className="wb-loading-list" aria-label="Loading course workspaces">
@@ -503,23 +513,26 @@ export default function Dashboard({
               ))}
             </div>
           ) : (
-            <WorkbenchEmpty
-              icon={BookOpenText}
-              title="No course workspaces yet"
-              body="Upload a course document and ExamMind will organize it into a searchable workspace."
-              action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Upload material</button>}
-            />
+            <div className="dashboard-course-empty">
+              <div className="dashboard-folder-stack" aria-hidden="true"><span /><span /><span /></div>
+              <div>
+                <strong>No course workspaces yet</strong>
+                <p>Your first uploaded document will create one automatically.</p>
+              </div>
+              <button type="button" className="wb-inline-action" onClick={() => go('upload')}>Add a source</button>
+            </div>
           )}
         </WorkbenchSection>
 
-        <WorkbenchSection
-          id="academic-queue"
-          index="02"
-          title="Academic queue"
-          description="The next useful actions based on your real study activity."
-          className="wb-queue-section"
-        >
-          <div className="wb-queue-list">
+        {hasQueueItems && (
+          <WorkbenchSection
+            id="academic-queue"
+            index="02"
+            title="Study agenda"
+            description="Upcoming sessions and useful follow-ups."
+            className="wb-queue-section"
+          >
+            <div className="wb-queue-list">
             {upcomingSessions.map((session) => (
               <button type="button" className="wb-queue-row" key={`session-${session.id}`} onClick={() => go('groups')}>
                 <span className="wb-queue-icon"><CalendarDays aria-hidden="true" /></span>
@@ -565,16 +578,18 @@ export default function Dashboard({
                 <ArrowRight aria-hidden="true" />
               </button>
             )}
-          </div>
-        </WorkbenchSection>
+            </div>
+          </WorkbenchSection>
+        )}
       </div>
 
-      <div className="wb-secondary-grid">
-        <WorkbenchSection
+      {(hasUploads || hasRecentActivity) && (
+      <div className={`dashboard-secondary-grid ${hasUploads && hasRecentActivity ? '' : 'is-single'}`}>
+        {hasUploads && <WorkbenchSection
           id="archive-evidence"
           index="03"
-          title="Archive evidence"
-          description="The uploaded sources that ground search, AI answers, and practice."
+          title="Recently indexed"
+          description="Material available to search and practise from."
           action={(
             <div className="wb-view-tabs" role="tablist" aria-label="Archive view">
               <button
@@ -629,13 +644,13 @@ export default function Dashboard({
               action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Upload PDF</button>}
             />
           )}
-        </WorkbenchSection>
+        </WorkbenchSection>}
 
-        <WorkbenchSection
+        {hasRecentActivity && <WorkbenchSection
           id="recent-activity"
           index="04"
-          title="Recent study activity"
-          description="A concise record of uploads and completed practice."
+          title="Activity"
+          description="Uploads and completed practice, in order."
           action={(
             <button type="button" className="wb-text-action" onClick={() => go('progress')}>
               Progress <ArrowRight aria-hidden="true" />
@@ -670,8 +685,9 @@ export default function Dashboard({
               action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Start with an upload</button>}
             />
           )}
-        </WorkbenchSection>
+        </WorkbenchSection>}
       </div>
+      )}
     </div>
   );
 }
