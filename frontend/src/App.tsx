@@ -18,7 +18,6 @@ import { XIcon } from '@phosphor-icons/react/dist/icons/X';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import './App.css';
 import './Navigation.css';
-import './VisualIdentity.css';
 import type {
   ChatMessage,
   GlobalSearchResult,
