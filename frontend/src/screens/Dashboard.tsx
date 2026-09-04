@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   ArrowRight,
+  BarChart3,
   CalendarDays,
+  CircleAlert,
   ClipboardCheck,
   FileQuestion,
   FileText,
   FolderOpen,
+  RotateCw,
   Search,
   Upload,
+  Users,
 } from 'lucide-react';
 import type { AcademicMetadata, ScreenType, User } from '../types';
 import { apiGet } from '../lib/api';
@@ -173,6 +177,8 @@ export default function Dashboard({
   const [lectureNotes, setLectureNotes] = useState<MaterialEntry[]>([]);
   const [studySessions, setStudySessions] = useState<StudySessionEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [archiveView, setArchiveView] = useState<'materials' | 'questions'>('materials');
   const [archiveQuery, setArchiveQuery] = useState('');
 
@@ -190,6 +196,9 @@ export default function Dashboard({
       apiGet('/study-sessions?active_only=true'),
     ]).then(([analyticsResult, coursesResult, questionsResult, notesResult, sessionsResult]) => {
       if (cancelled) return;
+      const allFailed = [analyticsResult, coursesResult, questionsResult, notesResult, sessionsResult]
+        .every((result) => result.status === 'rejected');
+      setLoadError(allFailed);
       setAnalytics(
         analyticsResult.status === 'fulfilled'
           ? analyticsResult.value as StudentAnalytics
@@ -220,7 +229,7 @@ export default function Dashboard({
     });
 
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [reloadToken, user?.id]);
 
   const courseById = useMemo(
     () => new Map(courses.map((course) => [course.id, course])),
@@ -326,6 +335,39 @@ export default function Dashboard({
     );
   }, [analytics]);
 
+  const totalQuestionsPractised = useMemo(
+    () => (analytics?.attempts || []).reduce((sum, attempt) => sum + (attempt.total_questions || 0), 0),
+    [analytics],
+  );
+
+  const averageScore = useMemo(() => {
+    if (!analytics?.attempts.length) return null;
+    return Math.round(analytics.attempts.reduce((sum, attempt) => sum + attempt.score, 0) / analytics.attempts.length);
+  }, [analytics]);
+
+  const topicsTracked = useMemo(
+    () => new Set((analytics?.readiness || []).map((entry) => entry.topic).filter(Boolean)).size,
+    [analytics],
+  );
+
+  const readinessTopics = useMemo(() => {
+    return [...(analytics?.readiness || [])]
+      .filter((entry) => entry.topic)
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 5);
+  }, [analytics]);
+
+  const weekActivity = useMemo(() => {
+    const counts = Array.from({ length: 7 }, () => 0);
+    (analytics?.attempts || []).forEach((attempt) => {
+      const date = new Date(attempt.completed_at);
+      if (Number.isNaN(date.getTime())) return;
+      const day = (date.getDay() + 6) % 7;
+      counts[day] += 1;
+    });
+    return counts;
+  }, [analytics]);
+
   const recentActivity = useMemo(() => {
     const materialActivity = archiveItems.map((item) => ({
       id: `material-${item.id}`,
@@ -365,7 +407,6 @@ export default function Dashboard({
   const visibleArchiveItems = archiveView === 'questions'
     ? archiveItems.filter((item) => item.kind === 'Past question').slice(0, 5)
     : archiveItems.slice(0, 5);
-  const hasQueueItems = upcomingSessions.length > 0 || Boolean(weakestTopic) || Boolean(latestMaterial) || hasUploads;
   const hasRecentActivity = recentActivity.length > 0;
 
   const handleArchiveSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -376,6 +417,13 @@ export default function Dashboard({
 
   return (
     <div className="page workbench-page" id="s-dashboard">
+      {loadError && (
+        <div className="dashboard-load-error" role="alert">
+          <CircleAlert aria-hidden="true" />
+          <span>We couldn’t load your study workspace right now. Your archive is unchanged.</span>
+          <button type="button" onClick={() => { setLoading(true); setLoadError(false); setReloadToken((value) => value + 1); }}><RotateCw aria-hidden="true" />Try again</button>
+        </div>
+      )}
       <header className="wb-page-head dashboard-command-head">
         <div>
           <p className="wb-date">{todayLabel()}</p>
@@ -385,7 +433,7 @@ export default function Dashboard({
               ? <>Your next priority is <strong>{weakestTopic.topic}</strong>.</>
               : hasUploads
                 ? 'Your academic archive is ready to study.'
-                : 'Start by adding material from one of your courses.'}
+                : 'Your archive is empty — start with one upload.'}
           </p>
         </div>
         <div className="wb-head-actions">
@@ -409,10 +457,10 @@ export default function Dashboard({
             {loading
               ? 'Preparing your workspace'
               : weakestTopic
-                ? <>Strengthen <em>{weakestTopic.topic}</em></>
+                ? <>Revise <em>{weakestTopic.topic}</em></>
                 : hasUploads
-                  ? 'Build your first readiness signal'
-                  : 'Start with one course source'}
+                  ? 'Generate practice from your archive'
+                  : 'Upload your first past question'}
           </h2>
           <p>
             {loading
@@ -420,12 +468,12 @@ export default function Dashboard({
               : weakestTopic
                 ? `${weakestTopic.topic} is your lowest tracked topic at ${weakestTopic.score}% readiness.`
                 : hasUploads
-                  ? 'Your material is indexed. Complete a focused practice session to begin measuring topic readiness.'
-                  : 'Upload lecture notes or a past question. ExamMind will organise it into a course workspace you can search and practise from.'}
+                  ? 'Use a focused practice set to turn your indexed material into a readiness signal.'
+                  : 'Upload lecture notes or a past question. ExamMind will index it into a searchable course workspace.'}
           </p>
           {!loading && (
             <button type="button" className="dashboard-next-action" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
-              {weakestTopic ? 'Practise this topic' : hasUploads ? 'Start practice' : 'Upload course material'}
+              {weakestTopic ? 'Practise this topic' : hasUploads ? 'Generate practice' : 'Upload material'}
               <ArrowRight aria-hidden="true" />
             </button>
           )}
@@ -451,6 +499,13 @@ export default function Dashboard({
         </div>
       </section>
 
+      <section className="dashboard-metric-strip" aria-label="Study evidence">
+        <div><span>Uploaded materials</span><strong>{loading ? '…' : archiveItems.length || '—'}</strong><small>{archiveItems.length ? 'indexed sources' : 'upload to begin'}</small></div>
+        <div><span>Questions practised</span><strong>{loading ? '…' : totalQuestionsPractised || '—'}</strong><small>{analytics?.attempts.length ? `${analytics.attempts.length} sessions` : 'no attempts yet'}</small></div>
+        <div><span>Average score</span><strong className={averageScore !== null && averageScore >= 70 ? 'is-verified' : averageScore !== null && averageScore < 50 ? 'is-attention' : ''}>{loading ? '…' : averageScore !== null ? `${averageScore}%` : '—'}</strong><small>{averageScore !== null ? 'across recorded attempts' : 'complete practice to measure'}</small></div>
+        <div><span>Topics tracked</span><strong>{loading ? '…' : topicsTracked || '—'}</strong><small>{topicsTracked ? 'readiness topics' : 'practice creates signals'}</small></div>
+      </section>
+
       {hasUploads && (
         <form className="dashboard-archive-command" onSubmit={handleArchiveSearch}>
           <label htmlFor="archive-grounded-search">Search your sources</label>
@@ -472,7 +527,7 @@ export default function Dashboard({
         </form>
       )}
 
-      <div className={`dashboard-workspace-grid ${hasQueueItems ? '' : 'is-single'}`}>
+      <div className="dashboard-workspace-grid">
         <WorkbenchSection
           id="course-workspaces"
           index="01"
@@ -524,12 +579,11 @@ export default function Dashboard({
           )}
         </WorkbenchSection>
 
-        {hasQueueItems && (
           <WorkbenchSection
             id="academic-queue"
             index="02"
-            title="Study agenda"
-            description="Upcoming sessions and useful follow-ups."
+            title="Study queue"
+            description="The clearest next actions from your archive."
             className="wb-queue-section"
           >
             <div className="wb-queue-list">
@@ -579,8 +633,24 @@ export default function Dashboard({
               </button>
             )}
             </div>
+
+            <div className="dashboard-rail-stack">
+              <section className="dashboard-rail-panel" aria-labelledby="dashboard-readiness-title">
+                <header><div><span className="dashboard-rail-kicker">Evidence</span><h3 id="dashboard-readiness-title">Topic readiness</h3></div><BarChart3 aria-hidden="true" /></header>
+                {loading ? <div className="dashboard-shimmer-lines" aria-label="Loading topic readiness"><i /><i /><i /></div> : readinessTopics.length ? <div className="dashboard-readiness-list">{readinessTopics.map((entry) => <div key={entry.id}><div><span>{entry.topic}</span><b>{entry.score}%</b></div><span className="dashboard-readiness-track"><i style={{ width: `${Math.max(0, Math.min(100, entry.score))}%` }} /></span></div>)}</div> : <p className="dashboard-rail-empty">Readiness appears after you complete a practice session.</p>}
+              </section>
+
+              <section className="dashboard-rail-panel" aria-labelledby="dashboard-week-title">
+                <header><div><span className="dashboard-rail-kicker">Practice history</span><h3 id="dashboard-week-title">This week</h3></div><CalendarDays aria-hidden="true" /></header>
+                {loading ? <div className="dashboard-week-empty">Checking practice history…</div> : analytics?.attempts.length ? <div className="dashboard-week-chart" role="img" aria-label={`Practice sessions this week: ${weekActivity.join(', ')}`}><div className="dashboard-week-bars">{weekActivity.map((count, index) => <span key={index} style={{ height: `${count ? Math.max(8, Math.round((count / Math.max(...weekActivity)) * 76)) : 2}px` }} className={count ? '' : 'is-empty'} title={`${count} session${count === 1 ? '' : 's'}`} />)}</div><div className="dashboard-week-axis">{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div></div> : <p className="dashboard-rail-empty">No practice attempts this week.</p>}
+              </section>
+
+              <section className="dashboard-rail-panel" aria-labelledby="dashboard-rooms-title">
+                <header><div><span className="dashboard-rail-kicker">Community</span><h3 id="dashboard-rooms-title">Reading rooms</h3></div><Users aria-hidden="true" /></header>
+                {studySessions.length ? <div className="dashboard-room-list">{studySessions.slice(0, 3).map((session) => <button type="button" key={`room-${session.id}`} onClick={() => go('groups')}><span className="dashboard-room-dot" /><span><strong>{session.title}</strong><small>{session.topic || session.exam_goal || 'Active study room'}</small></span><ArrowRight aria-hidden="true" /></button>)}</div> : <div className="dashboard-rail-empty"><p>No active reading rooms yet.</p><button type="button" className="wb-inline-action" onClick={() => go('groups')}>Start a room</button></div>}
+              </section>
+            </div>
           </WorkbenchSection>
-        )}
       </div>
 
       {(hasUploads || hasRecentActivity) && (
