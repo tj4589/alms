@@ -1,3 +1,4 @@
+import { lazy, Suspense, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
@@ -11,7 +12,20 @@ import {
   Sparkles,
   Upload,
 } from 'lucide-react';
-import heroDesk from '../assets/exammind-study-desk-hero-orange.jpg';
+
+const LandingScene3D = lazy(() => import('./LandingScene3D'));
+
+function LandingScenePlaceholder() {
+  return (
+    <div className="em-hero-scene em-hero-scene-loading" aria-hidden="true">
+      <div className="em-hero-scene-fallback">
+        <span className="em-fallback-sheet em-fallback-sheet-back" />
+        <span className="em-fallback-sheet em-fallback-sheet-front"><i /><i /><i /><i /></span>
+        <span className="em-fallback-highlight" />
+      </div>
+    </div>
+  );
+}
 
 type LandingProps = {
   onGetStarted: () => void;
@@ -68,14 +82,11 @@ const workflow = [
 ];
 
 export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
+  const [sceneReady, setSceneReady] = useState(false);
+
   return (
     <main className="em-landing">
-      <section
-        className="em-hero"
-        id="product"
-        style={{ '--em-hero-image': `url(${heroDesk})` } as React.CSSProperties}
-      >
-        <div className="em-hero-shade" aria-hidden="true" />
+      <section className={`em-hero ${sceneReady ? 'is-scene-ready' : ''}`} id="product">
 
         <nav className="em-nav" aria-label="Public navigation">
           <a className="em-brand" href="#product" aria-label="ExamMind home">
@@ -98,61 +109,36 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           </div>
         </nav>
 
-        <div className="em-hero-content">
-          <div className="em-eyebrow"><span />Your private academic index</div>
-          <h1>ExamMind.</h1>
-          <p className="em-hero-lede">Turn the course material you already have into answers you can trust.</p>
-          <p className="em-hero-copy">
-            Search uploaded notes and past questions, ask grounded questions, and build focused practice
-            from one student workspace.
-          </p>
-          <div className="em-hero-actions">
-            <button type="button" className="em-primary-cta" onClick={onGetStarted}>
-              Build your study archive
-              <ArrowRight aria-hidden="true" />
-            </button>
-            <a className="em-secondary-link" href="#workflow">See how it works</a>
-          </div>
-          <div className="em-proof-line" aria-label="ExamMind benefits">
-            <span><Check aria-hidden="true" />Student account</span>
-            <span><Check aria-hidden="true" />Source-grounded</span>
-            <span><Check aria-hidden="true" />No credit card</span>
-          </div>
-        </div>
-
-        <div className="em-product-window" aria-label="ExamMind grounded answer preview">
-          <div className="em-window-bar">
-            <div className="em-window-dots" aria-hidden="true"><span /><span /><span /></div>
-            <span className="em-window-title">ExamMind / Study archive</span>
-            <span className="em-window-status"><span />Sources ready</span>
-          </div>
-          <div className="em-product-layout">
-            <aside className="em-product-nav" aria-label="Product preview navigation">
-              <div className="em-product-logo">EM</div>
-              <div className="em-product-nav-item is-active"><Search aria-hidden="true" /><span>Search</span></div>
-              <div className="em-product-nav-item"><Library aria-hidden="true" /><span>Library</span></div>
-              <div className="em-product-nav-item"><Bot aria-hidden="true" /><span>Assistant</span></div>
-            </aside>
-            <div className="em-product-main">
-              <div className="em-product-kicker">Course workspace</div>
-              <div className="em-demo-search">
-                <Search aria-hidden="true" />
-                <span>What is the critical path method?</span>
-                <kbd>Enter</kbd>
-              </div>
-              <div className="em-answer-grid">
-                <div className="em-answer-copy">
-                  <div className="em-answer-label"><Sparkles aria-hidden="true" />Grounded answer</div>
-                  <h2>The critical path is the longest sequence of dependent project activities.</h2>
-                  <p>It determines the shortest possible completion time and identifies tasks with no scheduling flexibility.</p>
-                </div>
-                <div className="em-source-panel">
-                  <div className="em-source-title">Retrieved sources</div>
-                  <div className="em-source-row"><FileText aria-hidden="true" /><span><strong>Project Management Notes</strong><small>Scheduling methods</small></span></div>
-                  <div className="em-source-row"><FileText aria-hidden="true" /><span><strong>Past Question</strong><small>Project planning</small></span></div>
-                </div>
-              </div>
+        <div className="em-hero-layout">
+          <div className="em-hero-content">
+            <div className="em-eyebrow"><span />Your private academic index</div>
+            <h1>ExamMind.</h1>
+            <p className="em-hero-lede">Turn the course material you already have into answers you can trust.</p>
+            <p className="em-hero-copy">
+              Search uploaded notes and past questions, ask grounded questions, and build focused practice
+              from one student workspace.
+            </p>
+            <div className="em-hero-actions">
+              <button type="button" className="em-primary-cta" onClick={onGetStarted}>
+                Build your study archive
+                <ArrowRight aria-hidden="true" />
+              </button>
+              <a className="em-secondary-link" href="#workflow">See how it works</a>
             </div>
+            <div className="em-proof-line" aria-label="ExamMind benefits">
+              <span><Check aria-hidden="true" />Student account</span>
+              <span><Check aria-hidden="true" />Source-grounded</span>
+              <span><Check aria-hidden="true" />No credit card</span>
+            </div>
+          </div>
+
+          <div className="em-hero-visual" aria-label="ExamMind study material in motion">
+            <Suspense fallback={<LandingScenePlaceholder />}>
+              <LandingScene3D onReady={() => setSceneReady(true)} />
+            </Suspense>
+            <div className="em-hero-chip em-chip-source"><FileText aria-hidden="true" /><span>Cited · p.14</span></div>
+            <div className="em-hero-chip em-chip-readiness"><span className="em-chip-ring" aria-hidden="true" /> <span>Ready to practice</span></div>
+            <div className="em-hero-chip em-chip-archive"><Library aria-hidden="true" /><span>Source attached</span></div>
           </div>
         </div>
       </section>
