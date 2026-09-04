@@ -1,5 +1,9 @@
 # ExamMind — Engineering Devlog
 
+## 2026-09-04 — Midnight Studio visual pass
+
+The landing page and authenticated dashboard now use a dark Midnight Studio system: electric lime is the restrained brand/action accent, Instrument Serif carries editorial emphasis, and the dashboard prioritises a real next-study action, archive evidence, course rows, and honest empty/loading/error states. The old amber brand treatment is retired (amber remains available for attention states). The landing page no longer uses the orange study-desk hero image or light paper sections; its product preview is HTML/CSS and its material band/closing CTA are the only lime blocks.
+
 AI-powered LMS for Nigerian universities. FastAPI + PostgreSQL + pgvector backend, React 19 + TypeScript + Vite frontend, OpenAI RAG pipeline.
 
 ---
