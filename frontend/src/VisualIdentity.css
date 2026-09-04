@@ -334,7 +334,9 @@ body { background: var(--desk); color: var(--paper-ink); }
 }
 
 @media (max-width: 420px) {
+  .em-nav { position: relative; }
   .em-text-button { display: none; }
+  .em-nav-actions { position: absolute; top: 13px; right: 0; }
   .em-small-cta { padding: 0 11px; }
   .em-hero-content { overflow: hidden; }
 }
