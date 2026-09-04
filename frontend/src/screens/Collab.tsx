@@ -64,7 +64,7 @@ const inputStyle: React.CSSProperties = {
 export default function Collab({
   go,
   user,
-  notifyUnavailable: _notifyUnavailable,
+  notifyUnavailable,
   initialContext = null,
 }: {
   go: (s: ScreenType) => void;
@@ -72,6 +72,7 @@ export default function Collab({
   notifyUnavailable: (feature: string) => void;
   initialContext?: (SearchActionContext & { action?: 'discussion' }) | null;
 }) {
+  void notifyUnavailable;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [threadsError, setThreadsError] = useState('');
@@ -118,6 +119,7 @@ export default function Collab({
     setShowForm(true);
     setFormError('');
   }, [
+    initialContext,
     initialContext?.query,
     initialContext?.topic,
     initialContext?.course_title,

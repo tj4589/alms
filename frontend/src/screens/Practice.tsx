@@ -116,7 +116,7 @@ export default function Practice({
     if (nextTopic && nextTopic !== selectedTopic) {
       setSelectedTopic(nextTopic);
     }
-  }, [initialContext?.topic, initialTopic]);
+  }, [initialContext?.topic, initialTopic, selectedTopic]);
 
   const score = useMemo(() => {
     return Object.values(answers).filter(Boolean).length;
