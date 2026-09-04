@@ -651,7 +651,7 @@ function RoomDetail({
 
 export default function StudyGroups({
   go,
-  notifyUnavailable,
+  notifyUnavailable: _notifyUnavailable,
   user,
   initialContext = null,
 }: {
@@ -660,7 +660,6 @@ export default function StudyGroups({
   user: User | null;
   initialContext?: (SearchActionContext & { action?: 'study_group' | 'reading_room' }) | null;
 }) {
-  void notifyUnavailable;
   const [mainTab, setMainTab] = useState<'groups' | 'rooms'>('groups');
   const [selectedSession, setSelectedSession] = useState<StudySession | null>(null);
 
@@ -757,7 +756,6 @@ export default function StudyGroups({
       setGroupFormError('');
     }
   }, [
-    initialContext,
     initialContext?.action,
     initialContext?.query,
     initialContext?.topic,
@@ -773,7 +771,7 @@ export default function StudyGroups({
     try {
       const res = await apiPost(`/study-groups/${groupId}/join`, {}) as { member_count: number };
       setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, is_member: true, member_count: res.member_count } : g));
-    } catch { /* Keep the current membership state when the service is unavailable. */ }
+    } catch { }
     finally { setGroupActionPending(null); }
   };
 
@@ -783,7 +781,7 @@ export default function StudyGroups({
     try {
       const res = await apiPost(`/study-groups/${groupId}/leave`, {}) as { member_count: number };
       setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, is_member: false, member_count: res.member_count } : g));
-    } catch { /* Keep the current membership state when the service is unavailable. */ }
+    } catch { }
     finally { setGroupActionPending(null); }
   };
 

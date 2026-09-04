@@ -147,7 +147,6 @@ export default function SmartSearch({
   user: User | null;
   onGoToPractice: (topic: string) => void;
 }) {
-  void _user;
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState<number | ''>('');
   const [showFilters, setShowFilters] = useState(false);

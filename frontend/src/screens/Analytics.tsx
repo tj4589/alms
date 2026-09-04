@@ -49,29 +49,28 @@ function scorePercent(attempt: AttemptEntry): number {
 
 export default function Analytics({
   go,
-  notifyUnavailable,
+  notifyUnavailable: _notifyUnavailable,
   user,
 }: {
   go: (s: ScreenType) => void;
   notifyUnavailable: (feature: string) => void;
   user: User | null;
 }) {
-  void notifyUnavailable;
   const [analytics, setAnalytics] = useState<StudentAnalytics | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setAnalytics(null);
+      setError('');
+      return;
+    }
 
     let cancelled = false;
+    setError('');
 
     apiGet(`/analytics/student/${user.id}`)
-      .then((data) => {
-        if (!cancelled) {
-          setError('');
-          setAnalytics(data as StudentAnalytics);
-        }
-      })
+      .then((data) => { if (!cancelled) setAnalytics(data as StudentAnalytics); })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load your analytics.');
       });
@@ -79,7 +78,7 @@ export default function Analytics({
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  const attempts = useMemo(() => analytics?.attempts ?? [], [analytics]);
+  const attempts = analytics?.attempts ?? [];
   const totalQuestions = useMemo(
     () => attempts.reduce((sum, attempt) => sum + Math.max(0, attempt.total_questions || 0), 0),
     [attempts],

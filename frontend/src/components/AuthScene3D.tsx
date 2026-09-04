@@ -41,12 +41,11 @@ function supportsWebGL(): boolean {
 }
 
 function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(() => (
-    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  ));
+  const [reduced, setReduced] = useState(false);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReduced(media.matches);
     const onChange = () => setReduced(media.matches);
     media.addEventListener('change', onChange);
     return () => media.removeEventListener('change', onChange);
@@ -211,15 +210,15 @@ function AuthSceneFallback() {
 }
 
 export default function AuthScene3D() {
-  const [webglReady] = useState(() => supportsWebGL());
+  const [webglReady, setWebglReady] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => (
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches
-  ));
+  const [isMobile, setIsMobile] = useState(false);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    setWebglReady(supportsWebGL());
     const updateMobile = () => setIsMobile(window.matchMedia('(max-width: 720px)').matches);
+    updateMobile();
     window.addEventListener('resize', updateMobile);
     return () => window.removeEventListener('resize', updateMobile);
   }, []);
