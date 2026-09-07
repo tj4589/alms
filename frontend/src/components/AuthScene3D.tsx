@@ -1,6 +1,7 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { useReducedMotion } from '../lib/useReducedMotion';
 
 type DocumentPanel = {
   position: [number, number, number];
@@ -38,21 +39,6 @@ function supportsWebGL(): boolean {
   } catch {
     return false;
   }
-}
-
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(() => (
-    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  ));
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onChange = () => setReduced(media.matches);
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-
-  return reduced;
 }
 
 function DocumentSheet({ panel, index }: { panel: DocumentPanel; index: number }) {

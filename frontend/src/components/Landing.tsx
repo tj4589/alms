@@ -11,7 +11,7 @@ import {
   Sparkles,
   Upload,
 } from 'lucide-react';
-import heroDesk from '../assets/exammind-study-desk-hero-orange.jpg';
+import LandingHero3D from './LandingHero3D';
 
 type LandingProps = {
   onGetStarted: () => void;
@@ -70,56 +70,46 @@ const workflow = [
 export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   return (
     <main className="em-landing">
-      <section
-        className="em-hero"
-        id="product"
-        style={{ '--em-hero-image': `url(${heroDesk})` } as React.CSSProperties}
-      >
-        <div className="em-hero-shade" aria-hidden="true" />
+      <nav className="em-nav" aria-label="Public navigation">
+        <a className="em-brand" href="#product" aria-label="ExamMind home">
+          <span className="em-brand-mark">E</span>
+          <span>ExamMind</span>
+        </a>
 
-        <nav className="em-nav" aria-label="Public navigation">
-          <a className="em-brand" href="#product" aria-label="ExamMind home">
-            <span className="em-brand-mark">E</span>
-            <span>ExamMind</span>
-          </a>
-
-          <div className="em-nav-links">
-            <a href="#capabilities">Capabilities</a>
-            <a href="#workflow">How it works</a>
-            <a href="#integrity">Integrity</a>
-          </div>
-
-          <div className="em-nav-actions">
-            <button type="button" className="em-text-button" onClick={onSignIn}>Log in</button>
-            <button type="button" className="em-small-cta" onClick={onGetStarted}>
-              Start free
-              <ArrowRight aria-hidden="true" />
-            </button>
-          </div>
-        </nav>
-
-        <div className="em-hero-content">
-          <div className="em-eyebrow"><span />Your private academic index</div>
-          <h1>ExamMind.</h1>
-          <p className="em-hero-lede">Turn the course material you already have into answers you can trust.</p>
-          <p className="em-hero-copy">
-            Search uploaded notes and past questions, ask grounded questions, and build focused practice
-            from one student workspace.
-          </p>
-          <div className="em-hero-actions">
-            <button type="button" className="em-primary-cta" onClick={onGetStarted}>
-              Build your study archive
-              <ArrowRight aria-hidden="true" />
-            </button>
-            <a className="em-secondary-link" href="#workflow">See how it works</a>
-          </div>
-          <div className="em-proof-line" aria-label="ExamMind benefits">
-            <span><Check aria-hidden="true" />Student account</span>
-            <span><Check aria-hidden="true" />Source-grounded</span>
-            <span><Check aria-hidden="true" />No credit card</span>
-          </div>
+        <div className="em-nav-links">
+          <a href="#capabilities">Capabilities</a>
+          <a href="#workflow">How it works</a>
+          <a href="#integrity">Integrity</a>
         </div>
 
+        <div className="em-nav-actions">
+          <button type="button" className="em-text-button" onClick={onSignIn}>Log in</button>
+          <button type="button" className="em-small-cta" onClick={onGetStarted}>
+            Start free
+            <ArrowRight aria-hidden="true" />
+          </button>
+        </div>
+      </nav>
+
+      <LandingHero3D>
+        <div className="em-eyebrow"><span />Your private academic index</div>
+        <h1>ExamMind.</h1>
+        <p className="em-hero-lede">Turn the course material you already have into answers you can trust.</p>
+        <div className="em-hero-actions">
+          <button type="button" className="em-primary-cta" onClick={onGetStarted}>
+            Build your study archive
+            <ArrowRight aria-hidden="true" />
+          </button>
+          <a className="em-secondary-link" href="#workflow">See how it works</a>
+        </div>
+        <div className="em-proof-line" aria-label="ExamMind benefits">
+          <span><Check aria-hidden="true" />Student account</span>
+          <span><Check aria-hidden="true" />Source-grounded</span>
+          <span><Check aria-hidden="true" />No credit card</span>
+        </div>
+      </LandingHero3D>
+
+      <section className="em-product-section" id="product">
         <div className="em-product-window" aria-label="ExamMind grounded answer preview">
           <div className="em-window-bar">
             <div className="em-window-dots" aria-hidden="true"><span /><span /><span /></div>
