@@ -2,7 +2,7 @@
 
 The canonical interface decisions live in `design-system/exammind/MASTER.md`.
 
-- Direction: light academic workspace on warm cream paper, near-black ink, oversized editorial type, and one disciplined amber accent. Light only — no dark theme.
+- Direction: light academic workspace on warm cream paper, near-black ink, oversized editorial type, and one disciplined amber accent. Light only, except the landing page's own below-the-fold dark switch.
 - Centrepiece: a flat-shaded 3D "Highlighted Page" in the landing hero, revealed by construction lines and two abstract stippled dot clusters converging from either edge, then handed off to page content on scroll.
 - Depth: white raised surfaces on cream, a print-grain layer over the hero; rules and spacing do most of the work.
 - Spacing: 4px base, 8/12/16/20px component rhythm, 24px between panels, 48px+ between major regions.

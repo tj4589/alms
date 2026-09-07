@@ -4,7 +4,7 @@
 
 ExamMind is a light, source-aware academic workspace. The public landing sits on warm cream paper with near-black ink, one warm amber accent, oversized editorial typography, and a flat-shaded 3D centrepiece built from the product's own subject matter. Authenticated work surfaces stay compact and operational: evidence first, rules before ornament, and real archive data before metrics.
 
-This system replaces the Midnight Studio direction, which was reverted before it ever shipped. **The app is light only — there is no dark theme and no dark-mode variant to maintain.**
+This system replaces the Midnight Studio direction, which was reverted before it ever shipped. **The app is light only, with exactly one named exception: the landing page switches to dark below the hero (see Patterns). There is no dark-mode variant to maintain, and no other screen is ever dark.**
 
 ## Tokens
 
@@ -40,8 +40,8 @@ Aliases (`--bg`, `--text`, `--gold`, `--teal`, `--coral`, `--border`, `--desk`, 
 - Display emphasis: Instrument Serif, normal or italic, for a single accented word.
 - Interface: DM Sans Variable, weights 400 / 500 / 600 / 800.
 - Codes, dates, counts and chart labels: JetBrains Mono Variable with tabular numerals.
-- Landing H1: `clamp(52px, 7vw, 86px)`, 780, `.93` line height — sized to leave the 3D object room beneath it.
-- Landing lede: `clamp(19px, 2.2vw, 25px)`, 620.
+- Landing `h1` (the hero lede, which carries the heading role): `clamp(27px, 3.5vw, 46px)`, 760, `1.08` line height — sized to leave the 3D object room beneath it.
+- Backdrop phrase behind the object: `clamp(54px, 10.5vw, 142px)`, 800, ~11% ink. Decorative, not a heading.
 - Dashboard page title: 29px, 700, `-.025em`.
 - Panel title: 15px, 600. Body: 14px / 1.6. Metadata: 10–12px mono.
 
