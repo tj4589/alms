@@ -46,6 +46,14 @@ const HAND_PATH_D = `
   Z
 `;
 
+/* Stipple runs amber at the fingertips, where the hands meet the object and the
+   warmth ties into the highlighter, and deepens to sepia at the outer edges.
+   Flat amber across the whole mass measures ~1.9:1 on cream, at which point the
+   dot texture stops reading as a hand. */
+const DOT_TIP = '#e9a13a';
+const DOT_MID = '#b07038';
+const DOT_OUTER = '#4e3626';
+
 const HAND_W = 400;
 const HAND_H = 110;
 const HAND_CSS_W = 360;
@@ -86,7 +94,20 @@ function renderDotHand(canvas: HTMLCanvasElement, mirrored: boolean) {
   const data = mctx.getImageData(0, 0, w, h).data;
   const step = Math.max(1, Math.round(DOT_STEP * dpr));
 
+  // Fingertips point inward, so the amber end flips with the mirror.
+  const grad = ctx.createLinearGradient(0, 0, w, 0);
+  if (mirrored) {
+    grad.addColorStop(0, DOT_TIP);
+    grad.addColorStop(0.45, DOT_MID);
+    grad.addColorStop(1, DOT_OUTER);
+  } else {
+    grad.addColorStop(0, DOT_OUTER);
+    grad.addColorStop(0.55, DOT_MID);
+    grad.addColorStop(1, DOT_TIP);
+  }
+
   ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = grad;
   for (let y = 0; y < h; y += step) {
     for (let x = 0; x < w; x += step) {
       const alpha = data[(y * w + x) * 4 + 3];
@@ -95,12 +116,14 @@ function renderDotHand(canvas: HTMLCanvasElement, mirrored: boolean) {
       const jitterX = (Math.random() - 0.5) * 2.2 * dpr;
       const jitterY = (Math.random() - 0.5) * 2.2 * dpr;
       const r = (0.9 + Math.random() * 1.5 * (alpha / 255)) * dpr;
+      // Per-dot alpha via globalAlpha, since fillStyle is holding the gradient.
+      ctx.globalAlpha = 0.55 + Math.random() * 0.35;
       ctx.beginPath();
       ctx.arc(x + jitterX, y + jitterY, r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(13,14,14,${0.55 + Math.random() * 0.35})`;
       ctx.fill();
     }
   }
+  ctx.globalAlpha = 1;
 }
 
 function HeroPlaceholder() {
@@ -219,6 +242,8 @@ export default function LandingHero3D({ children }: { children: ReactNode }) {
       <div className="em-hero-pin">
         <div className={`em-hero-inner${stateClass}`} ref={innerRef}>
           <div className="em-hero-copy-block">{children}</div>
+
+          <div className="em-hero-bloom" aria-hidden="true" />
 
           <svg
             className="em-hero-reveal"
