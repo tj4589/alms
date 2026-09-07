@@ -53,10 +53,16 @@ function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
  * Stepped gradient map with NearestFilter — the official three.js toon example
  * omits the filter, which interpolates the bands into a soft ramp. Setting it
  * explicitly is what produces flat, illustrated banding.
+ *
+ * The ramp is deliberately not linear. A linear 4-step map bottoms out at 0,
+ * which crushes the darkest band to black and reads as muddy rather than
+ * illustrated; lifting the floor keeps all four steps as distinct mid-tones.
  */
-function makeGradientMap(steps: number): THREE.DataTexture {
-  const data = new Uint8Array(steps);
-  for (let i = 0; i < steps; i += 1) data[i] = Math.round((i / (steps - 1)) * 255);
+const TOON_RAMP = [72, 132, 192, 255];
+
+function makeGradientMap(tones: number[]): THREE.DataTexture {
+  const steps = tones.length;
+  const data = new Uint8Array(tones);
   const tex = new THREE.DataTexture(data, steps, 1, THREE.RedFormat);
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
@@ -69,7 +75,7 @@ function OutlinePass() {
   const { gl, scene, camera } = useThree();
   const effect = useMemo(
     () => new OutlineEffect(gl, {
-      defaultThickness: 0.014,
+      defaultThickness: 0.009,
       defaultColor: [0.02, 0.03, 0.03],
       defaultAlpha: 0.85,
     }),
@@ -83,19 +89,103 @@ function OutlinePass() {
   return null;
 }
 
-function HighlightedPage({ reducedMotion }: { reducedMotion: boolean }) {
-  const rig = useRef<THREE.Group>(null);
-  const { pointer } = useThree();
+type ToonMaterials = {
+  paper: THREE.MeshToonMaterial;
+  ink: THREE.MeshToonMaterial;
+  accent: THREE.MeshToonMaterial;
+  fold: THREE.MeshToonMaterial;
+  blue: THREE.MeshToonMaterial;
+};
 
-  const gradientMap = useMemo(() => makeGradientMap(4), []);
+/** One shared gradient map and material set for every mesh in the scene. */
+function useToonMaterials(): ToonMaterials {
+  const gradientMap = useMemo(() => makeGradientMap(TOON_RAMP), []);
 
-  const materials = useMemo(() => ({
+  const materials = useMemo<ToonMaterials>(() => ({
     paper: new THREE.MeshToonMaterial({ color: PAPER, gradientMap }),
     ink: new THREE.MeshToonMaterial({ color: INK, gradientMap }),
     accent: new THREE.MeshToonMaterial({ color: ACCENT, gradientMap }),
     fold: new THREE.MeshToonMaterial({ color: FOLD, gradientMap }),
     blue: new THREE.MeshToonMaterial({ color: INK_BLUE, gradientMap }),
   }), [gradientMap]);
+
+  useEffect(() => () => {
+    gradientMap.dispose();
+    Object.values(materials).forEach((m) => m.dispose());
+  }, [gradientMap, materials]);
+
+  return materials;
+}
+
+/**
+ * Loose sheets drifting behind the notebook, each nudged independently by the
+ * pointer at its own rate — the same presence the page's parallax implies,
+ * felt on the paper around it.
+ */
+const LOOSE_SHEETS = [
+  { position: [-1.62, 0.28, -0.9] as const, rotation: [0.05, 0.22, 0.36] as const, scale: 0.86, tone: 'fold' as const, drift: 0.30, lerp: 0.030 },
+  { position: [1.68, -0.12, -1.15] as const, rotation: [-0.04, -0.26, -0.3] as const, scale: 0.78, tone: 'paper' as const, drift: 0.42, lerp: 0.024 },
+  { position: [-1.12, -1.12, -1.5] as const, rotation: [0.08, 0.14, -0.5] as const, scale: 0.64, tone: 'paper' as const, drift: 0.22, lerp: 0.036 },
+  { position: [1.22, 1.05, -1.7] as const, rotation: [-0.1, -0.18, 0.44] as const, scale: 0.6, tone: 'fold' as const, drift: 0.5, lerp: 0.020 },
+  { position: [0.18, 1.42, -2.0] as const, rotation: [0.06, 0.1, -0.16] as const, scale: 0.52, tone: 'paper' as const, drift: 0.34, lerp: 0.028 },
+];
+
+function LoosePapers({ reducedMotion, materials }: { reducedMotion: boolean; materials: ToonMaterials }) {
+  const groups = useRef<(THREE.Group | null)[]>([]);
+  const { pointer } = useThree();
+
+  const sheetGeo = useMemo(() => {
+    const geo = new THREE.ExtrudeGeometry(roundedRectShape(1.25, 1.7, 0.07), {
+      depth: 0.012,
+      bevelEnabled: false,
+      curveSegments: 8,
+    });
+    geo.center();
+    return geo;
+  }, []);
+
+  useEffect(() => () => { sheetGeo.dispose(); }, [sheetGeo]);
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    LOOSE_SHEETS.forEach((sheet, i) => {
+      const group = groups.current[i];
+      if (!group) return;
+
+      if (reducedMotion) {
+        group.position.set(sheet.position[0], sheet.position[1], sheet.position[2]);
+        group.rotation.set(sheet.rotation[0], sheet.rotation[1], sheet.rotation[2]);
+        return;
+      }
+
+      const targetX = sheet.position[0] + pointer.x * sheet.drift * 0.45;
+      const targetY = sheet.position[1] - pointer.y * sheet.drift * 0.3 + Math.sin(t * 0.24 + i) * 0.05;
+      group.position.x = THREE.MathUtils.lerp(group.position.x, targetX, sheet.lerp);
+      group.position.y = THREE.MathUtils.lerp(group.position.y, targetY, sheet.lerp);
+      group.rotation.z = THREE.MathUtils.lerp(group.rotation.z, sheet.rotation[2] + pointer.x * sheet.drift * 0.18, sheet.lerp);
+      group.rotation.y = THREE.MathUtils.lerp(group.rotation.y, sheet.rotation[1] + pointer.x * sheet.drift * 0.12, sheet.lerp);
+    });
+  });
+
+  return (
+    <group>
+      {LOOSE_SHEETS.map((sheet, i) => (
+        <group
+          key={`sheet-${i}`}
+          ref={(el) => { groups.current[i] = el; }}
+          position={sheet.position}
+          rotation={sheet.rotation}
+        >
+          <mesh geometry={sheetGeo} material={materials[sheet.tone]} scale={sheet.scale} />
+        </group>
+      ))}
+    </group>
+  );
+}
+
+function HighlightedPage({ reducedMotion, materials }: { reducedMotion: boolean; materials: ToonMaterials }) {
+  const rig = useRef<THREE.Group>(null);
+  const { pointer } = useThree();
 
   const pageGeo = useMemo(() => {
     const shape = roundedRectShape(PAGE_W, PAGE_H, 0.09);
@@ -109,9 +199,9 @@ function HighlightedPage({ reducedMotion }: { reducedMotion: boolean }) {
     const geo = new THREE.ExtrudeGeometry(shape, {
       depth: PAGE_DEPTH,
       bevelEnabled: true,
-      bevelThickness: 0.012,
-      bevelSize: 0.012,
-      bevelSegments: 2,
+      bevelThickness: 0.007,
+      bevelSize: 0.007,
+      bevelSegments: 1,
       curveSegments: 16,
     });
     geo.center();
@@ -130,9 +220,7 @@ function HighlightedPage({ reducedMotion }: { reducedMotion: boolean }) {
   useEffect(() => () => {
     pageGeo.dispose();
     foldGeo.dispose();
-    gradientMap.dispose();
-    Object.values(materials).forEach((m) => m.dispose());
-  }, [pageGeo, foldGeo, gradientMap, materials]);
+  }, [pageGeo, foldGeo]);
 
   useFrame(({ clock }) => {
     const group = rig.current;
@@ -191,8 +279,10 @@ function HighlightedPage({ reducedMotion }: { reducedMotion: boolean }) {
         </mesh>
       ))}
 
-      {/* Highlighter resting diagonally across the bottom-right edge, mid-stroke. */}
-      <group position={[0.48, -0.78, pageFrontZ + 0.11]} rotation={[0, 0, 0.62]}>
+      {/* Highlighter mid-stroke: nib landed on the right end of the highlighted
+          line (x 0.44, y -0.2), barrel angled down-right past the page edge.
+          Local +X is the nib, so the group is offset back along that heading. */}
+      <group position={[0.804, -0.41, pageFrontZ + 0.085]} rotation={[0, 0, 2.618]}>
         <mesh rotation={[0, 0, Math.PI / 2]} material={materials.accent}>
           <capsuleGeometry args={[0.095, 0.62, 4, 10]} />
         </mesh>
@@ -210,6 +300,17 @@ function HighlightedPage({ reducedMotion }: { reducedMotion: boolean }) {
         <meshBasicMaterial color={INK} transparent opacity={0.08} />
       </mesh>
     </group>
+  );
+}
+
+/** Builds the shared material set, then the loose paper behind and the page in front. */
+function SceneContents({ reducedMotion }: { reducedMotion: boolean }) {
+  const materials = useToonMaterials();
+  return (
+    <>
+      <LoosePapers reducedMotion={reducedMotion} materials={materials} />
+      <HighlightedPage reducedMotion={reducedMotion} materials={materials} />
+    </>
   );
 }
 
@@ -235,10 +336,10 @@ export default function HeroPageScene({
         onReady();
       }}
     >
-      <ambientLight color="#fff2df" intensity={0.65} />
-      <directionalLight color="#fff0d6" intensity={1.15} position={[-2.4, 3, 2.6]} />
-      <directionalLight color="#dfe7ea" intensity={0.4} position={[2.6, -1, 1.8]} />
-      <HighlightedPage reducedMotion={reducedMotion} />
+      <ambientLight color="#fff2df" intensity={0.34} />
+      <directionalLight color="#fff0d6" intensity={1.45} position={[-2.4, 3, 2.6]} />
+      <directionalLight color="#dfe7ea" intensity={0.32} position={[2.6, -1, 1.8]} />
+      <SceneContents reducedMotion={reducedMotion} />
       <OutlinePass />
     </Canvas>
   );
