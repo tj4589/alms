@@ -11,6 +11,7 @@ import {
   Sparkles,
   Upload,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import LandingHero3D from './LandingHero3D';
 
 type LandingProps = {
@@ -67,10 +68,22 @@ const workflow = [
   },
 ];
 
+/** Past this much scroll the nav collapses from flush to a floating pill. */
+const NAV_PILL_THRESHOLD = 32;
+
 export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
+  const [navPinned, setNavPinned] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setNavPinned(window.scrollY > NAV_PILL_THRESHOLD);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   return (
     <main className="em-landing">
-      <nav className="em-nav" aria-label="Public navigation">
+      <nav className={`em-nav${navPinned ? ' is-pinned' : ''}`} aria-label="Public navigation">
         <a className="em-brand" href="#product" aria-label="ExamMind home">
           <span className="em-brand-mark">E</span>
           <span>ExamMind</span>

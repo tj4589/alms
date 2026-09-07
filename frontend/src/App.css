@@ -1863,7 +1863,35 @@
   grid-template-columns:1fr auto 1fr;
   align-items:center;
   gap:32px;
-  border-bottom:1px solid var(--em-line);
+  padding:0;
+  border:1px solid transparent;
+  border-bottom-color:var(--em-line);
+  border-radius:0;
+  transition:
+    top var(--base) var(--ease),
+    width var(--base) var(--ease),
+    height var(--base) var(--ease),
+    padding var(--base) var(--ease),
+    background-color var(--base) var(--ease),
+    border-radius var(--base) var(--ease),
+    border-color var(--base) var(--ease),
+    box-shadow var(--base) var(--ease);
+}
+/* Collapsed state: pulled in from the edges, rounded, lifted off the page. */
+.em-nav.is-pinned{
+  top:12px;
+  width:min(1080px,calc(100% - 32px));
+  height:64px;
+  padding:0 10px 0 18px;
+  border-radius:999px;
+  border-color:rgba(9,10,10,.08);
+  background:rgba(251,250,246,.82);
+  backdrop-filter:blur(14px) saturate(1.25);
+  -webkit-backdrop-filter:blur(14px) saturate(1.25);
+  box-shadow:0 10px 30px rgba(9,10,10,.09);
+}
+@media(prefers-reduced-motion:reduce){
+  .em-nav{transition:none;}
 }
 .em-brand{display:inline-flex;align-items:center;gap:10px;width:max-content;color:inherit;text-decoration:none;font-size:20px;font-weight:760;}
 .em-brand-mark{width:32px;height:32px;display:grid;place-items:center;background:var(--em-accent);color:var(--em-ink);border-radius:4px;font-family:Georgia,serif;font-size:18px;font-weight:700;}
@@ -2021,6 +2049,7 @@
 
 @media(max-width:900px){
   .em-nav{width:calc(100% - 40px);grid-template-columns:1fr auto;}
+  .em-nav.is-pinned{width:calc(100% - 24px);}
   .em-nav-links{display:none;}
   .em-hero-inner{height:min(600px,80svh);}
   .em-hero-lede{max-width:520px;}
@@ -2050,6 +2079,7 @@
   .em-hero-chip-one{left:0;bottom:31%;}
   .em-hero-chip-two{right:0;bottom:16%;}
   .em-nav{width:calc(100% - 32px);height:70px;gap:12px;}
+  .em-nav.is-pinned{top:8px;width:calc(100% - 20px);height:58px;padding:0 8px 0 12px;}
   .em-brand{gap:8px;font-size:17px;}
   .em-brand-mark{width:30px;height:30px;font-size:16px;}
   .em-nav-actions{gap:4px;}
