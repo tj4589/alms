@@ -51,7 +51,13 @@ Aliases (`--bg`, `--text`, `--gold`, `--teal`, `--coral`, `--border`, `--desk`, 
 - **Construction-line reveal** — thin ink lines and a bordered frame draw themselves in via SVG `pathLength="1"` + `stroke-dashoffset`, then two stippled dot clusters converge from either edge, then the object settles. Staggered, one sequence.
 - **Dot-matrix stipple** — a shape painted to an offscreen canvas, sampled on a grid, drawn as jittered dots whose radius and alpha scale with the mask's alpha. The cluster shape is abstract and procedurally generated (a blurred, tapering plume of lobes breaking into satellites), deterministically seeded so it stays stable across re-renders. It is not a figurative silhouette and is not required to depict anything. Flat 2D, never modelled geometry.
 - **Stipple colour** — a horizontal gradient, amber at the inner tip where the clusters meet the object, through warm mid-brown, to sepia at the outer edge. Never flat amber: `#e9a13a` on cream is ~1.9:1, and fine dots stop resolving as texture at that contrast.
-- **Sticky-pinned hero hand-off** — the hero scales and fades as one unit over ~2.3 viewports of scroll while real content scrolls up beneath it. Plain scroll-position maths, no animation library.
+- **Sticky-pinned hero hand-off** — the hero scales and fades as one unit over ~1.5 viewports of scroll while real content scrolls up beneath it. Plain scroll-position maths, no animation library.
+- **Backdrop wordmark** — an oversized phrase at ~11% ink sitting behind the object, which renders over it. Decorative and `aria-hidden`; the hero's real `h1` is the lede. The nav wordmark is the brand name and is separate.
+- **Cursor-reactive field** — a warm beige ground with a lerped radial highlight tracking the pointer through CSS custom properties. Low contrast, felt rather than seen; frozen centred under reduced motion.
+- **Self-drawing hover ring** — nav links draw an accent ellipse around themselves on hover and focus, looping draw-on/hold/draw-off. Same `pathLength` mechanism as the reveal.
+- **Branded preloader** — one construction line drawing itself under the brand mark, cross-faded out. Never a spinner. Always capped in JS so a slow network degrades to the static placeholder rather than hanging.
+- **Scroll-linked section vignette** — a `pointer-events:none` overlay per section whose opacity follows the section's distance from viewport centre. **This is an overlay, never a theme change:** section background tokens are never touched, so deleting the overlay leaves the light palette intact. Position-driven, so a section parked at the viewport edge stays dimmed at rest; the centred section is always full light. Frozen at zero under reduced motion.
+- **Ambient imagery** — up to 15 licensed photographs placed loosely around the hero edges, duotoned in CSS into the paper range, always soft, never fully opaque, cycling on a slow blur/fade. Sourced by dropping files into `src/assets/ambient/`; the layer renders nothing when empty.
 - **Floating nav pill** — landing nav starts flush, collapses past 32px of scroll into a rounded, blurred, shadowed pill, and reverses on the way back up.
 - Print grain over the hero: one CSS layer, `feTurbulence`, `multiply`, ~6%.
 - HTML product window with source rows and a grounded-answer treatment.
@@ -73,7 +79,9 @@ Generic SaaS KPI grids, fake metrics, fake charts, purple/blue gradient meshes, 
 
 For 3D specifically: default grey/white materials, realistic PBR or metallic shading, single-colour flat-grey objects, untextured placeholder meshes, and any object that could be mistaken for a lighting test. Do not model a phone, wallet, card or person — none of it is ExamMind's own material.
 
-Do not change API contracts or replace real data with demo data. Do not reintroduce a dark theme.
+Do not change API contracts or replace real data with demo data. Do not reintroduce a dark theme — the section vignette is a transient scroll-linked overlay and is not a licence to darken anything at rest.
+
+Do not use image assets that are not properly licensed. Ambient photography comes from Unsplash/Pexels-type sources or is owned outright, recorded in `src/assets/ambient/README.md`; never scraped.
 
 ## Verification
 

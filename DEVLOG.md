@@ -1,5 +1,23 @@
 # ExamMind — Engineering Devlog
 
+## 2026-09-07 — Post-launch refinement pass (§7)
+
+Punch list from reviewing the running build. All eleven items applied.
+
+**Object polish.** The muddy toon banding turned out to be a lighting problem, not a gradient-map one: ambient sat at 0.65, which flooded most surfaces into the ramp's top band and collapsed the steps. Ambient drops to 0.34 with the key raised to 1.45. The ramp is also no longer linear — a linear 4-step map bottoms out at 0 and crushes the darkest band to black, so the floor lifts to 72 and all four steps stay distinct. Bevels tighten (0.012 → 0.007, 2 segments → 1) and the outline thins (0.014 → 0.009). The highlighter was the genuinely unfinished part: it sat at `y -0.78` with its nib pointing away from the highlighted line at `y -0.2`, so it was stroking nothing. It now lands its nib on the right end of that line and angles down-right past the page edge.
+
+**Composition.** The giant "ExamMind." headline becomes a backdrop phrase — "Never Leave your workspace again." — moved behind the object in z-order. It is decorative and `aria-hidden`, because at the contrast a backdrop needs (~11% ink) it would fail as a real heading; the lede is promoted to the hero's `h1` instead, so there is still exactly one honest readable heading. The nav wordmark is untouched. The "Your private academic index" eyebrow is gone. Copy gained a feathered paper scrim, since it now sits over the backdrop phrase, the bloom, the canvas and the grain.
+
+**Atmosphere.** The hero field is no longer flat — a lerped radial highlight follows the pointer through CSS custom properties, frozen centred under reduced motion. Five loose sheets drift behind the notebook, each on its own drift multiplier and lerp rate. Nav links draw an accent ring around themselves on hover, looping, reusing the reveal's `pathLength` mechanism. A branded preloader draws one construction line under the brand mark and cross-fades out.
+
+**Scroll.** Pin wrapper drops 230vh → 150vh so the hero clears faster. Sections dim toward black at their edges as they move away from viewport centre.
+
+The vignette is worth being precise about, because it is easy to ship wrong: it is a `pointer-events:none` overlay whose opacity is driven by distance from viewport centre. Section background tokens are never touched — delete the overlay and the light palette is exactly what remains, so rule §4.4 still holds. It is position-driven, as §7.10 specifies, not velocity-driven, which means a section parked at the viewport edge stays dimmed when scrolling stops. The section you are centred on is always full light. No class persists and no token flips.
+
+**Ambient imagery — mechanism shipped, files not.** The layer globs `src/assets/ambient/` at build time and renders nothing while that folder is empty, which is its current state. Fifteen placement slots sit around the hero edges clear of the copy and object, each cycling a slow blur/fade, duotoned in CSS rather than baked into the files. Adding imagery is now a matter of dropping licensed files into the folder — no code change. The sourcing itself is outstanding and needs licensed photography (Unsplash/Pexels-type) or illustration; §7.7 asks for both to be tried and the better one against the flat-toon object kept, which needs a human eye. The folder README carries the licensing requirement and an attribution table.
+
+Still unverified by eye: every constant in this pass was reasoned rather than tuned against the running page.
+
 ## 2026-09-07 — Hero reveal: dropped the figurative hands
 
 The reveal's converging shapes are no longer required to read as reaching hands, and the *Creation of Adam* reference is dropped from the brief's scope. The technique is unchanged and was never the problem — offscreen canvas mask, grid-sampled dots, jittered position and radius for organic texture. Only the silhouette changed: instead of a traced hand path, the mask is now painted procedurally as a blurred, tapering plume of overlapping lobes that breaks into satellites toward the tip, deterministically seeded so it stays stable across re-renders while per-dot jitter stays random.
