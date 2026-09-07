@@ -58,8 +58,8 @@ function paintClusterMask(mctx: CanvasRenderingContext2D, w: number, h: number) 
     const y = h * (0.5 - t * 0.06)
       + Math.sin(t * Math.PI * 1.1) * h * 0.07
       + (rand() - 0.5) * h * 0.05;
-    const rx = Math.max(2, w * (0.14 - t * 0.10) * (0.8 + rand() * 0.45));
-    const ry = Math.max(2, h * (0.32 - t * 0.245) * (0.8 + rand() * 0.45));
+    const rx = Math.max(2, w * (0.115 - t * 0.085) * (0.8 + rand() * 0.45));
+    const ry = Math.max(2, h * (0.28 - t * 0.238) * (0.8 + rand() * 0.45));
     mctx.beginPath();
     mctx.ellipse(x, y, rx, ry, (rand() - 0.5) * 0.6, 0, Math.PI * 2);
     mctx.fill();
@@ -76,10 +76,28 @@ function paintClusterMask(mctx: CanvasRenderingContext2D, w: number, h: number) 
 
   mctx.filter = 'none';
   mctx.globalCompositeOperation = 'destination-in';
+
+  // Feather every edge, not just the length. Without this the overlapping lobes
+  // merge into a slab and the sampled dots read as a rectangle of noise.
+  mctx.save();
+  mctx.translate(w * 0.36, h * 0.5);
+  mctx.scale(1, (h * 0.36) / (w * 0.54));
+  const bowl = mctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.54);
+  bowl.addColorStop(0, 'rgba(0,0,0,1)');
+  bowl.addColorStop(0.55, 'rgba(0,0,0,.9)');
+  bowl.addColorStop(0.8, 'rgba(0,0,0,.45)');
+  bowl.addColorStop(1, 'rgba(0,0,0,0)');
+  mctx.fillStyle = bowl;
+  mctx.beginPath();
+  mctx.arc(0, 0, w * 0.54, 0, Math.PI * 2);
+  mctx.fill();
+  mctx.restore();
+
+  // Then taper along the length so it thins toward the object.
   const fall = mctx.createLinearGradient(0, 0, w, 0);
   fall.addColorStop(0, 'rgba(0,0,0,1)');
-  fall.addColorStop(0.5, 'rgba(0,0,0,.8)');
-  fall.addColorStop(1, 'rgba(0,0,0,.22)');
+  fall.addColorStop(0.5, 'rgba(0,0,0,.82)');
+  fall.addColorStop(1, 'rgba(0,0,0,.24)');
   mctx.fillStyle = fall;
   mctx.fillRect(0, 0, w, h);
   mctx.globalCompositeOperation = 'source-over';

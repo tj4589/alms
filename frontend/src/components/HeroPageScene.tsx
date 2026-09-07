@@ -58,7 +58,7 @@ function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
  * which crushes the darkest band to black and reads as muddy rather than
  * illustrated; lifting the floor keeps all four steps as distinct mid-tones.
  */
-const TOON_RAMP = [72, 132, 192, 255];
+const TOON_RAMP = [150, 190, 225, 255];
 
 function makeGradientMap(tones: number[]): THREE.DataTexture {
   const steps = tones.length;
@@ -123,11 +123,11 @@ function useToonMaterials(): ToonMaterials {
  * felt on the paper around it.
  */
 const LOOSE_SHEETS = [
-  { position: [-1.62, 0.28, -0.9] as const, rotation: [0.05, 0.22, 0.36] as const, scale: 0.86, tone: 'fold' as const, drift: 0.30, lerp: 0.030 },
-  { position: [1.68, -0.12, -1.15] as const, rotation: [-0.04, -0.26, -0.3] as const, scale: 0.78, tone: 'paper' as const, drift: 0.42, lerp: 0.024 },
-  { position: [-1.12, -1.12, -1.5] as const, rotation: [0.08, 0.14, -0.5] as const, scale: 0.64, tone: 'paper' as const, drift: 0.22, lerp: 0.036 },
-  { position: [1.22, 1.05, -1.7] as const, rotation: [-0.1, -0.18, 0.44] as const, scale: 0.6, tone: 'fold' as const, drift: 0.5, lerp: 0.020 },
-  { position: [0.18, 1.42, -2.0] as const, rotation: [0.06, 0.1, -0.16] as const, scale: 0.52, tone: 'paper' as const, drift: 0.34, lerp: 0.028 },
+  { position: [-2.75, 0.62, -2.6] as const, rotation: [0.05, 0.22, 0.36] as const, scale: 0.46, tone: 'fold' as const, drift: 0.30, lerp: 0.030 },
+  { position: [2.85, -0.35, -2.9] as const, rotation: [-0.04, -0.26, -0.3] as const, scale: 0.42, tone: 'paper' as const, drift: 0.42, lerp: 0.024 },
+  { position: [-2.15, -1.55, -3.4] as const, rotation: [0.08, 0.14, -0.5] as const, scale: 0.36, tone: 'paper' as const, drift: 0.22, lerp: 0.036 },
+  { position: [2.35, 1.55, -3.7] as const, rotation: [-0.1, -0.18, 0.44] as const, scale: 0.34, tone: 'fold' as const, drift: 0.5, lerp: 0.020 },
+  { position: [0.35, 2.05, -4.0] as const, rotation: [0.06, 0.1, -0.16] as const, scale: 0.3, tone: 'paper' as const, drift: 0.34, lerp: 0.028 },
 ];
 
 function LoosePapers({ reducedMotion, materials }: { reducedMotion: boolean; materials: ToonMaterials }) {
@@ -246,19 +246,19 @@ function HighlightedPage({ reducedMotion, materials }: { reducedMotion: boolean;
       <mesh geometry={pageGeo} material={materials.paper} />
 
       {/* Ruled lines sitting flush on the front face. */}
-      {([[0.62, 0.85, 0.05], [0.35, 0.85, 0.05], [0.08, 0.62, -0.02], [-0.48, 0.6, -0.03]] as const)
+      {([[0.62, 0.85, 0.05], [0.35, 0.85, 0.05], [0.08, 0.62, -0.02], [-0.2, 0.6, -0.03]] as const)
         .map(([y, width, xOffset]) => (
           <mesh key={`rule-${y}`} position={[xOffset, y, pageFrontZ]} material={materials.ink}>
-            <boxGeometry args={[width, 0.032, 0.018]} />
+            <boxGeometry args={[width, 0.022, 0.018]} />
           </mesh>
         ))}
 
       {/* The highlighted line — amber bar behind, ink rule in front of it. */}
-      <mesh position={[0.05, -0.2, pageFrontZ - 0.002]} material={materials.accent}>
+      <mesh position={[0.05, -0.62, pageFrontZ - 0.002]} material={materials.accent}>
         <boxGeometry args={[0.85, 0.15, 0.014]} />
       </mesh>
-      <mesh position={[0.05, -0.2, pageFrontZ + 0.004]} material={materials.ink}>
-        <boxGeometry args={[0.85, 0.032, 0.02]} />
+      <mesh position={[0.05, -0.62, pageFrontZ + 0.004]} material={materials.ink}>
+        <boxGeometry args={[0.85, 0.022, 0.02]} />
       </mesh>
 
       {/* Dog-eared top-right corner. */}
@@ -282,15 +282,15 @@ function HighlightedPage({ reducedMotion, materials }: { reducedMotion: boolean;
       {/* Highlighter mid-stroke: nib landed on the right end of the highlighted
           line (x 0.44, y -0.2), barrel angled down-right past the page edge.
           Local +X is the nib, so the group is offset back along that heading. */}
-      <group position={[0.804, -0.41, pageFrontZ + 0.085]} rotation={[0, 0, 2.618]}>
+      <group position={[0.873, -0.85, pageFrontZ + 0.07]} rotation={[0, 0, 2.618]}>
         <mesh rotation={[0, 0, Math.PI / 2]} material={materials.accent}>
-          <capsuleGeometry args={[0.095, 0.62, 4, 10]} />
+          <capsuleGeometry args={[0.062, 0.78, 4, 12]} />
         </mesh>
-        <mesh rotation={[0, 0, -Math.PI / 2]} position={[0.42, 0, 0]} material={materials.ink}>
-          <coneGeometry args={[0.095, 0.2, 10]} />
+        <mesh rotation={[0, 0, -Math.PI / 2]} position={[0.46, 0, 0]} material={materials.ink}>
+          <coneGeometry args={[0.062, 0.16, 12]} />
         </mesh>
-        <mesh rotation={[0, 0, Math.PI / 2]} position={[0.29, 0, 0]} material={materials.blue}>
-          <cylinderGeometry args={[0.1, 0.1, 0.06, 10]} />
+        <mesh rotation={[0, 0, Math.PI / 2]} position={[0.33, 0, 0]} material={materials.blue}>
+          <cylinderGeometry args={[0.068, 0.068, 0.05, 12]} />
         </mesh>
       </group>
 
@@ -336,8 +336,8 @@ export default function HeroPageScene({
         onReady();
       }}
     >
-      <ambientLight color="#fff2df" intensity={0.34} />
-      <directionalLight color="#fff0d6" intensity={1.45} position={[-2.4, 3, 2.6]} />
+      <ambientLight color="#fff2df" intensity={0.28} />
+      <directionalLight color="#fff0d6" intensity={2.2} position={[-1.6, 2.4, 4.2]} />
       <directionalLight color="#dfe7ea" intensity={0.32} position={[2.6, -1, 1.8]} />
       <SceneContents reducedMotion={reducedMotion} />
       <OutlinePass />
