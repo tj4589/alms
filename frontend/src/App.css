@@ -2034,24 +2034,54 @@
   .em-nav-links a:focus-visible .em-nav-ring ellipse{animation:none;stroke-dashoffset:0;}
 }
 
-/* Scroll-linked vignette (7.10). Transient overlay only — the section's own
-   background is never changed, so removing this leaves the light palette
-   untouched. --em-dim is written per section from scroll position. */
-.em-dimmable{position:relative;--em-dim:0;}
-.em-dimmable::after{
-  content:'';
-  position:absolute;
-  inset:0;
-  z-index:4;
-  pointer-events:none;
-  opacity:var(--em-dim);
-  background:linear-gradient(to bottom,
-    rgba(6,6,7,.88) 0%,
-    rgba(6,6,7,.32) 16%,
-    rgba(6,6,7,0) 34%,
-    rgba(6,6,7,0) 66%,
-    rgba(6,6,7,.32) 84%,
-    rgba(6,6,7,.88) 100%);
+/* One-time dark switch below the hero (7.10). The hero stays light; once the
+   user is past it everything below flips to the dark palette in a single eased
+   transition and stays there, reversing on the way back up. Deliberately NOT a
+   per-section scrubbed vignette. Scoped to the landing page only — the
+   Dashboard and every other screen stay light (rule 4.4's named exception).
+   Dark values reuse the pre-existing academic-workbench palette. */
+.em-below{
+  --em-dark-canvas:#0c0d11;
+  --em-dark-panel:#12141a;
+  --em-dark-raised:#181b23;
+  --em-dark-ink:#e9eaf0;
+  --em-dark-ink-soft:#a7adbb;
+  --em-dark-rule:rgba(255,255,255,.14);
+  position:relative;
+}
+.em-below,
+.em-below .em-product-section,
+.em-below .em-statement,
+.em-below .em-capabilities,
+.em-below .em-capability,
+.em-below .em-capability-label,
+.em-below .em-capability p,
+.em-below .em-integrity-note{
+  transition:
+    background-color 520ms var(--ease),
+    border-color 520ms var(--ease),
+    color 520ms var(--ease);
+}
+.em-below.is-dark{background:var(--em-dark-canvas);color:var(--em-dark-ink);}
+.em-below.is-dark .em-product-section,
+.em-below.is-dark .em-statement{background:var(--em-dark-canvas);}
+.em-below.is-dark .em-capabilities{background:var(--em-dark-panel);border-top-color:var(--em-dark-rule);}
+.em-below.is-dark .em-capability{
+  background:var(--em-dark-raised);
+  border-color:var(--em-dark-rule);
+  color:var(--em-dark-ink);
+}
+.em-below.is-dark .em-capability:nth-child(2),
+.em-below.is-dark .em-capability:nth-child(3){background:var(--em-dark-canvas);}
+.em-below.is-dark .em-capability-label,
+.em-below.is-dark .em-capability p{color:var(--em-dark-ink-soft);}
+.em-below.is-dark .em-capability:nth-child(2) .em-capability-label,
+.em-below.is-dark .em-capability:nth-child(3) .em-capability-label{color:var(--em-accent);}
+.em-below.is-dark .em-integrity-note{border-top-color:var(--em-dark-rule);}
+/* The amber bands and the already-ink workflow/footer blocks are left alone —
+   they read correctly against both palettes. */
+@media(prefers-reduced-motion:reduce){
+  .em-below,.em-below *{transition:none;}
 }
 .em-nav-actions{justify-self:end;display:flex;align-items:center;gap:12px;}
 .em-text-button,.em-small-cta{min-height:44px;}

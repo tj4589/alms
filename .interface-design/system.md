@@ -10,7 +10,7 @@ The canonical interface decisions live in `design-system/exammind/MASTER.md`.
 - Hierarchy: next study action first, archive evidence second, course/readiness detail next.
 - Reusable patterns: scroll-collapsing nav pill, self-drawing hover rings, sticky-pinned hero hand-off, branded line preloader, HTML product preview, amber material band, alternating ink capability blocks, segmented metric strip, inline-SVG charts, and explicit recovery states.
 - Atmosphere: a cursor-reactive warm-beige field, an oversized decorative backdrop phrase behind the object, and duotoned ambient study imagery cycling on a slow blur/fade.
-- Scroll vignette: sections dim toward black at their edges as they move away from viewport centre and brighten as they reach it. It is a transient overlay driven by scroll position — section backgrounds are never changed, so the resting palette is still light.
+- Light hero, dark below the fold: the landing hero stays on paper; past it, the content sections switch once to the dark palette and stay there, reversing on the way back up. Landing page only — every other screen is light.
 - Typography: Instrument Serif for editorial emphasis, DM Sans Variable for UI, JetBrains Mono Variable for codes and data.
 - Accent semantics: amber for brand/action, teal for verified source evidence, coral for errors. Ink for focus rings.
 - Scope: this pass covers the public landing, authenticated dashboard and shared shell/tokens; other routes inherit the tokens and keep their existing structure.

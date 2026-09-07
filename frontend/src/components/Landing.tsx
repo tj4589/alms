@@ -11,8 +11,7 @@ import {
   Sparkles,
   Upload,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useReducedMotion } from '../lib/useReducedMotion';
+import { useEffect, useRef, useState } from 'react';
 import LandingHero3D from './LandingHero3D';
 
 type LandingProps = {
@@ -80,7 +79,8 @@ const navLinks = [
 
 export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   const [navPinned, setNavPinned] = useState(false);
-  const reducedMotion = useReducedMotion();
+  const [belowDark, setBelowDark] = useState(false);
+  const belowSentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onScroll = () => setNavPinned(window.scrollY > NAV_PILL_THRESHOLD);
@@ -90,34 +90,28 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   }, []);
 
   /**
-   * Scroll-linked vignette. Each section reports how far its centre sits from
-   * the viewport centre; the overlay's opacity follows. This is transient and
-   * position-driven only — the section's own background is never touched, so
-   * the resting palette stays light (rule 4.4).
+   * One-time dark switch below the hero (§7.10). A sentinel sits directly after
+   * the hero; once it reaches the top third of the viewport everything below
+   * flips to the dark palette and stays there, reversing on the way back up.
+   * A single class toggle with a CSS transition — not scrubbed per section.
    */
   useEffect(() => {
-    const sections = Array.from(document.querySelectorAll<HTMLElement>('.em-dimmable'));
-    if (reducedMotion) {
-      sections.forEach((el) => el.style.setProperty('--em-dim', '0'));
-      return undefined;
-    }
-
     let frame = 0;
+
+    // Deliberately a position comparison rather than IntersectionObserver.
+    // An observer only fires when a threshold is crossed, so a fast scroll, an
+    // anchor jump, or a restored scroll position can go from below the trigger
+    // to above it without ever landing inside — and the theme would stay stuck.
+    // Reading the position each frame is stateless and can't miss.
     const apply = () => {
       frame = 0;
-      const viewport = window.innerHeight;
-      const middle = viewport / 2;
-      sections.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        const centre = rect.top + rect.height / 2;
-        const distance = Math.min(1, Math.abs(centre - middle) / (viewport * 0.85));
-        // Squared so a section stays fully lit through the centre band and only
-        // falls off as it approaches the viewport edges.
-        el.style.setProperty('--em-dim', (distance * distance).toFixed(3));
-      });
+      const sentinel = belowSentinelRef.current;
+      if (!sentinel) return;
+      setBelowDark(sentinel.getBoundingClientRect().top <= window.innerHeight * 0.15);
     };
 
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(apply); };
+
     apply();
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll);
@@ -126,7 +120,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
     };
-  }, [reducedMotion]);
+  }, []);
 
   return (
     <main className="em-landing">
@@ -173,7 +167,11 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </LandingHero3D>
 
-      <section className="em-product-section em-dimmable" id="product">
+      {/* 1px so the observer always has a box to intersect. */}
+      <div ref={belowSentinelRef} aria-hidden="true" style={{ height: 1 }} />
+
+      <div className={`em-below${belowDark ? ' is-dark' : ''}`}>
+      <section className="em-product-section" id="product">
         <div className="em-product-window" aria-label="ExamMind grounded answer preview">
           <div className="em-window-bar">
             <div className="em-window-dots" aria-hidden="true"><span /><span /><span /></div>
@@ -211,7 +209,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </section>
 
-      <section className="em-material-band em-dimmable" aria-label="Supported study materials">
+      <section className="em-material-band" aria-label="Supported study materials">
         <div className="em-material-label">Built for the material students actually use</div>
         <div className="em-material-list">
           <span>Past questions</span>
@@ -221,7 +219,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </section>
 
-      <section className="em-statement em-dimmable" id="integrity">
+      <section className="em-statement" id="integrity">
         <div className="em-section-index">01 / The problem</div>
         <div className="em-statement-grid">
           <h2>Your course material should not disappear into folders.</h2>
@@ -232,7 +230,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </section>
 
-      <section className="em-capabilities em-dimmable" id="capabilities">
+      <section className="em-capabilities" id="capabilities">
         <div className="em-section-heading">
           <div className="em-section-index">02 / Capabilities</div>
           <h2>One archive.<br /><em>Four ways forward.</em></h2>
@@ -253,7 +251,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </section>
 
-      <section className="em-workflow em-dimmable" id="workflow">
+      <section className="em-workflow" id="workflow">
         <div className="em-section-index">03 / How it works</div>
         <div className="em-workflow-intro">
           <h2>From upload to useful<br />in three deliberate steps.</h2>
@@ -274,7 +272,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </section>
 
-      <section className="em-final-cta em-dimmable" id="start">
+      <section className="em-final-cta" id="start">
         <div>
           <div className="em-final-label">Your next revision session starts here.</div>
           <h2>Make your material<br />work harder.</h2>
@@ -300,6 +298,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           <a href="#workflow">How it works</a>
         </div>
       </footer>
+      </div>
     </main>
   );
 }

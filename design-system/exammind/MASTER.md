@@ -56,7 +56,7 @@ Aliases (`--bg`, `--text`, `--gold`, `--teal`, `--coral`, `--border`, `--desk`, 
 - **Cursor-reactive field** — a warm beige ground with a lerped radial highlight tracking the pointer through CSS custom properties. Low contrast, felt rather than seen; frozen centred under reduced motion.
 - **Self-drawing hover ring** — nav links draw an accent ellipse around themselves on hover and focus, looping draw-on/hold/draw-off. Same `pathLength` mechanism as the reveal.
 - **Branded preloader** — one construction line drawing itself under the brand mark, cross-faded out. Never a spinner. Always capped in JS so a slow network degrades to the static placeholder rather than hanging.
-- **Scroll-linked section vignette** — a `pointer-events:none` overlay per section whose opacity follows the section's distance from viewport centre. **This is an overlay, never a theme change:** section background tokens are never touched, so deleting the overlay leaves the light palette intact. Position-driven, so a section parked at the viewport edge stays dimmed at rest; the centred section is always full light. Frozen at zero under reduced motion.
+- **Light hero → dark below the fold** — the landing hero stays on the paper palette; once the reader scrolls past it, everything below switches to the dark academic-workbench palette **once**, in a single ~520ms eased transition, and stays dark for the rest of the page. Scrolling back above the threshold reverses it. Driven by a scroll-position comparison rather than `IntersectionObserver`, which only fires on threshold crossings and can be skipped entirely by a fast scroll or an anchor jump. **This is the one named exception to light-only, and it is landing-page scoped** — the Dashboard and every other screen stay light.
 - **Ambient imagery** — up to 15 licensed photographs placed loosely around the hero edges, duotoned in CSS into the paper range, always soft, never fully opaque, cycling on a slow blur/fade. Sourced by dropping files into `src/assets/ambient/`; the layer renders nothing when empty.
 - **Floating nav pill** — landing nav starts flush, collapses past 32px of scroll into a rounded, blurred, shadowed pill, and reverses on the way back up.
 - Print grain over the hero: one CSS layer, `feTurbulence`, `multiply`, ~6%.
@@ -79,7 +79,7 @@ Generic SaaS KPI grids, fake metrics, fake charts, purple/blue gradient meshes, 
 
 For 3D specifically: default grey/white materials, realistic PBR or metallic shading, single-colour flat-grey objects, untextured placeholder meshes, and any object that could be mistaken for a lighting test. Do not model a phone, wallet, card or person — none of it is ExamMind's own material.
 
-Do not change API contracts or replace real data with demo data. Do not reintroduce a dark theme — the section vignette is a transient scroll-linked overlay and is not a licence to darken anything at rest.
+Do not change API contracts or replace real data with demo data. Do not reintroduce a dark theme anywhere except the landing page's own below-the-fold switch, which is a named, scoped exception — it does not extend to the Dashboard or any other screen.
 
 Do not use image assets that are not properly licensed. Ambient photography comes from Unsplash/Pexels-type sources or is owned outright, recorded in `src/assets/ambient/README.md`; never scraped.
 
