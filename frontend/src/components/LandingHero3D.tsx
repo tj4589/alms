@@ -145,6 +145,63 @@ function renderDotCluster(canvas: HTMLCanvasElement, mirrored: boolean) {
   ctx.globalAlpha = 1;
 }
 
+/**
+ * Ambient study imagery (7.7). Sourced from `src/assets/ambient/` — see the
+ * README there for licensing. Resolves to an empty list when the folder is
+ * empty, in which case the layer simply renders nothing.
+ */
+const ambientModules = import.meta.glob<{ default: string }>(
+  '../assets/ambient/*.{jpg,jpeg,png,webp,avif}',
+  { eager: true },
+);
+const AMBIENT_SOURCES = Object.keys(ambientModules)
+  .sort()
+  .map((key) => ambientModules[key].default);
+
+/** Loose placements around the hero edges, kept clear of the copy and object. */
+const AMBIENT_SLOTS = [
+  { l: -18, t: 4, w: 26, h: 30, delay: 0, dur: 19 },
+  { l: -12, t: 44, w: 22, h: 26, delay: 2.4, dur: 21 },
+  { l: -20, t: 74, w: 25, h: 28, delay: 5.1, dur: 18 },
+  { l: 92, t: 8, w: 24, h: 28, delay: 1.2, dur: 20 },
+  { l: 96, t: 42, w: 22, h: 27, delay: 3.7, dur: 22 },
+  { l: 88, t: 76, w: 26, h: 29, delay: 6.3, dur: 19 },
+  { l: 6, t: -13, w: 20, h: 24, delay: 7.8, dur: 23 },
+  { l: 74, t: -15, w: 21, h: 25, delay: 4.5, dur: 20 },
+  { l: 10, t: 90, w: 22, h: 26, delay: 9.1, dur: 21 },
+  { l: 68, t: 92, w: 23, h: 27, delay: 2.9, dur: 24 },
+  { l: -26, t: 24, w: 20, h: 23, delay: 11, dur: 18 },
+  { l: 102, t: 24, w: 19, h: 23, delay: 8.4, dur: 22 },
+  { l: 38, t: -21, w: 22, h: 24, delay: 12.6, dur: 20 },
+  { l: -8, t: -23, w: 18, h: 21, delay: 10.2, dur: 23 },
+  { l: 84, t: 60, w: 18, h: 21, delay: 13.4, dur: 19 },
+];
+
+function AmbientField({ reducedMotion }: { reducedMotion: boolean }) {
+  if (AMBIENT_SOURCES.length === 0) return null;
+
+  return (
+    <div className={`em-ambient${reducedMotion ? ' is-static' : ''}`} aria-hidden="true">
+      {AMBIENT_SLOTS.slice(0, AMBIENT_SOURCES.length).map((slot, index) => (
+        <div
+          key={`ambient-${index}`}
+          className="em-ambient-item"
+          style={{
+            left: `${slot.l}%`,
+            top: `${slot.t}%`,
+            width: `${slot.w}%`,
+            height: `${slot.h}%`,
+            animationDelay: `${slot.delay}s`,
+            animationDuration: `${slot.dur}s`,
+          }}
+        >
+          <img src={AMBIENT_SOURCES[index % AMBIENT_SOURCES.length]} alt="" loading="lazy" decoding="async" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function HeroPlaceholder() {
   return (
     <div className="em-hero-placeholder" aria-hidden="true">
@@ -187,7 +244,23 @@ export default function LandingHero3D({
   const [paused, setPaused] = useState(false);
   const [playing, setPlaying] = useState(false);
 
+  const [minDwellDone, setMinDwellDone] = useState(false);
+  const [preloadCapped, setPreloadCapped] = useState(false);
+
   const onSceneReady = useCallback(() => setSceneReady(true), []);
+
+  // Preloader dismisses once the line has had time to read AND the scene is up,
+  // or unconditionally at the cap so a slow network can't hold the page.
+  useEffect(() => {
+    const dwell = window.setTimeout(() => setMinDwellDone(true), 850);
+    const cap = window.setTimeout(() => setPreloadCapped(true), 2400);
+    return () => {
+      window.clearTimeout(dwell);
+      window.clearTimeout(cap);
+    };
+  }, []);
+
+  const preloading = !preloadCapped && !(minDwellDone && sceneReady);
 
   // Stipple both clusters once, and redraw if DPR changes (monitor swap / zoom).
   useEffect(() => {
@@ -310,6 +383,8 @@ export default function LandingHero3D({
     <div className="em-hero-pin-wrap" ref={pinWrapRef}>
       <div className="em-hero-pin" ref={pinRef}>
         <div className={`em-hero-inner${stateClass}`} ref={innerRef}>
+          <AmbientField reducedMotion={reducedMotion} />
+
           <div className="em-hero-bloom" aria-hidden="true" />
 
           {/* Backdrop phrase — sits behind the object, which renders over it. */}
@@ -363,6 +438,21 @@ export default function LandingHero3D({
 
           <div className="em-hero-grain" aria-hidden="true" />
         </div>
+      </div>
+
+      {/* Branded preloader: one construction line drawing itself in the site's
+          own palette, cross-faded out rather than a generic spinner. */}
+      <div
+        className={`em-preloader${preloading ? '' : ' is-done'}${reducedMotion ? ' is-static' : ''}`}
+        role="status"
+        aria-live="polite"
+        aria-hidden={!preloading}
+      >
+        <span className="em-preloader-mark" aria-hidden="true">E</span>
+        <svg className="em-preloader-line" viewBox="0 0 240 2" preserveAspectRatio="none" aria-hidden="true">
+          <line x1="0" y1="1" x2="240" y2="1" pathLength="1" />
+        </svg>
+        <span className="em-preloader-label">{preloading ? 'Preparing your workspace' : ''}</span>
       </div>
     </div>
   );

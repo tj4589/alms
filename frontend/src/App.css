@@ -1775,6 +1775,37 @@
   will-change:opacity,transform;
 }
 
+/* Ambient study imagery (7.7): treated to duotone, always soft, never fully
+   opaque, cycling slowly so it reads as atmosphere rather than a gallery.
+   Renders nothing when src/assets/ambient/ is empty. */
+.em-ambient{position:absolute;inset:0;z-index:0;pointer-events:none;}
+.em-ambient-item{
+  position:absolute;
+  overflow:hidden;
+  border-radius:12px;
+  opacity:0;
+  mix-blend-mode:multiply;
+  animation-name:emAmbient;
+  animation-timing-function:ease-in-out;
+  animation-iteration-count:infinite;
+}
+.em-ambient-item img{
+  width:100%;
+  height:100%;
+  display:block;
+  object-fit:cover;
+  /* Duotone into the paper/sepia range so stock photography stops reading as
+     stock photography against the flat-toon object. */
+  filter:grayscale(1) sepia(.62) saturate(1.7) hue-rotate(-14deg) contrast(.9) brightness(1.07);
+}
+@keyframes emAmbient{
+  0%,100%{opacity:0;filter:blur(16px);scale:1.06;}
+  25%{opacity:.30;filter:blur(7px);scale:1.01;}
+  50%{opacity:.34;filter:blur(6px);scale:1;}
+  75%{opacity:.24;filter:blur(9px);scale:1.02;}
+}
+.em-ambient.is-static .em-ambient-item{animation:none;opacity:.2;filter:blur(8px);}
+
 /* Soft amber bloom behind the object (the fintech reference's radial glow).
    Warms the centre so the stipple's amber end has something to sit against. */
 .em-hero-bloom{
@@ -1875,6 +1906,60 @@
   opacity:.06;mix-blend-mode:multiply;
   background-size:180px 180px;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Branded preloader (7.6). One line drawing itself in the site's own palette,
+   cross-faded out. Capped in JS so a slow network can't hold it open. */
+.em-preloader{
+  position:fixed;
+  inset:0;
+  z-index:60;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:18px;
+  background:var(--em-paper);
+  transition:opacity .5s var(--ease),visibility 0s;
+}
+.em-preloader.is-done{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .5s var(--ease),visibility 0s .5s;}
+.em-preloader-mark{
+  width:38px;height:38px;
+  display:grid;place-items:center;
+  border-radius:5px;
+  background:var(--em-accent);
+  color:var(--em-ink);
+  font-family:Georgia,serif;
+  font-size:21px;
+  font-weight:700;
+}
+.em-preloader-line{width:min(240px,52vw);height:2px;overflow:visible;}
+.em-preloader-line line{
+  fill:none;
+  stroke:var(--em-ink);
+  stroke-width:1.6;
+  stroke-dasharray:1;
+  stroke-dashoffset:1;
+  opacity:.5;
+  vector-effect:non-scaling-stroke;
+  animation:emPreloadLine 1.15s var(--ease) infinite;
+}
+.em-preloader.is-static .em-preloader-line line{animation:none;stroke-dashoffset:0;}
+@keyframes emPreloadLine{
+  0%{stroke-dashoffset:1;}
+  55%{stroke-dashoffset:0;}
+  100%{stroke-dashoffset:-1;}
+}
+.em-preloader-label{
+  min-height:1em;
+  color:rgba(9,10,10,.5);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+@media(prefers-reduced-motion:reduce){
+  .em-preloader-line line{animation:none;stroke-dashoffset:0;}
 }
 
 .em-nav{
@@ -2176,6 +2261,9 @@
 @media(max-width:640px){
   .em-hero-pin{min-height:600px;}
   .em-hero-inner{width:calc(100% - 32px);height:min(560px,82svh);}
+  /* Too little room for atmosphere without crowding the object. */
+  .em-ambient{display:none;}
+  .em-hero-wordmark span{font-size:clamp(40px,15vw,64px);max-width:11ch;}
   .em-hero-clusters{scale:.58;}
   .em-hero-chip{font-size:10.5px;padding:7px 11px;}
   .em-hero-chip-one{left:0;bottom:31%;}
