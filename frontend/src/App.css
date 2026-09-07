@@ -214,7 +214,7 @@
 .qi:hover .qi-title{color:var(--gold);}
 .qi-yr{background:var(--surface2);border-radius:5px;padding:3px 7px;font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;margin-top:2px;}
 .qi-body{flex:1;min-width:0;}
-.qi-title{font-size:13px;font-weight:500;margin-bottom:4px;transition:color .15s;line-height:1.45;}
+.qi-title{font-size:13px;font-weight:500;margin-bottom:4px;transition:color var(--fast);line-height:1.45;}
 .qi-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
 .tag{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:500;}
 .tag-h{background:var(--coral2);color:var(--coral);border:1px solid rgba(240,115,90,0.22);}
@@ -1737,10 +1737,7 @@
 
 /* EXAMMIND PUBLIC LANDING */
 .em-landing{
-  --em-accent:#e9a13a;
-  --em-ink:#090a0a;
-  --em-paper:#f3f4ef;
-  --em-paper-2:#e7e9e2;
+  /* --em-paper/-2, --em-ink and --em-accent are global tokens now (index.css). */
   --em-line:rgba(9,10,10,.12);
   background:var(--em-paper);
   color:var(--em-ink);
@@ -1795,7 +1792,7 @@
 .em-hero-hand{position:absolute;width:360px;height:200px;opacity:0;}
 .em-hero-hand.is-left{left:-70px;top:32%;--em-rot:-13deg;--em-ty:16px;transform:rotate(-13deg);}
 .em-hero-hand.is-right{right:-70px;top:44%;--em-rot:13deg;--em-ty:-16px;transform:rotate(13deg);}
-.em-hero-inner.is-playing .em-hero-hand{animation:emHandIn 1s cubic-bezier(.16,.84,.44,1) forwards;}
+.em-hero-inner.is-playing .em-hero-hand{animation:emHandIn 1s var(--ease) forwards;}
 .em-hero-inner.is-playing .em-hero-hand.is-left{animation-delay:.5s;}
 .em-hero-inner.is-playing .em-hero-hand.is-right{animation-delay:.64s;}
 .em-hero-inner.is-static .em-hero-hand{opacity:.82;}
@@ -1806,7 +1803,7 @@
 
 /* The WebGL stage fills the inner so pointer parallax tracks anywhere in the hero. */
 .em-hero-stage{position:absolute;inset:0;z-index:4;opacity:0;transform:scale(.9);}
-.em-hero-inner.is-playing .em-hero-stage{animation:emObjectIn .85s cubic-bezier(.16,.84,.44,1) .95s forwards;}
+.em-hero-inner.is-playing .em-hero-stage{animation:emObjectIn .85s var(--ease) .95s forwards;}
 .em-hero-inner.is-static .em-hero-stage{opacity:1;transform:none;}
 @keyframes emObjectIn{to{opacity:1;transform:scale(1);}}
 .em-hero-canvas{width:100%!important;height:100%!important;}
@@ -1840,8 +1837,8 @@
 .em-hero-chip-dot{width:6px;height:6px;border-radius:50%;background:var(--em-accent);}
 .em-hero-chip-one{left:2%;bottom:29%;rotate:-3deg;}
 .em-hero-chip-two{right:1%;bottom:15%;rotate:2.5deg;}
-.em-hero-inner.is-playing .em-hero-chip-one{animation:emChipIn .6s cubic-bezier(.16,.84,.44,1) 1.5s forwards,emChipFloat 6.5s ease-in-out 2.6s infinite;}
-.em-hero-inner.is-playing .em-hero-chip-two{animation:emChipIn .6s cubic-bezier(.16,.84,.44,1) 1.68s forwards,emChipFloat 7.5s ease-in-out 3.1s infinite;}
+.em-hero-inner.is-playing .em-hero-chip-one{animation:emChipIn .6s var(--ease) 1.5s forwards,emChipFloat 6.5s ease-in-out 2.6s infinite;}
+.em-hero-inner.is-playing .em-hero-chip-two{animation:emChipIn .6s var(--ease) 1.68s forwards,emChipFloat 7.5s ease-in-out 3.1s infinite;}
 .em-hero-inner.is-static .em-hero-chip{opacity:1;translate:0 0;}
 @keyframes emChipIn{to{opacity:1;translate:0 0;}}
 @keyframes emChipFloat{0%,100%{translate:0 0;}50%{translate:0 -7px;}}
@@ -1871,7 +1868,7 @@
 .em-brand{display:inline-flex;align-items:center;gap:10px;width:max-content;color:inherit;text-decoration:none;font-size:20px;font-weight:760;}
 .em-brand-mark{width:32px;height:32px;display:grid;place-items:center;background:var(--em-accent);color:var(--em-ink);border-radius:4px;font-family:Georgia,serif;font-size:18px;font-weight:700;}
 .em-nav-links{display:flex;align-items:center;justify-content:center;gap:32px;}
-.em-nav-links a,.em-text-button{color:rgba(9,10,10,.66);text-decoration:none;font-size:13px;font-weight:650;background:none;border:0;cursor:pointer;transition:color .15s;}
+.em-nav-links a,.em-text-button{color:rgba(9,10,10,.66);text-decoration:none;font-size:13px;font-weight:650;background:none;border:0;cursor:pointer;transition:color var(--fast);}
 .em-nav-links a:hover,.em-text-button:hover{color:var(--em-ink);}
 .em-nav-actions{justify-self:end;display:flex;align-items:center;gap:12px;}
 .em-text-button,.em-small-cta{min-height:44px;}
@@ -1887,7 +1884,7 @@
   color:var(--em-ink);
   font-weight:800;
   cursor:pointer;
-  transition:transform .15s,background-color .15s;
+  transition:transform var(--fast),background-color var(--fast);
 }
 .em-small-cta{height:44px;padding:0 16px;font-size:13px;}
 .em-small-cta svg,.em-primary-cta svg{width:17px;height:17px;stroke-width:2;}
@@ -2013,7 +2010,7 @@
 .em-final-label{margin-bottom:24px;font-size:12px;font-weight:800;text-transform:uppercase;}
 .em-final-cta h2{margin:0;font-size:72px;line-height:.98;font-weight:770;letter-spacing:0;}
 .em-final-action p{max-width:420px;margin:0 0 26px;font-size:17px;line-height:1.6;}
-.em-final-action button{min-height:54px;padding:0 20px;display:inline-flex;align-items:center;gap:12px;border:0;border-radius:4px;background:var(--em-ink);color:#fff;font-size:14px;font-weight:800;cursor:pointer;transition:transform .15s,background-color .15s;}
+.em-final-action button{min-height:54px;padding:0 20px;display:inline-flex;align-items:center;gap:12px;border:0;border-radius:4px;background:var(--em-ink);color:#fff;font-size:14px;font-weight:800;cursor:pointer;transition:transform var(--fast),background-color var(--fast);}
 .em-final-action button:hover{background:#262828;transform:translateY(-1px);}
 .em-final-action button svg{width:18px;height:18px;}
 .em-footer{min-height:190px;padding:48px max(32px,calc((100% - 1280px)/2));display:grid;grid-template-columns:1fr 1fr auto;gap:40px;align-items:start;background:var(--em-ink);color:#fff;}
