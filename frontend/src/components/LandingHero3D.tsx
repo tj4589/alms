@@ -165,8 +165,16 @@ function supportsWebGL(): boolean {
   }
 }
 
-export default function LandingHero3D({ children }: { children: ReactNode }) {
+export default function LandingHero3D({
+  children,
+  wordmark,
+}: {
+  children: ReactNode;
+  /** Oversized backdrop phrase, rendered behind the object. Decorative. */
+  wordmark: string;
+}) {
   const pinWrapRef = useRef<HTMLDivElement>(null);
+  const pinRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const revealRef = useRef<SVGSVGElement>(null);
   const clustersRef = useRef<HTMLDivElement>(null);
@@ -203,6 +211,48 @@ export default function LandingHero3D({ children }: { children: ReactNode }) {
     return () => {
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
+    };
+  }, [reducedMotion]);
+
+  // Warm field that follows the cursor: a lerped radial highlight written to CSS
+  // custom properties, low contrast enough to be felt rather than seen.
+  useEffect(() => {
+    const pin = pinRef.current;
+    if (!pin) return undefined;
+
+    if (reducedMotion) {
+      pin.style.setProperty('--em-px', '50%');
+      pin.style.setProperty('--em-py', '44%');
+      return undefined;
+    }
+
+    let raf = 0;
+    let targetX = 50;
+    let targetY = 44;
+    let currentX = 50;
+    let currentY = 44;
+
+    const onMove = (event: PointerEvent) => {
+      const rect = pin.getBoundingClientRect();
+      targetX = ((event.clientX - rect.left) / rect.width) * 100;
+      targetY = ((event.clientY - rect.top) / rect.height) * 100;
+    };
+    const onLeave = () => { targetX = 50; targetY = 44; };
+    const tick = () => {
+      currentX += (targetX - currentX) * 0.06;
+      currentY += (targetY - currentY) * 0.06;
+      pin.style.setProperty('--em-px', `${currentX.toFixed(2)}%`);
+      pin.style.setProperty('--em-py', `${currentY.toFixed(2)}%`);
+      raf = requestAnimationFrame(tick);
+    };
+
+    pin.addEventListener('pointermove', onMove);
+    pin.addEventListener('pointerleave', onLeave);
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      pin.removeEventListener('pointermove', onMove);
+      pin.removeEventListener('pointerleave', onLeave);
     };
   }, [reducedMotion]);
 
@@ -258,11 +308,14 @@ export default function LandingHero3D({ children }: { children: ReactNode }) {
 
   return (
     <div className="em-hero-pin-wrap" ref={pinWrapRef}>
-      <div className="em-hero-pin">
+      <div className="em-hero-pin" ref={pinRef}>
         <div className={`em-hero-inner${stateClass}`} ref={innerRef}>
-          <div className="em-hero-copy-block">{children}</div>
-
           <div className="em-hero-bloom" aria-hidden="true" />
+
+          {/* Backdrop phrase — sits behind the object, which renders over it. */}
+          <div className="em-hero-wordmark" aria-hidden="true"><span>{wordmark}</span></div>
+
+          <div className="em-hero-copy-block">{children}</div>
 
           <svg
             className="em-hero-reveal"

@@ -104,10 +104,8 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         </div>
       </nav>
 
-      <LandingHero3D>
-        <div className="em-eyebrow"><span />Your private academic index</div>
-        <h1>ExamMind.</h1>
-        <p className="em-hero-lede">Turn the course material you already have into answers you can trust.</p>
+      <LandingHero3D wordmark="Never Leave your workspace again.">
+        <h1 className="em-hero-lede">Turn the course material you already have into answers you can trust.</h1>
         <div className="em-hero-actions">
           <button type="button" className="em-primary-cta" onClick={onGetStarted}>
             Build your study archive
