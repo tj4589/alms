@@ -1807,17 +1807,17 @@
 .em-hero-inner.is-static .em-hero-line,.em-hero-inner.is-static .em-hero-frame{stroke-dashoffset:0;}
 @keyframes emDrawLine{to{stroke-dashoffset:0;}}
 
-/* Dot-matrix hands. Scroll fade lives on the wrapper so it multiplies with the
-   entrance animation instead of losing the cascade to it. */
-.em-hero-hands{position:absolute;inset:0;pointer-events:none;z-index:3;}
-.em-hero-hand{position:absolute;width:360px;height:200px;opacity:0;}
-.em-hero-hand.is-left{left:-70px;top:32%;--em-rot:-13deg;--em-ty:16px;transform:rotate(-13deg);}
-.em-hero-hand.is-right{right:-70px;top:44%;--em-rot:13deg;--em-ty:-16px;transform:rotate(13deg);}
-.em-hero-inner.is-playing .em-hero-hand{animation:emHandIn 1s var(--ease) forwards;}
-.em-hero-inner.is-playing .em-hero-hand.is-left{animation-delay:.5s;}
-.em-hero-inner.is-playing .em-hero-hand.is-right{animation-delay:.64s;}
-.em-hero-inner.is-static .em-hero-hand{opacity:.82;}
-@keyframes emHandIn{
+/* Converging dot clusters. Scroll fade lives on the wrapper so it multiplies
+   with the entrance animation instead of losing the cascade to it. */
+.em-hero-clusters{position:absolute;inset:0;pointer-events:none;z-index:3;}
+.em-hero-cluster{position:absolute;width:360px;height:200px;opacity:0;}
+.em-hero-cluster.is-left{left:-70px;top:32%;--em-rot:-13deg;--em-ty:16px;transform:rotate(-13deg);}
+.em-hero-cluster.is-right{right:-70px;top:44%;--em-rot:13deg;--em-ty:-16px;transform:rotate(13deg);}
+.em-hero-inner.is-playing .em-hero-cluster{animation:emClusterIn 1s var(--ease) forwards;}
+.em-hero-inner.is-playing .em-hero-cluster.is-left{animation-delay:.5s;}
+.em-hero-inner.is-playing .em-hero-cluster.is-right{animation-delay:.64s;}
+.em-hero-inner.is-static .em-hero-cluster{opacity:.82;}
+@keyframes emClusterIn{
   from{opacity:0;transform:rotate(var(--em-rot)) translateY(var(--em-ty)) scale(.92);}
   to{opacity:.82;transform:rotate(var(--em-rot)) translateY(0) scale(1);}
 }
@@ -2074,7 +2074,7 @@
   .em-nav-links{display:none;}
   .em-hero-inner{height:min(600px,80svh);}
   .em-hero-lede{max-width:520px;}
-  .em-hero-hands{scale:.82;}
+  .em-hero-clusters{scale:.82;}
   .em-product-section{padding:0 20px 80px;}
   .em-product-window{width:100%;}
   .em-material-band{padding:20px 24px;flex-direction:column;align-items:flex-start;}
@@ -2095,7 +2095,7 @@
 @media(max-width:640px){
   .em-hero-pin{min-height:600px;}
   .em-hero-inner{width:calc(100% - 32px);height:min(560px,82svh);}
-  .em-hero-hands{scale:.58;}
+  .em-hero-clusters{scale:.58;}
   .em-hero-chip{font-size:10.5px;padding:7px 11px;}
   .em-hero-chip-one{left:0;bottom:31%;}
   .em-hero-chip-two{right:0;bottom:16%;}

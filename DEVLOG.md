@@ -1,5 +1,15 @@
 # ExamMind — Engineering Devlog
 
+## 2026-09-07 — Hero reveal: dropped the figurative hands
+
+The reveal's converging shapes are no longer required to read as reaching hands, and the *Creation of Adam* reference is dropped from the brief's scope. The technique is unchanged and was never the problem — offscreen canvas mask, grid-sampled dots, jittered position and radius for organic texture. Only the silhouette changed: instead of a traced hand path, the mask is now painted procedurally as a blurred, tapering plume of overlapping lobes that breaks into satellites toward the tip, deterministically seeded so it stays stable across re-renders while per-dot jitter stays random.
+
+This also removed an external dependency the hero didn't need. The figurative version was blocked on artwork that had to be produced and licensed; two of the three references were another artist's restyling and not ours to ship. The abstract version has no such constraint.
+
+The mask now carries a smooth alpha falloff along its length rather than a hard edge, and dot alpha scales with mask alpha as well as radius, so the stipple thins out toward the object instead of stopping abruptly.
+
+The amber→sepia gradient from the previous pass is unchanged and was explicitly kept: flat amber on cream is ~1.9:1, and at that contrast fine dots stop resolving as texture once they are no longer backed by black. `renderDotHand` → `renderDotCluster`, `.em-hero-hand(s)` → `.em-hero-cluster(s)`, `emHandIn` → `emClusterIn`; no stale hand references remain in `src/`.
+
 ## 2026-09-06 — Study Desk v2: paper palette restored, 3D hero added
 
 **Midnight Studio is reverted and superseded.** It never deployed. The landing, dashboard and tokens were restored to the pre-Midnight-Studio academic-workbench baseline, then rebuilt from ExamMind's own light paper palette. The app is light only now — there is no dark theme and no dark-mode variant to maintain.

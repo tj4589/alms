@@ -3,7 +3,7 @@
 The canonical interface decisions live in `design-system/exammind/MASTER.md`.
 
 - Direction: light academic workspace on warm cream paper, near-black ink, oversized editorial type, and one disciplined amber accent. Light only — no dark theme.
-- Centrepiece: a flat-shaded 3D "Highlighted Page" in the landing hero, revealed by construction lines and dot-matrix reaching hands, then handed off to page content on scroll.
+- Centrepiece: a flat-shaded 3D "Highlighted Page" in the landing hero, revealed by construction lines and two abstract stippled dot clusters converging from either edge, then handed off to page content on scroll.
 - Depth: white raised surfaces on cream, a print-grain layer over the hero; rules and spacing do most of the work.
 - Spacing: 4px base, 8/12/16/20px component rhythm, 24px between panels, 48px+ between major regions.
 - Motion: `--fast`/`--base`/`--slow` with `--ease`; never linear, never snapped. All of it opts out under `prefers-reduced-motion`.

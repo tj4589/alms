@@ -4,8 +4,8 @@ import { useReducedMotion } from '../lib/useReducedMotion';
 const HeroPageScene = lazy(() => import('./HeroPageScene'));
 
 /**
- * The landing hero stage: a construction-line reveal, two dot-matrix hands
- * reaching in from either edge, and "The Highlighted Page" settling into the
+ * The landing hero stage: a construction-line reveal, two stippled dot clusters
+ * converging from either edge, and "The Highlighted Page" settling into the
  * frame between them — then the whole thing scales and fades out as one unit
  * to hand off to the content beneath.
  *
@@ -13,68 +13,89 @@ const HeroPageScene = lazy(() => import('./HeroPageScene'));
  * three.js stays out of the first-paint chunk.
  */
 
-/**
- * Stylised reaching arm + hand, index finger extended. Stippled into dots
- * rather than stroked, which is the halftone treatment in ref-07/08/09 —
- * inverted to ink-on-cream because this page is paper, not black.
- */
-const HAND_PATH_D = `
-  M 0,84
-  C 45,74 100,68 150,67
-  C 195,66 222,68 248,76
-  C 262,80 268,72 276,60
-  C 288,44 302,32 318,27
-  C 333,23 349,25 362,34
-  C 376,43 386,55 389,68
-  C 391,78 387,86 378,89
-  C 368,93 357,89 349,80
-  C 340,70 331,61 321,55
-  C 313,50 306,52 302,59
-  C 298,66 302,72 309,75
-  C 302,84 291,91 279,92
-  C 270,93 264,88 263,80
-  C 262,90 253,97 242,97
-  C 233,97 227,91 227,82
-  C 221,92 210,96 200,93
-  C 192,90 189,83 192,75
-  C 182,80 169,81 161,74
-  C 154,68 153,59 158,51
-  C 146,58 132,60 122,54
-  C 113,49 109,39 113,30
-  C 96,44 72,52 45,54
-  C 28,55 12,52 0,45
-  Z
-`;
-
-/* Stipple runs amber at the fingertips, where the hands meet the object and the
-   warmth ties into the highlighter, and deepens to sepia at the outer edges.
+/* Stipple runs amber at the inner tip, where the clusters meet the object and
+   the warmth ties into the highlighter, and deepens to sepia at the outer edge.
    Flat amber across the whole mass measures ~1.9:1 on cream, at which point the
-   dot texture stops reading as a hand. */
+   dots stop resolving as texture at all. */
 const DOT_TIP = '#e9a13a';
 const DOT_MID = '#b07038';
 const DOT_OUTER = '#4e3626';
 
-const HAND_W = 400;
-const HAND_H = 110;
-const HAND_CSS_W = 360;
-const HAND_CSS_H = 200;
-/** Sampling grid in CSS pixels — 5px spacing is the prototype's dot density. */
+const CLUSTER_W = 360;
+const CLUSTER_H = 200;
+/** Sampling grid in CSS pixels — 5px spacing is the original dot density. */
 const DOT_STEP = 5;
+/** Below this mask alpha a sample produces no dot, softening the tip edge. */
+const DOT_ALPHA_FLOOR = 24;
 
-function renderDotHand(canvas: HTMLCanvasElement, mirrored: boolean) {
+/** Small deterministic PRNG, so the silhouette is stable across re-renders. */
+function seededRandom(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * An abstract converging mass: a tapering plume of overlapping soft-edged lobes
+ * that breaks into satellites as it reaches inward. Blurred while drawn and
+ * faded along its length, so the sampler — which scales dot radius by mask
+ * alpha — thins the stipple out naturally instead of clipping it at a hard edge.
+ */
+function paintClusterMask(mctx: CanvasRenderingContext2D, w: number, h: number) {
+  const rand = seededRandom(0x5eed);
+  mctx.fillStyle = '#000';
+  mctx.filter = 'blur(7px)';
+
+  const LOBES = 18;
+  for (let i = 0; i < LOBES; i += 1) {
+    const t = i / (LOBES - 1);
+    const x = w * (0.01 + t * 0.78) + (rand() - 0.5) * w * 0.03;
+    const y = h * (0.5 - t * 0.06)
+      + Math.sin(t * Math.PI * 1.1) * h * 0.07
+      + (rand() - 0.5) * h * 0.05;
+    const rx = Math.max(2, w * (0.14 - t * 0.10) * (0.8 + rand() * 0.45));
+    const ry = Math.max(2, h * (0.32 - t * 0.245) * (0.8 + rand() * 0.45));
+    mctx.beginPath();
+    mctx.ellipse(x, y, rx, ry, (rand() - 0.5) * 0.6, 0, Math.PI * 2);
+    mctx.fill();
+  }
+
+  // Satellites drifting off the tip toward the object.
+  for (let i = 0; i < 6; i += 1) {
+    const t = i / 5;
+    const r = Math.max(1.5, w * (0.02 - t * 0.013) * (0.7 + rand() * 0.7));
+    mctx.beginPath();
+    mctx.ellipse(w * (0.8 + t * 0.19), h * (0.47 + (rand() - 0.5) * 0.16), r, r * 1.35, 0, 0, Math.PI * 2);
+    mctx.fill();
+  }
+
+  mctx.filter = 'none';
+  mctx.globalCompositeOperation = 'destination-in';
+  const fall = mctx.createLinearGradient(0, 0, w, 0);
+  fall.addColorStop(0, 'rgba(0,0,0,1)');
+  fall.addColorStop(0.5, 'rgba(0,0,0,.8)');
+  fall.addColorStop(1, 'rgba(0,0,0,.22)');
+  mctx.fillStyle = fall;
+  mctx.fillRect(0, 0, w, h);
+  mctx.globalCompositeOperation = 'source-over';
+}
+
+function renderDotCluster(canvas: HTMLCanvasElement, mirrored: boolean) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = Math.round(HAND_CSS_W * dpr);
-  const h = Math.round(HAND_CSS_H * dpr);
+  const w = Math.round(CLUSTER_W * dpr);
+  const h = Math.round(CLUSTER_H * dpr);
 
   canvas.width = w;
   canvas.height = h;
-  canvas.style.width = `${HAND_CSS_W}px`;
-  canvas.style.height = `${HAND_CSS_H}px`;
+  canvas.style.width = `${CLUSTER_W}px`;
+  canvas.style.height = `${CLUSTER_H}px`;
 
-  const offsetX = HAND_CSS_W * 0.5 - HAND_W * 0.42;
-  const offsetY = HAND_CSS_H * 0.5 - HAND_H * 0.55;
-
-  // Fill the silhouette into an offscreen mask, then sample it on a grid.
+  // Paint the shape into an offscreen mask, then sample it on a grid.
   const mask = document.createElement('canvas');
   mask.width = w;
   mask.height = h;
@@ -84,17 +105,15 @@ function renderDotHand(canvas: HTMLCanvasElement, mirrored: boolean) {
 
   mctx.scale(dpr, dpr);
   if (mirrored) {
-    mctx.translate(HAND_CSS_W, 0);
+    mctx.translate(CLUSTER_W, 0);
     mctx.scale(-1, 1);
   }
-  mctx.translate(offsetX, offsetY);
-  mctx.fillStyle = '#000';
-  mctx.fill(new Path2D(HAND_PATH_D));
+  paintClusterMask(mctx, CLUSTER_W, CLUSTER_H);
 
   const data = mctx.getImageData(0, 0, w, h).data;
   const step = Math.max(1, Math.round(DOT_STEP * dpr));
 
-  // Fingertips point inward, so the amber end flips with the mirror.
+  // The tip points inward, so the amber end flips with the mirror.
   const grad = ctx.createLinearGradient(0, 0, w, 0);
   if (mirrored) {
     grad.addColorStop(0, DOT_TIP);
@@ -111,13 +130,13 @@ function renderDotHand(canvas: HTMLCanvasElement, mirrored: boolean) {
   for (let y = 0; y < h; y += step) {
     for (let x = 0; x < w; x += step) {
       const alpha = data[(y * w + x) * 4 + 3];
-      if (alpha <= 40) continue;
+      if (alpha <= DOT_ALPHA_FLOOR) continue;
       // Jitter position and radius so the grid reads as organic stipple.
       const jitterX = (Math.random() - 0.5) * 2.2 * dpr;
       const jitterY = (Math.random() - 0.5) * 2.2 * dpr;
       const r = (0.9 + Math.random() * 1.5 * (alpha / 255)) * dpr;
       // Per-dot alpha via globalAlpha, since fillStyle is holding the gradient.
-      ctx.globalAlpha = 0.55 + Math.random() * 0.35;
+      ctx.globalAlpha = (0.55 + Math.random() * 0.35) * (alpha / 255);
       ctx.beginPath();
       ctx.arc(x + jitterX, y + jitterY, r, 0, Math.PI * 2);
       ctx.fill();
@@ -150,9 +169,9 @@ export default function LandingHero3D({ children }: { children: ReactNode }) {
   const pinWrapRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const revealRef = useRef<SVGSVGElement>(null);
-  const handsRef = useRef<HTMLDivElement>(null);
-  const handLeftRef = useRef<HTMLCanvasElement>(null);
-  const handRightRef = useRef<HTMLCanvasElement>(null);
+  const clustersRef = useRef<HTMLDivElement>(null);
+  const clusterLeftRef = useRef<HTMLCanvasElement>(null);
+  const clusterRightRef = useRef<HTMLCanvasElement>(null);
 
   const reducedMotion = useReducedMotion();
   const [webglReady] = useState(() => supportsWebGL());
@@ -162,11 +181,11 @@ export default function LandingHero3D({ children }: { children: ReactNode }) {
 
   const onSceneReady = useCallback(() => setSceneReady(true), []);
 
-  // Stipple both hands once, and redraw if DPR changes (monitor swap / zoom).
+  // Stipple both clusters once, and redraw if DPR changes (monitor swap / zoom).
   useEffect(() => {
     const draw = () => {
-      if (handLeftRef.current) renderDotHand(handLeftRef.current, false);
-      if (handRightRef.current) renderDotHand(handRightRef.current, true);
+      if (clusterLeftRef.current) renderDotCluster(clusterLeftRef.current, false);
+      if (clusterRightRef.current) renderDotCluster(clusterRightRef.current, true);
     };
     draw();
     const media = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
@@ -213,11 +232,11 @@ export default function LandingHero3D({ children }: { children: ReactNode }) {
       inner.style.transform = `scale(${1 - p * 0.16}) translateY(${p * -30}px)`;
 
       // Applied to the un-animated parents so it multiplies with each child's
-      // own opacity instead of clobbering it (and so the hands' entrance
+      // own opacity instead of clobbering it (and so the clusters' entrance
       // animation, which owns `opacity`, can't win the cascade against it).
       const fade = String(Math.max(0, 1 - p * 2.4));
       if (revealRef.current) revealRef.current.style.opacity = fade;
-      if (handsRef.current) handsRef.current.style.opacity = fade;
+      if (clustersRef.current) clustersRef.current.style.opacity = fade;
     };
 
     const onScroll = () => {
@@ -261,9 +280,9 @@ export default function LandingHero3D({ children }: { children: ReactNode }) {
             <rect className="em-hero-frame" x="350" y="150" width="220" height="340" rx="4" pathLength="1" />
           </svg>
 
-          <div className="em-hero-hands" ref={handsRef} aria-hidden="true">
-            <canvas className="em-hero-hand is-left" ref={handLeftRef} />
-            <canvas className="em-hero-hand is-right" ref={handRightRef} />
+          <div className="em-hero-clusters" ref={clustersRef} aria-hidden="true">
+            <canvas className="em-hero-cluster is-left" ref={clusterLeftRef} />
+            <canvas className="em-hero-cluster is-right" ref={clusterRightRef} />
           </div>
 
           <div className="em-hero-stage" aria-hidden="true">

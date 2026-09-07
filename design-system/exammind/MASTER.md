@@ -48,8 +48,9 @@ Aliases (`--bg`, `--text`, `--gold`, `--teal`, `--coral`, `--border`, `--desk`, 
 ## Patterns
 
 - **The Highlighted Page** — the landing hero's 3D centrepiece. One notebook page extruded from a `THREE.Shape` with binding holes punched through the geometry, a highlighted ruled line, a dog-eared corner and a highlighter across the bottom edge. Flat `MeshToonMaterial` with a nearest-filtered gradient map plus an inverted-hull `OutlineEffect` pass. Never PBR, never default grey.
-- **Construction-line reveal** — thin ink lines and a bordered frame draw themselves in via SVG `pathLength="1"` + `stroke-dashoffset`, then two dot-matrix hands stipple in from either edge, then the object settles. Staggered, one sequence.
-- **Dot-matrix stipple** — silhouettes filled to an offscreen canvas, sampled on a grid, drawn as jittered ink dots. Flat 2D, never modelled geometry.
+- **Construction-line reveal** — thin ink lines and a bordered frame draw themselves in via SVG `pathLength="1"` + `stroke-dashoffset`, then two stippled dot clusters converge from either edge, then the object settles. Staggered, one sequence.
+- **Dot-matrix stipple** — a shape painted to an offscreen canvas, sampled on a grid, drawn as jittered dots whose radius and alpha scale with the mask's alpha. The cluster shape is abstract and procedurally generated (a blurred, tapering plume of lobes breaking into satellites), deterministically seeded so it stays stable across re-renders. It is not a figurative silhouette and is not required to depict anything. Flat 2D, never modelled geometry.
+- **Stipple colour** — a horizontal gradient, amber at the inner tip where the clusters meet the object, through warm mid-brown, to sepia at the outer edge. Never flat amber: `#e9a13a` on cream is ~1.9:1, and fine dots stop resolving as texture at that contrast.
 - **Sticky-pinned hero hand-off** — the hero scales and fades as one unit over ~2.3 viewports of scroll while real content scrolls up beneath it. Plain scroll-position maths, no animation library.
 - **Floating nav pill** — landing nav starts flush, collapses past 32px of scroll into a rounded, blurred, shadowed pill, and reverses on the way back up.
 - Print grain over the hero: one CSS layer, `feTurbulence`, `multiply`, ~6%.
@@ -70,7 +71,7 @@ Reduced-motion users get no reveal, no idle rotation, no pointer parallax and no
 
 Generic SaaS KPI grids, fake metrics, fake charts, purple/blue gradient meshes, neon glow, full-page glassmorphism, decorative blobs, nested cards, giant numbers without context, emoji iconography, stock student photography, excessive pill controls, and hover effects that reflow content.
 
-For 3D specifically: default grey/white materials, realistic PBR or metallic shading, single-colour flat-grey objects, untextured placeholder meshes, modelled human hands, and any object that could be mistaken for a lighting test. Do not model a phone, wallet, card or person — none of it is ExamMind's own material.
+For 3D specifically: default grey/white materials, realistic PBR or metallic shading, single-colour flat-grey objects, untextured placeholder meshes, and any object that could be mistaken for a lighting test. Do not model a phone, wallet, card or person — none of it is ExamMind's own material.
 
 Do not change API contracts or replace real data with demo data. Do not reintroduce a dark theme.
 
