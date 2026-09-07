@@ -57,7 +57,7 @@
 .gs-overview-summary{color:var(--text2);font-size:12px;margin-bottom:5px;}
 .gs-overview-related{color:var(--text3);font-size:11.5px;margin-bottom:5px;}
 .gs-grounding-label{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.3px;padding:2px 8px;border-radius:20px;margin-top:2px;}
-.gs-grounding-uploaded{background:rgba(62,207,178,0.12);color:var(--teal);border:1px solid rgba(62,207,178,0.22);}
+.gs-grounding-uploaded{background:rgba(20,122,106,0.1);color:var(--teal);border:1px solid rgba(20,122,106,0.24);}
 .gs-grounding-general{background:rgba(232,162,58,0.1);color:var(--gold);border:1px solid rgba(232,162,58,0.22);}
 /* Ghost row — calls to action when a section is empty */
 .gs-row-ghost .gs-row-main{color:var(--text3);font-weight:400;font-style:italic;}
@@ -84,7 +84,7 @@
 .gs-row-meta{font-size:11px;color:var(--text3);line-height:1.35;}
 .gs-empty{padding:14px 12px;color:var(--text2);font-size:12.5px;line-height:1.6;}
 .gs-empty-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;}
-.gs-preview-panel{padding:7px;max-height:360px;background:rgba(22,24,30,0.96);backdrop-filter:blur(14px);border-color:rgba(255,255,255,0.08);box-shadow:0 18px 42px rgba(0,0,0,0.34);}
+.gs-preview-panel{padding:7px;max-height:360px;background:rgba(255,255,255,0.97);backdrop-filter:blur(14px);border-color:var(--border);box-shadow:0 18px 42px rgba(9,10,10,0.13);}
 .gs-preview-guide{padding:10px 11px;color:var(--text2);font-size:12.5px;line-height:1.45;}
 .gs-preview-actions{margin-top:8px;}
 .gs-preview-row{display:flex;align-items:center;gap:8px;border-radius:7px;padding:8px 9px;cursor:pointer;transition:background .15s;}
@@ -2207,7 +2207,7 @@
 
 .wb-course-list,.wb-queue-list,.wb-archive-list{border-top:1px solid var(--margin-rule);}
 .wb-course-row{width:100%;min-height:76px;display:grid;grid-template-columns:78px minmax(0,1fr) 94px 18px;gap:14px;align-items:center;padding:11px 10px;border:0;border-bottom:1px solid var(--margin-rule);background:transparent;color:var(--paper-ink);text-align:left;cursor:pointer;transition:background-color .16s;}
-.wb-course-row:hover{background:rgba(255,255,255,.025);}
+.wb-course-row:hover{background:rgba(9,10,10,.03);}
 .wb-course-row>svg{width:16px;height:16px;color:var(--pencil);transition:color .16s,transform .16s;}
 .wb-course-row:hover>svg{color:var(--highlighter);transform:translateX(2px);}
 .wb-course-code{min-height:34px;display:flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid rgba(232,162,58,.28);border-radius:4px;background:rgba(232,162,58,.06);color:var(--highlighter);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;overflow-wrap:anywhere;}
@@ -2220,7 +2220,7 @@
 
 .wb-queue-section{padding-left:0;}
 .wb-queue-row{width:100%;min-height:86px;display:grid;grid-template-columns:34px minmax(0,1fr) 16px;gap:12px;align-items:center;padding:12px 4px;border:0;border-bottom:1px solid var(--margin-rule);background:transparent;color:var(--paper-ink);text-align:left;cursor:pointer;transition:background-color .16s;}
-.wb-queue-row:hover{background:rgba(255,255,255,.025);}
+.wb-queue-row:hover{background:rgba(9,10,10,.03);}
 .wb-queue-row>svg{width:15px;height:15px;color:var(--pencil);}
 .wb-queue-icon{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--margin-rule-strong);border-radius:4px;color:var(--highlighter);}
 .wb-queue-icon svg{width:15px;height:15px;}
@@ -2234,7 +2234,7 @@
 .wb-view-tabs button.is-active{border-bottom-color:var(--highlighter);color:var(--paper-ink);}
 .wb-view-tabs button span{color:var(--highlighter);font-family:var(--mono);font-size:9px;}
 .wb-archive-row{width:100%;min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) 72px 16px;gap:12px;align-items:center;padding:10px 6px;border:0;border-bottom:1px solid var(--margin-rule);background:transparent;color:var(--paper-ink);text-align:left;cursor:pointer;transition:background-color .16s;}
-.wb-archive-row:hover{background:rgba(255,255,255,.025);}
+.wb-archive-row:hover{background:rgba(9,10,10,.03);}
 .wb-file-icon{width:32px;height:38px;display:grid;place-items:center;border:1px solid var(--margin-rule-strong);border-radius:3px;color:var(--paper-ink-soft);}
 .wb-file-icon svg{width:15px;height:15px;}
 .wb-archive-date{color:var(--pencil);font-family:var(--mono);font-size:9px;text-align:right;}
@@ -2246,7 +2246,7 @@
 .wb-activity-marker{position:relative;z-index:1;width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--margin-rule-strong);border-radius:50%;background:var(--desk);color:var(--source-verified);}
 .wb-activity-marker svg{width:14px;height:14px;}
 
-.wb-empty{min-height:134px;display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:14px;align-items:center;padding:20px;border-left:2px solid var(--margin-rule-strong);background:rgba(255,255,255,.018);}
+.wb-empty{min-height:134px;display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:14px;align-items:center;padding:20px;border-left:2px solid var(--margin-rule-strong);background:rgba(9,10,10,.022);}
 .wb-empty>svg{width:22px;height:22px;color:var(--pencil);}
 .wb-empty strong{display:block;color:var(--paper-ink);font-size:12px;}
 .wb-empty p{max-width:520px;margin:5px 0 0;color:var(--pencil);font-size:11px;line-height:1.5;text-wrap:pretty;}
@@ -2254,7 +2254,7 @@
 .wb-inline-action{min-height:36px;padding:0 11px;border:1px solid rgba(232,162,58,.38);border-radius:5px;background:transparent;color:var(--highlighter);font-size:10px;font-weight:700;cursor:pointer;transition:background-color .16s,color .16s;}
 .wb-inline-action:hover{background:var(--highlighter);color:var(--desk-inset);}
 .wb-loading-list{display:flex;flex-direction:column;border-top:1px solid var(--margin-rule);}
-.wb-loading-list span{height:70px;border-bottom:1px solid var(--margin-rule);background:rgba(255,255,255,.022);animation:wbPulse 1.2s ease-in-out infinite;}
+.wb-loading-list span{height:70px;border-bottom:1px solid var(--margin-rule);background:rgba(9,10,10,.028);animation:wbPulse 1.2s ease-in-out infinite;}
 .wb-loading-list span:nth-child(2){animation-delay:.12s;}
 .wb-loading-list span:nth-child(3){animation-delay:.24s;}
 @keyframes wbPulse{0%,100%{opacity:.35}50%{opacity:.7}}
