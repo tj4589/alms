@@ -1,13 +1,11 @@
-import { Suspense, lazy, useState } from 'react';
-import { ArrowRight, KeyRound } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, ArrowRight, BookOpen, KeyRound, Search, Sparkles, Users } from 'lucide-react';
 import { apiFormPost, apiPost } from '../lib/api';
 import {
   DEV_AUTH_ENABLED,
   DEV_AUTH_TOKEN,
   validateDevAuthPass,
 } from '../lib/devAuth';
-
-const AuthScene3D = lazy(() => import('./AuthScene3D'));
 
 type AuthProps = {
   onLogin: (token: string) => void | Promise<void>;
@@ -92,39 +90,49 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
 
   return (
     <div className="auth-page">
-      <Suspense fallback={<div className="auth-scene3d auth-scene-loading" aria-hidden="true" />}>
-        <AuthScene3D />
-      </Suspense>
-      <button className="auth-back" onClick={onBackToLanding} type="button">
-        Back to overview
-      </button>
+      <div className="auth-grain" aria-hidden="true" />
+      <header className="auth-topbar">
+        <button className="auth-back" onClick={onBackToLanding} type="button">
+          <ArrowLeft aria-hidden="true" size={18} />
+          Back to overview
+        </button>
+        <button className="auth-top-brand" onClick={onBackToLanding} type="button" aria-label="Return to ExamMind home">
+          <span className="auth-top-brand-mark" aria-hidden="true"><BookOpen size={21} strokeWidth={2.2} /></span>
+          <span>ExamMind<span>.</span></span>
+        </button>
+        <span className="auth-top-note">Student workspace</span>
+      </header>
       <section className="auth-shell">
         <div className="auth-panel">
-          <div className="auth-kicker">Authenticated student access</div>
-          <h1>{isLogin ? 'Welcome back to ExamMind.' : 'Create your student workspace.'}</h1>
-          <p>
-            Upload academic materials, search your archive, ask grounded AI questions, and build
-            practice sessions from the documents you add.
-          </p>
+          <div className="auth-kicker"><span className="auth-kicker-dot" aria-hidden="true" />A clearer way to study</div>
+          <h1>{isLogin ? <>Good to see you <em>again.</em></> : <>Make room for your next <em>breakthrough.</em></>}</h1>
+          <p>{isLogin ? 'Pick up where you left off. Your notes, questions, and next study session are waiting.' : 'Bring your course material together, then study with more context and less hunting.'}</p>
           <div className="auth-proof-list">
-            <span>Secure JWT login</span>
-            <span>Student-focused dashboard</span>
-            <span>Private progress tracking</span>
+            <span><Search aria-hidden="true" size={15} />Search your notes</span>
+            <span><Users aria-hidden="true" size={15} />Study with your people</span>
+            <span><Sparkles aria-hidden="true" size={15} />Practice with purpose</span>
+          </div>
+          <div className="auth-visual" aria-label="Students collaborating in a reading room">
+            <img src="/images/landing/reading-room-study.jpg" alt="Two students studying together with a laptop and open books" width="1600" height="1067" />
+            <div className="auth-visual-overlay" />
+            <div className="auth-visual-caption">
+              <span>A small study circle</span>
+              <strong>One question.<br /><em>A shared discovery.</em></strong>
+              <div><i>A</i><i>T</i><i>Z</i><small>3 classmates in a reading room</small></div>
+            </div>
           </div>
         </div>
 
         <div className="auth-card">
-          <div className="auth-brand">
-            <div className="auth-logo">E</div>
-            <div>
-              <div className="auth-brand-name">Exam<span>Mind</span></div>
-              <div className="auth-brand-sub">Academic Excellence</div>
-            </div>
+          <div className="auth-card-heading">
+            <span className="auth-card-eyebrow">{isLogin ? 'Welcome back' : 'Start with your material'}</span>
+            <h2>{isLogin ? 'Sign in to your desk.' : 'Create your workspace.'}</h2>
+            <p>{isLogin ? 'Your archive and study groups are right where you left them.' : 'A private place for your notes, questions, and next breakthrough.'}</p>
           </div>
 
-          <div className="auth-switch">
-            <button className={isLogin ? 'on' : ''} type="button" onClick={() => setIsLogin(true)}>Sign in</button>
-            <button className={!isLogin ? 'on' : ''} type="button" onClick={() => setIsLogin(false)}>Create account</button>
+          <div className="auth-switch" role="tablist" aria-label="Account access">
+            <button className={isLogin ? 'on' : ''} role="tab" aria-selected={isLogin} type="button" onClick={() => setIsLogin(true)}>Sign in</button>
+            <button className={!isLogin ? 'on' : ''} role="tab" aria-selected={!isLogin} type="button" onClick={() => setIsLogin(false)}>Create account</button>
           </div>
 
         {error && (
@@ -141,6 +149,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Your full name"
+                  autoComplete="name"
                   required
                   minLength={2}
                 />
@@ -153,6 +162,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
                   value={username}
                   onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                   placeholder="e.g. vera_csc301"
+                  autoComplete="username"
                   required
                   minLength={3}
                   maxLength={24}
@@ -171,6 +181,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={isLogin ? 'your@email.com' : 'yourname@stu.cu.edu.ng'}
+              autoComplete="email"
               required
             />
             {!isLogin && (
@@ -187,6 +198,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'}
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
               required
               minLength={8}
             />
@@ -194,8 +206,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
 
           <button
             type="submit"
-            className="cta"
-            style={{ width: '100%', justifyContent: 'center', padding: 12, fontSize: 13.5, marginTop: 4 }}
+            className="auth-submit"
             disabled={loading}
           >
             {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
@@ -205,6 +216,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
         <div className="auth-footnote">
           {isLogin ? "Don't have an account? " : 'Already have an account? '}
           <button
+            type="button"
             onClick={switchMode}
           >
             {isLogin ? 'Sign up' : 'Sign in'}

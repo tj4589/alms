@@ -1,0 +1,22 @@
+{
+  "scope": "public landing",
+  "component": "frontend/src/components/Landing.tsx",
+  "stylesheet": "frontend/src/components/Landing.css",
+  "assetCredits": "frontend/public/images/landing/CREDITS.md",
+  "motion": {
+    "library": "gsap + @gsap/react + ScrollTrigger",
+    "navThresholdPx": 48,
+    "journeyScrubSeconds": 0.45,
+    "palette": ["#f8f5ee", "#eadbca", "#ac8b73", "#6c3e2e", "#282a24", "#191d19"],
+    "foregroundLuminanceCrossover": 0.179,
+    "heroPerspectivePx": 1200,
+    "pointerTiltEase": "power3.out",
+    "pointerTiltSeconds": 0.7,
+    "reducedMotion": "Static chapter colors, no parallax, no card stacking, no transitions"
+  },
+  "verification": {
+    "smokeScript": "scripts/check_landing.cjs",
+    "viewports": [390, 768, 1024, 1440],
+    "evidence": ".impeccable/review/checks.json"
+  }
+}

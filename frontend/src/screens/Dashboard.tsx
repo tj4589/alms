@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { FormEvent } from 'react';
 import {
   ArrowRight,
   CalendarDays,
@@ -7,12 +6,12 @@ import {
   FileQuestion,
   FileText,
   FolderOpen,
-  Search,
-  Upload,
+  MessageCircle,
+  Plus,
 } from 'lucide-react';
 import type { AcademicMetadata, ScreenType, User } from '../types';
 import { apiGet } from '../lib/api';
-import { WorkbenchEmpty, WorkbenchSection } from '../components/workbench/WorkbenchSection';
+
 import './Dashboard.css';
 
 type ReadinessEntry = {
@@ -173,8 +172,10 @@ export default function Dashboard({
   const [lectureNotes, setLectureNotes] = useState<MaterialEntry[]>([]);
   const [studySessions, setStudySessions] = useState<StudySessionEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openedAt] = useState(() => Date.now());
   const [archiveView, setArchiveView] = useState<'materials' | 'questions'>('materials');
-  const [archiveQuery, setArchiveQuery] = useState('');
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   const firstName = user?.name?.split(' ')[0] || 'student';
 
@@ -190,6 +191,7 @@ export default function Dashboard({
       apiGet('/study-sessions?active_only=true'),
     ]).then(([analyticsResult, coursesResult, questionsResult, notesResult, sessionsResult]) => {
       if (cancelled) return;
+      setLoadError([analyticsResult, coursesResult, questionsResult, notesResult, sessionsResult].some(result => result.status === 'rejected'));
       setAnalytics(
         analyticsResult.status === 'fulfilled'
           ? analyticsResult.value as StudentAnalytics
@@ -220,7 +222,7 @@ export default function Dashboard({
     });
 
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, retryKey]);
 
   const courseById = useMemo(
     () => new Map(courses.map((course) => [course.id, course])),
@@ -355,339 +357,129 @@ export default function Dashboard({
 
   const upcomingSessions = useMemo(() => {
     return studySessions
-      .filter((session) => session.starts_at)
+      .filter((session) => session.starts_at && new Date(session.starts_at).getTime() >= openedAt)
       .sort((a, b) => new Date(a.starts_at!).getTime() - new Date(b.starts_at!).getTime())
       .slice(0, 2);
-  }, [studySessions]);
+  }, [studySessions, openedAt]);
 
   const hasUploads = archiveItems.length > 0;
   const latestMaterial = archiveItems[0] || null;
   const visibleArchiveItems = archiveView === 'questions'
     ? archiveItems.filter((item) => item.kind === 'Past question').slice(0, 5)
     : archiveItems.slice(0, 5);
-  const hasQueueItems = upcomingSessions.length > 0 || Boolean(weakestTopic) || Boolean(latestMaterial) || hasUploads;
-  const hasRecentActivity = recentActivity.length > 0;
 
-  const handleArchiveSearch = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const query = archiveQuery.trim();
-    if (query) onOpenSearch(query);
+  const retry = () => {
+    setLoading(true);
+    setLoadError(false);
+    setRetryKey(key => key + 1);
   };
 
   return (
-    <div className="page workbench-page" id="s-dashboard">
-      <header className="wb-page-head dashboard-command-head">
+    <div className="page workbench-page student-desk" id="s-dashboard">
+      <header className="desk-heading">
         <div>
-          <p className="wb-date">{todayLabel()}</p>
-          <h1>{timeOfDay()}, {firstName}.</h1>
-          <p className="wb-page-intro">
-            {weakestTopic
-              ? <>Your next priority is <strong>{weakestTopic.topic}</strong>.</>
-              : hasUploads
-                ? 'Your academic archive is ready to study.'
-                : 'Start by adding material from one of your courses.'}
-          </p>
+          <h1>{timeOfDay()}, {firstName}<span>.</span></h1>
+          <p>A little focus. A little progress. Your own pace.</p>
         </div>
-        <div className="wb-head-actions">
-          {hasUploads && (
-            <button type="button" className="wb-button wb-button-secondary" onClick={() => go('search')}>
-              <Search aria-hidden="true" />
-              Search archive
-            </button>
-          )}
-          <button type="button" className="wb-button wb-button-primary" onClick={() => go('upload')}>
-            <Upload aria-hidden="true" />
-            Upload material
-          </button>
-        </div>
+        <span className="desk-date"><CalendarDays size={16} aria-hidden="true" />{todayLabel()}</span>
       </header>
 
-      <section className={`dashboard-next-panel ${hasUploads ? 'has-sources' : 'is-empty'}`} aria-labelledby="dashboard-next-title">
-        <div className="dashboard-next-copy">
-          <p className="dashboard-next-label">Next study action</p>
-          <h2 id="dashboard-next-title">
-            {loading
-              ? 'Preparing your workspace'
-              : weakestTopic
-                ? <>Strengthen <em>{weakestTopic.topic}</em></>
-                : hasUploads
-                  ? 'Build your first readiness signal'
-                  : 'Start with one course source'}
-          </h2>
-          <p>
-            {loading
-              ? 'Checking your courses, indexed material, and practice record.'
-              : weakestTopic
-                ? `${weakestTopic.topic} is your lowest tracked topic at ${weakestTopic.score}% readiness.`
-                : hasUploads
-                  ? 'Your material is indexed. Complete a focused practice session to begin measuring topic readiness.'
-                  : 'Upload lecture notes or a past question. ExamMind will organise it into a course workspace you can search and practise from.'}
-          </p>
-          {!loading && (
-            <button type="button" className="dashboard-next-action" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
-              {weakestTopic ? 'Practise this topic' : hasUploads ? 'Start practice' : 'Upload course material'}
-              <ArrowRight aria-hidden="true" />
-            </button>
-          )}
-
-          {!loading && (overallReadiness !== null || archiveItems.length > 0 || (analytics?.attempts.length || 0) > 0) && (
-            <dl className="dashboard-next-evidence" aria-label="Current study evidence">
-              {overallReadiness !== null && <div><dt>Overall readiness</dt><dd>{overallReadiness}%</dd></div>}
-              {archiveItems.length > 0 && <div><dt>Indexed sources</dt><dd>{archiveItems.length}</dd></div>}
-              {(analytics?.attempts.length || 0) > 0 && <div><dt>Practice sessions</dt><dd>{analytics?.attempts.length}</dd></div>}
-            </dl>
-          )}
+      {loadError && !loading && (
+        <div className="desk-error" role="alert">
+          <div><strong>We couldn’t load everything.</strong><span>Your saved work hasn’t changed. Reconnect and try again.</span></div>
+          <button type="button" onClick={retry}>Try again <ArrowRight size={16} aria-hidden="true" /></button>
         </div>
-
-        <div className="dashboard-document-stack" aria-label={hasUploads ? `${archiveItems.length} indexed academic sources` : 'No academic sources indexed yet'}>
-          <span className="dashboard-document-sheet sheet-back" aria-hidden="true" />
-          <span className="dashboard-document-sheet sheet-middle" aria-hidden="true" />
-          <div className="dashboard-document-sheet sheet-front">
-            <FileText aria-hidden="true" />
-            <small>{hasUploads ? 'Academic archive' : 'New workspace'}</small>
-            <strong>{hasUploads ? `${archiveItems.length} source${archiveItems.length === 1 ? '' : 's'} indexed` : 'Waiting for your first source'}</strong>
-            <span>{hasUploads && latestMaterial ? shorten(latestMaterial.title, 42) : 'PDF / scan / lecture note'}</span>
-          </div>
-        </div>
-      </section>
-
-      {hasUploads && (
-        <form className="dashboard-archive-command" onSubmit={handleArchiveSearch}>
-          <label htmlFor="archive-grounded-search">Search your sources</label>
-          <div className="wb-search-control">
-            <Search aria-hidden="true" />
-            <input
-              id="archive-grounded-search"
-              type="search"
-              value={archiveQuery}
-              onChange={(event) => setArchiveQuery(event.target.value)}
-              placeholder="Course, topic, lecturer, or past question"
-              required
-            />
-            <button type="submit" aria-label="Search your academic archive" title="Search archive">
-              <ArrowRight aria-hidden="true" />
-            </button>
-          </div>
-          <span>Grounded in your indexed material</span>
-        </form>
       )}
 
-      <div className={`dashboard-workspace-grid ${hasQueueItems ? '' : 'is-single'}`}>
-        <WorkbenchSection
-          id="course-workspaces"
-          index="01"
-          title="Your courses"
-          description="Sources, past questions, and current readiness."
-          action={hasUploads ? (
-            <button type="button" className="wb-text-action" onClick={() => go('search')}>
-              View archive <ArrowRight aria-hidden="true" />
-            </button>
-          ) : undefined}
-        >
-          {loading ? (
-            <div className="wb-loading-list" aria-label="Loading course workspaces">
-              <span></span><span></span><span></span>
+      <div className="desk-layout">
+        <div className="desk-main">
+          <section className="desk-next" aria-labelledby="desk-next-title" aria-busy={loading}>
+            <div className="desk-next-copy">
+              <h2 id="desk-next-title">{loading ? 'Getting your desk ready…' : weakestTopic ? <>A little more practice<br />with {weakestTopic.topic}.</> : hasUploads ? 'Pick up where you left off.' : loadError ? 'Your study space is right here.' : <>Big semester.<br />One small start.</>}</h2>
+              <p>{loading ? 'Gathering your courses, notes and recent practice.' : weakestTopic ? `Your latest readiness for this topic is ${weakestTopic.score}%. Make room for a quick practice session.` : hasUploads ? 'Your notes are here. Turn what you’ve learned into something that sticks.' : loadError ? 'You can still add material or find your study group while we reconnect.' : 'Bring a lecture note or a past paper. We’ll help you find answers, make connections and get ready for what’s next.'}</p>
+              {!loading && <button type="button" className="desk-primary" onClick={() => go(hasUploads ? 'practice' : 'upload')}>{hasUploads ? 'Let’s practise' : 'Add your first material'}<ArrowRight size={18} aria-hidden="true" /></button>}
             </div>
-          ) : courseWorkspaces.length ? (
-            <div className="wb-course-list">
-              {courseWorkspaces.map((course) => (
-                <button
-                  type="button"
-                  className="wb-course-row"
-                  key={course.id}
-                  onClick={() => onOpenSearch(course.code === 'Archive' ? course.name : course.code)}
-                >
-                  <span className="wb-course-code">{course.code}</span>
-                  <span className="wb-course-main">
-                    <strong>{course.name}</strong>
-                    <small>
-                      {course.materialCount} source{course.materialCount === 1 ? '' : 's'} / {course.questionCount} past question{course.questionCount === 1 ? '' : 's'}
-                    </small>
-                  </span>
-                  <span className="wb-course-status">
-                    <small>{course.lastActiveAt ? `Active ${formatShortDate(course.lastActiveAt)}` : 'Ready to begin'}</small>
-                    <strong>{course.readiness !== null ? `${course.readiness}%` : '--'}</strong>
-                  </span>
-                  <ArrowRight aria-hidden="true" />
+            <div className="desk-next-side">
+              {hasUploads ? (
+                <div className="desk-resume">
+                  <FileText size={23} strokeWidth={1.5} aria-hidden="true" />
+                  <span>Last added to your desk</span>
+                  <strong>{shorten(latestMaterial!.title, 62)}</strong>
+                  <button type="button" onClick={() => onOpenSearch(latestMaterial!.courseCode)}>Open materials <ArrowRight size={16} aria-hidden="true" /></button>
+                </div>
+              ) : (
+                <ol className="desk-start-steps" aria-label="How to get started">
+                  <li><span>1</span><div><strong>Bring your material</strong><small>Notes, PDFs or past questions</small></div></li>
+                  <li><span>2</span><div><strong>Make sense of it</strong><small>Search, ask and connect the dots</small></div></li>
+                  <li><span>3</span><div><strong>Give it a go</strong><small>Practise at your own pace</small></div></li>
+                </ol>
+              )}
+            </div>
+          </section>
+
+          {hasUploads && <div className="desk-summary" aria-label="Your study overview">
+            <span><strong>{archiveItems.length}</strong> saved material{archiveItems.length === 1 ? '' : 's'}</span>
+            <span><strong>{analytics?.attempts.length || 0}</strong> practice session{analytics?.attempts.length === 1 ? '' : 's'}</span>
+            {overallReadiness !== null && <span><strong>{overallReadiness}%</strong> overall readiness</span>}
+          </div>}
+
+          <section className="desk-section" aria-labelledby="desk-courses-title">
+            <header className="desk-section-head"><h2 id="desk-courses-title">Your courses</h2><button type="button" className="desk-text-button" onClick={() => go('upload')}><Plus size={16} aria-hidden="true" />Add material</button></header>
+            {loading ? <div className="desk-loading" role="status">Loading your courses…</div> : courseWorkspaces.length ? (
+              <div className="desk-course-grid">{courseWorkspaces.map((course) => (
+                <button type="button" className="desk-course" key={course.id} onClick={() => onOpenSearch(course.code === 'Archive' ? course.name : course.code)}>
+                  <span className="desk-course-top"><span>{course.code}</span><ArrowRight size={18} aria-hidden="true" /></span>
+                  <strong>{course.name}</strong>
+                  <small>{course.materialCount} material{course.materialCount === 1 ? '' : 's'} · {course.questionCount} past question{course.questionCount === 1 ? '' : 's'}</small>
+                  {course.readiness !== null && <span className="desk-course-readiness">{course.readiness}% readiness</span>}
                 </button>
-              ))}
-            </div>
-          ) : (
-            <div className="dashboard-course-empty">
-              <div className="dashboard-folder-stack" aria-hidden="true"><span /><span /><span /></div>
-              <div>
-                <strong>No course workspaces yet</strong>
-                <p>Your first uploaded document will create one automatically.</p>
-              </div>
-              <button type="button" className="wb-inline-action" onClick={() => go('upload')}>Add a source</button>
-            </div>
-          )}
-        </WorkbenchSection>
+              ))}</div>
+            ) : <div className="desk-course-empty">
+              <FolderOpen size={27} strokeWidth={1.4} aria-hidden="true" />
+              <h3>{loadError ? 'Your courses couldn’t be loaded' : 'A home for every course.'}</h3>
+              <p>{loadError ? 'Try reconnecting to see your saved materials.' : 'Add your first material and we’ll organise it by course. Less searching through chats. More time to understand.'}</p>
+              <button type="button" className="desk-outline" onClick={loadError ? retry : () => go('upload')}>{loadError ? 'Reload courses' : 'Upload course material'}<ArrowRight size={16} aria-hidden="true" /></button>
+              {!loadError && <span className="desk-file-hint">Lecture notes · Past questions · Scanned PDFs</span>}
+            </div>}
+          </section>
 
-        {hasQueueItems && (
-          <WorkbenchSection
-            id="academic-queue"
-            index="02"
-            title="Study agenda"
-            description="Upcoming sessions and useful follow-ups."
-            className="wb-queue-section"
-          >
-            <div className="wb-queue-list">
-            {upcomingSessions.map((session) => (
-              <button type="button" className="wb-queue-row" key={`session-${session.id}`} onClick={() => go('groups')}>
-                <span className="wb-queue-icon"><CalendarDays aria-hidden="true" /></span>
-                <span>
-                  <small>{formatSchedule(session.starts_at)}</small>
-                  <strong>{session.title}</strong>
-                  <em>{session.exam_goal || session.topic || 'Scheduled study session'}</em>
-                </span>
-                <ArrowRight aria-hidden="true" />
-              </button>
-            ))}
-
-            {weakestTopic ? (
-              <button type="button" className="wb-queue-row" onClick={() => go('practice')}>
-                <span className="wb-queue-icon"><ClipboardCheck aria-hidden="true" /></span>
-                <span>
-                  <small>Recommended next</small>
-                  <strong>Practice {weakestTopic.topic}</strong>
-                  <em>{weakestTopic.score}% readiness / strengthen before review</em>
-                </span>
-                <ArrowRight aria-hidden="true" />
-              </button>
-            ) : (
-              <button type="button" className="wb-queue-row" onClick={() => go(hasUploads ? 'practice' : 'upload')}>
-                <span className="wb-queue-icon">{hasUploads ? <ClipboardCheck aria-hidden="true" /> : <Upload aria-hidden="true" />}</span>
-                <span>
-                  <small>Recommended next</small>
-                  <strong>{hasUploads ? 'Complete your first practice set' : 'Add your first academic source'}</strong>
-                  <em>{hasUploads ? 'Build a readiness baseline from indexed material' : 'Lecture notes and past questions work best'}</em>
-                </span>
-                <ArrowRight aria-hidden="true" />
-              </button>
-            )}
-
-            {latestMaterial && (
-              <button type="button" className="wb-queue-row" onClick={() => onOpenSearch(latestMaterial.courseCode)}>
-                <span className="wb-queue-icon"><FolderOpen aria-hidden="true" /></span>
-                <span>
-                  <small>Archive follow-up</small>
-                  <strong>{shorten(latestMaterial.title, 54)}</strong>
-                  <em>Search and review the latest indexed source</em>
-                </span>
-                <ArrowRight aria-hidden="true" />
-              </button>
-            )}
+          {hasUploads && <section className="desk-section" aria-labelledby="desk-materials-title">
+            <header className="desk-section-head"><h2 id="desk-materials-title">On your desk</h2><button type="button" className="desk-text-button" onClick={() => go('search')}>View all <ArrowRight size={16} aria-hidden="true" /></button></header>
+            <div className="desk-filters" role="group" aria-label="Filter materials">
+              <button type="button" aria-pressed={archiveView === 'materials'} onClick={() => setArchiveView('materials')}>All materials <span>{archiveItems.length}</span></button>
+              <button type="button" aria-pressed={archiveView === 'questions'} onClick={() => setArchiveView('questions')}>Past questions <span>{pastQuestions.length}</span></button>
             </div>
-          </WorkbenchSection>
-        )}
+            <div className="desk-materials">
+              {visibleArchiveItems.length ? visibleArchiveItems.map(item => <button type="button" className="desk-material" key={item.id} onClick={() => onOpenSearch(item.courseCode)}>
+                {item.kind === 'Past question' ? <FileQuestion size={21} strokeWidth={1.5} aria-hidden="true" /> : <FileText size={21} strokeWidth={1.5} aria-hidden="true" />}
+                <span><strong>{item.title}</strong><small>{item.courseCode} · {item.kind}</small></span><time>{formatShortDate(item.createdAt)}</time><ArrowRight size={16} aria-hidden="true" />
+              </button>) : <p className="desk-muted">No past questions yet. Add one when you’re ready to practise.</p>}
+            </div>
+          </section>}
+
+          {!hasUploads && !loading && !loadError && <section className="desk-shortcuts" aria-label="Other ways to get started">
+            <button type="button" onClick={() => go('assistant')}><MessageCircle size={21} strokeWidth={1.5} aria-hidden="true" /><span><strong>Stuck on a topic?</strong><small>Talk it through with your study assistant.</small></span><ArrowRight size={17} aria-hidden="true" /></button>
+            <button type="button" onClick={() => go('questions')}><FileQuestion size={21} strokeWidth={1.5} aria-hidden="true" /><span><strong>See what’s been asked</strong><small>Explore the past question library.</small></span><ArrowRight size={17} aria-hidden="true" /></button>
+          </section>}
+        </div>
+
+        <aside className="desk-aside" aria-label="Study together and recent activity">
+          <section className="desk-together" aria-labelledby="desk-together-title">
+            <div className="desk-together-photo"><img src="/images/landing/study-together.jpg" alt="Students sharing notes and studying together" /></div>
+            <div className="desk-together-copy"><h2 id="desk-together-title">Better, together.</h2><p>For the “wait, how did you get that?” moments. Find your people and figure it out together.</p>
+              <button type="button" onClick={() => go('groups')}>Find a study group <ArrowRight size={17} aria-hidden="true" /></button>
+            </div>
+            <button type="button" className="desk-discussions" onClick={() => go('collab')}><MessageCircle size={17} aria-hidden="true" />Join the conversation<ArrowRight size={15} aria-hidden="true" /></button>
+          </section>
+
+          <section className="desk-agenda" aria-labelledby="desk-agenda-title">
+            <header className="desk-section-head"><h2 id="desk-agenda-title">Coming up</h2><CalendarDays size={18} strokeWidth={1.5} aria-hidden="true" /></header>
+            {loading ? <p className="desk-muted" role="status">Checking your sessions…</p> : upcomingSessions.length ? upcomingSessions.map(session => <button className="desk-session" type="button" key={session.id} onClick={() => go('groups')}><small>{formatSchedule(session.starts_at)}</small><strong>{session.title}</strong><span>{session.topic || session.exam_goal || 'Study session'}<ArrowRight size={15} aria-hidden="true" /></span></button>) : <><p className="desk-muted">{loadError ? 'We couldn’t check your upcoming sessions.' : 'No study sessions on the calendar yet. Make time to work through a topic with your group.'}</p><button type="button" className="desk-text-button" onClick={() => go('groups')}>Go to study groups <ArrowRight size={16} aria-hidden="true" /></button></>}
+          </section>
+
+          {recentActivity.length > 0 && <section className="desk-activity" aria-labelledby="desk-activity-title"><header className="desk-section-head"><h2 id="desk-activity-title">Small steps add up</h2></header><ol>{recentActivity.slice(0, 3).map(activity => <li key={activity.id}><activity.icon size={16} aria-hidden="true" /><div><strong>{activity.title}</strong><small>{activity.type} · {formatShortDate(activity.date)}</small></div></li>)}</ol><button type="button" className="desk-text-button" onClick={() => go('progress')}>Your progress <ArrowRight size={16} aria-hidden="true" /></button></section>}
+        </aside>
       </div>
-
-      {(hasUploads || hasRecentActivity) && (
-      <div className={`dashboard-secondary-grid ${hasUploads && hasRecentActivity ? '' : 'is-single'}`}>
-        {hasUploads && <WorkbenchSection
-          id="archive-evidence"
-          index="03"
-          title="Recently indexed"
-          description="Material available to search and practise from."
-          action={(
-            <div className="wb-view-tabs" role="tablist" aria-label="Archive view">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={archiveView === 'materials'}
-                className={archiveView === 'materials' ? 'is-active' : ''}
-                onClick={() => setArchiveView('materials')}
-              >
-                Materials <span>{archiveItems.length}</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={archiveView === 'questions'}
-                className={archiveView === 'questions' ? 'is-active' : ''}
-                onClick={() => setArchiveView('questions')}
-              >
-                Past questions <span>{pastQuestions.length}</span>
-              </button>
-            </div>
-          )}
-        >
-          {loading ? (
-            <div className="wb-loading-list" aria-label="Loading archive sources">
-              <span></span><span></span><span></span>
-            </div>
-          ) : visibleArchiveItems.length ? (
-            <div className="wb-archive-list" role="tabpanel">
-              {visibleArchiveItems.map((item) => (
-                <button type="button" className="wb-archive-row" key={item.id} onClick={() => onOpenSearch(item.courseCode)}>
-                  <span className="wb-file-icon">
-                    {item.kind === 'Past question' ? <FileQuestion aria-hidden="true" /> : <FileText aria-hidden="true" />}
-                  </span>
-                  <span className="wb-archive-main">
-                    <small>{item.courseCode} / {item.kind}</small>
-                    <strong>{item.title}</strong>
-                    <em>{item.meta}</em>
-                  </span>
-                  <span className="wb-archive-date">{formatShortDate(item.createdAt)}</span>
-                  <ArrowRight aria-hidden="true" />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <WorkbenchEmpty
-              icon={archiveView === 'questions' ? FileQuestion : FolderOpen}
-              title={archiveView === 'questions' ? 'No past questions indexed' : 'Your archive is empty'}
-              body={archiveView === 'questions'
-                ? 'Upload a past paper to unlock exam-style retrieval and practice generation.'
-                : 'Add lecture notes or past questions to create a source-grounded study archive.'}
-              action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Upload PDF</button>}
-            />
-          )}
-        </WorkbenchSection>}
-
-        {hasRecentActivity && <WorkbenchSection
-          id="recent-activity"
-          index="04"
-          title="Activity"
-          description="Uploads and completed practice, in order."
-          action={(
-            <button type="button" className="wb-text-action" onClick={() => go('progress')}>
-              Progress <ArrowRight aria-hidden="true" />
-            </button>
-          )}
-        >
-          {loading ? (
-            <div className="wb-loading-list" aria-label="Loading recent activity">
-              <span></span><span></span><span></span>
-            </div>
-          ) : recentActivity.length ? (
-            <ol className="wb-activity-list">
-              {recentActivity.map((activity) => {
-                const ActivityIcon = activity.icon;
-                return (
-                  <li key={activity.id}>
-                    <span className="wb-activity-marker"><ActivityIcon aria-hidden="true" /></span>
-                    <span>
-                      <small>{activity.type} / {formatShortDate(activity.date)}</small>
-                      <strong>{activity.title}</strong>
-                      <em>{activity.meta}</em>
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-          ) : (
-            <WorkbenchEmpty
-              icon={ClipboardCheck}
-              title="No study activity yet"
-              body="Uploads and completed practice sessions will appear here in chronological order."
-              action={<button type="button" className="wb-inline-action" onClick={() => go('upload')}>Start with an upload</button>}
-            />
-          )}
-        </WorkbenchSection>}
-      </div>
-      )}
     </div>
   );
 }

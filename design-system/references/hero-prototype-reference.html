@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ExamMind — reaching hands, dot-matrix</title>
+<style>
+  :root{ --paper:#f3f4ef; --paper-2:#e7e9e2; --ink:#0d0e0e; --accent:#e9a13a; }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--paper);}
+  body{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; color:var(--ink); }
+
+  .note{
+    position:fixed; top:0; left:0; right:0; z-index:50;
+    background:var(--ink); color:var(--paper); font-size:12.5px; line-height:1.5;
+    padding:10px 20px; text-align:center;
+  }
+  .note b{color:var(--accent);}
+
+  .pin-wrap{ height:230vh; position:relative; }
+  .pin{
+    position:sticky; top:0; height:100vh; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at 50% 42%, #fbfaf6 0%, var(--paper) 60%, var(--paper-2) 100%);
+  }
+  .hero-inner{
+    position:relative; width:min(920px,94vw); height:min(640px,78vh);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .headline{ position:absolute; top:6%; left:50%; transform:translateX(-50%); text-align:center; z-index:5; pointer-events:none; }
+  .headline p.eyebrow{ text-transform:uppercase; letter-spacing:0.16em; font-size:11px; font-weight:700; color:var(--accent); margin:0 0 8px; }
+  .headline h1{ font-size:clamp(24px,3.6vw,38px); margin:0; line-height:1.12; }
+  .headline h1 em{ font-family:Georgia,"Times New Roman",serif; font-style:italic; }
+
+  .reveal-svg{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; z-index:2; }
+  .reveal-svg .line{ stroke:var(--ink); stroke-width:1.4; fill:none; stroke-dasharray:1; stroke-dashoffset:1; opacity:0.22; }
+  .reveal-svg .line.faint{ opacity:0.13; stroke-width:1.1; }
+  .reveal-svg .frame{ stroke:var(--ink); stroke-width:1.6; fill:none; stroke-dasharray:1; stroke-dashoffset:1; opacity:0.3; }
+  .reveal-svg.play .line{ animation:drawLine 1.1s cubic-bezier(.2,.7,.2,1) forwards; }
+  .reveal-svg.play .frame{ animation:drawLine 1.25s cubic-bezier(.2,.7,.2,1) forwards; animation-delay:.05s; }
+  .reveal-svg.play .line:nth-of-type(1){animation-delay:0s;} .reveal-svg.play .line:nth-of-type(2){animation-delay:.08s;}
+  .reveal-svg.play .line:nth-of-type(3){animation-delay:.14s;} .reveal-svg.play .line:nth-of-type(4){animation-delay:.2s;}
+  .reveal-svg.play .line:nth-of-type(5){animation-delay:.26s;} .reveal-svg.play .line:nth-of-type(6){animation-delay:.32s;}
+  @keyframes drawLine{ to{ stroke-dashoffset:0; } }
+
+  .hand-canvas{
+    position:absolute; width:360px; height:200px; opacity:0; z-index:3;
+    filter:drop-shadow(0 0 0 transparent);
+  }
+  .hand-canvas.left{ left:-70px; top:32%; transform:rotate(-13deg) translateY(10px); }
+  .hand-canvas.right{ right:-70px; top:44%; transform:rotate(13deg) translateY(-10px); }
+  .hand-canvas.play{ animation:handIn 1s cubic-bezier(.16,.84,.44,1) forwards; }
+  .hand-canvas.left.play{ animation-delay:.5s; }
+  .hand-canvas.right.play{ animation-delay:.64s; }
+  @keyframes handIn{
+    from{ opacity:0; transform:rotate(var(--rot)) translateY(var(--ty)) scale(0.92); }
+    to{ opacity:0.82; transform:rotate(var(--rot)) translateY(0) scale(1); }
+  }
+  .hand-canvas.left{ --rot:-13deg; --ty:16px; }
+  .hand-canvas.right{ --rot:13deg; --ty:-16px; }
+
+  .canvas-holder{ position:absolute; inset:0; opacity:0; transform:scale(0.9); z-index:4; }
+  .canvas-holder.play{ animation:objectIn .85s cubic-bezier(.16,.84,.44,1) forwards; animation-delay:.95s; }
+  @keyframes objectIn{ to{ opacity:1; transform:scale(1); } }
+
+  .scroll-cue{ position:absolute; bottom:6%; left:50%; transform:translateX(-50%); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; opacity:0.4; }
+
+  .content-below{ position:relative; z-index:2; background:var(--paper); padding:90px 24px 140px; display:flex; flex-direction:column; align-items:center; gap:22px; }
+  .content-below .tag{ font-size:11px; text-transform:uppercase; letter-spacing:0.14em; color:var(--accent); font-weight:700; }
+  .content-below h2{ font-size:clamp(22px,3vw,30px); margin:0 0 4px; max-width:560px; text-align:center; }
+</style>
+</head>
+<body>
+
+<div class="note">The dotted hands are a stylized nod to the "reaching" gesture you pointed at — rendered as dot-matrix, same as your third reference image, in ink on cream instead of white on black. <b>Move your mouse</b> over the hero, then scroll.</div>
+
+<div class="pin-wrap" id="pinWrap">
+  <div class="pin">
+    <div class="hero-inner" id="heroInner">
+
+      <div class="headline">
+        <p class="eyebrow">Your private academic index</p>
+        <h1>Turn the course material you already<br/>have into answers you can <em>trust</em>.</h1>
+      </div>
+
+      <svg class="reveal-svg" id="revealSvg" viewBox="0 0 920 640" preserveAspectRatio="xMidYMid meet">
+        <line class="line faint" x1="460" y1="230" x2="70"  y2="10"  pathLength="1"/>
+        <line class="line faint" x1="460" y1="230" x2="850" y2="10"  pathLength="1"/>
+        <line class="line faint" x1="460" y1="410" x2="70"  y2="630" pathLength="1"/>
+        <line class="line faint" x1="460" y1="410" x2="850" y2="630" pathLength="1"/>
+        <line class="line"       x1="460" y1="230" x2="460" y2="40"  pathLength="1"/>
+        <line class="line"       x1="460" y1="410" x2="460" y2="600" pathLength="1"/>
+        <rect class="frame" x="350" y="150" width="220" height="340" rx="4" pathLength="1"/>
+      </svg>
+
+      <canvas class="hand-canvas left" id="handLeft" width="360" height="200"></canvas>
+      <canvas class="hand-canvas right" id="handRight" width="360" height="200"></canvas>
+
+      <div class="canvas-holder" id="canvasHolder">
+        <div id="loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;opacity:.5;">loading…</div>
+      </div>
+
+    </div>
+    <div class="scroll-cue">scroll ↓</div>
+  </div>
+</div>
+
+<section class="content-below">
+  <p class="tag">The content underneath</p>
+  <h2>Placeholder only — the real sections after the hero aren't built here.</h2>
+</section>
+
+<script>
+// ---------- dot-matrix hand renderer ----------
+// A stylized "reaching arm + hand, index finger extended, other fingers curled"
+// silhouette, stippled into dots rather than drawn as a clean outline —
+// same technique as your third reference image (halftone dot fill of a shape),
+// which also matches the grain/halftone moodboard already in the brief (ref-06/07).
+const HAND_PATH = new Path2D(`
+  M 0,84
+  C 45,74 100,68 150,67
+  C 195,66 222,68 248,76
+  C 262,80 268,72 276,60
+  C 288,44 302,32 318,27
+  C 333,23 349,25 362,34
+  C 376,43 386,55 389,68
+  C 391,78 387,86 378,89
+  C 368,93 357,89 349,80
+  C 340,70 331,61 321,55
+  C 313,50 306,52 302,59
+  C 298,66 302,72 309,75
+  C 302,84 291,91 279,92
+  C 270,93 264,88 263,80
+  C 262,90 253,97 242,97
+  C 233,97 227,91 227,82
+  C 221,92 210,96 200,93
+  C 192,90 189,83 192,75
+  C 182,80 169,81 161,74
+  C 154,68 153,59 158,51
+  C 146,58 132,60 122,54
+  C 113,49 109,39 113,30
+  C 96,44 72,52 45,54
+  C 28,55 12,52 0,45
+  Z
+`);
+const HAND_W = 400, HAND_H = 110;
+
+function renderDotHand(canvas, mirrored){
+  const w = canvas.width, h = canvas.height;
+  const mask = document.createElement('canvas');
+  mask.width = w; mask.height = h;
+  const mctx = mask.getContext('2d');
+  mctx.translate(w*0.5 - HAND_W*0.42, h*0.5 - HAND_H*0.55);
+  if (mirrored){
+    mctx.translate(w, 0);
+    mctx.scale(-1, 1);
+    mctx.translate(-(w*0.5 - HAND_W*0.42)*2 + (w*0.5 - HAND_W*0.42), 0);
+  }
+  mctx.fillStyle = '#000';
+  mctx.fill(HAND_PATH);
+  const data = mctx.getImageData(0,0,w,h).data;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  const step = 5;
+  for (let y=0; y<h; y+=step){
+    for (let x=0; x<w; x+=step){
+      const idx = (y*w+x)*4 + 3;
+      const alpha = data[idx];
+      if (alpha > 40){
+        const jitterX = (Math.random()-0.5)*2.2;
+        const jitterY = (Math.random()-0.5)*2.2;
+        const r = 0.9 + Math.random()*1.5 * (alpha/255);
+        ctx.beginPath();
+        ctx.arc(x+jitterX, y+jitterY, r, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(13,14,14,${0.55 + Math.random()*0.35})`;
+        ctx.fill();
+      }
+    }
+  }
+}
+
+renderDotHand(document.getElementById('handLeft'), false);
+renderDotHand(document.getElementById('handRight'), true);
+</script>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
+
+const pinWrap = document.getElementById('pinWrap');
+const heroInner = document.getElementById('heroInner');
+const canvasHolder = document.getElementById('canvasHolder');
+const loadingEl = document.getElementById('loading');
+const revealSvg = document.getElementById('revealSvg');
+const handLeft = document.getElementById('handLeft');
+const handRight = document.getElementById('handRight');
+
+const PAPER=0xfbfaf5, FOLD=0xe7e4da, INK=0x0d0e0e, ACCENT=0xe9a13a;
+
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setClearColor(0x000000,0);
+canvasHolder.appendChild(renderer.domElement);
+renderer.domElement.style.position='absolute';
+renderer.domElement.style.inset='0';
+renderer.domElement.style.width='100%';
+renderer.domElement.style.height='100%';
+
+const effect = new OutlineEffect(renderer, { defaultThickness:0.014, defaultColor:[0.02,0.03,0.03], defaultAlpha:0.85 });
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38,1,0.1,50);
+camera.position.set(0.9,0.55,4.4);
+camera.lookAt(0,-0.05,0);
+
+function resize(){
+  const w = heroInner.clientWidth, h = heroInner.clientHeight;
+  renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+scene.add(new THREE.AmbientLight(0xfff2df,0.65));
+const key=new THREE.DirectionalLight(0xfff0d6,1.15); key.position.set(-2.4,3,2.6); scene.add(key);
+const fillL=new THREE.DirectionalLight(0xdfe7ea,0.4); fillL.position.set(2.6,-1,1.8); scene.add(fillL);
+
+function makeGradientMap(steps){
+  const data=new Uint8Array(steps);
+  for(let i=0;i<steps;i++) data[i]=Math.round((i/(steps-1))*255);
+  const tex=new THREE.DataTexture(data,steps,1,THREE.RedFormat);
+  tex.magFilter=THREE.NearestFilter; tex.minFilter=THREE.NearestFilter; tex.needsUpdate=true;
+  return tex;
+}
+const gradientMap = makeGradientMap(4);
+function toonMat(color){ return new THREE.MeshToonMaterial({ color, gradientMap }); }
+const matPaper=toonMat(PAPER), matInk=toonMat(INK), matAccent=toonMat(ACCENT), matFold=toonMat(FOLD);
+
+const rig = new THREE.Group();
+scene.add(rig);
+
+function roundedRectShape(w,h,r){
+  const s=new THREE.Shape(); const x=-w/2,y=-h/2;
+  s.moveTo(x,y+r); s.lineTo(x,y+h-r); s.quadraticCurveTo(x,y+h,x+r,y+h);
+  s.lineTo(x+w-r,y+h); s.quadraticCurveTo(x+w,y+h,x+w,y+h-r); s.lineTo(x+w,y+r);
+  s.quadraticCurveTo(x+w,y,x+w-r,y); s.lineTo(x+r,y); s.quadraticCurveTo(x,y,x,y+r);
+  return s;
+}
+const PAGE_W=1.5, PAGE_H=2.0, PAGE_DEPTH=0.09;
+const pageShape = roundedRectShape(PAGE_W,PAGE_H,0.09);
+const holeYs=[0.68,0.34,0,-0.34,-0.68];
+holeYs.forEach((hy)=>{ const hole=new THREE.Path(); hole.absarc(-0.52,hy,0.05,0,Math.PI*2,true); pageShape.holes.push(hole); });
+const pageGeo = new THREE.ExtrudeGeometry(pageShape,{depth:PAGE_DEPTH,bevelEnabled:true,bevelThickness:0.012,bevelSize:0.012,bevelSegments:2,curveSegments:16});
+pageGeo.center();
+const page = new THREE.Mesh(pageGeo, matPaper);
+rig.add(page);
+const pageFrontZ = PAGE_DEPTH/2+0.001;
+
+function ruledLine(y,width,xOffset=0){
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(width,0.032,0.018), new THREE.MeshToonMaterial({color:INK,gradientMap}));
+  mesh.position.set(xOffset,y,pageFrontZ); rig.add(mesh);
+}
+ruledLine(0.62,0.85,0.05); ruledLine(0.35,0.85,0.05); ruledLine(0.08,0.62,-0.02); ruledLine(-0.48,0.6,-0.03);
+
+const highlightBar=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.15,0.014), matAccent);
+highlightBar.position.set(0.05,-0.2,pageFrontZ-0.002); rig.add(highlightBar);
+const highlightedLine=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.032,0.02), matInk);
+highlightedLine.position.set(0.05,-0.2,pageFrontZ+0.004); rig.add(highlightedLine);
+
+const foldShape=new THREE.Shape();
+foldShape.moveTo(0,0); foldShape.lineTo(-0.22,0); foldShape.lineTo(0,-0.22); foldShape.closePath();
+const fold=new THREE.Mesh(new THREE.ExtrudeGeometry(foldShape,{depth:0.02,bevelEnabled:false}), matFold);
+fold.position.set(PAGE_W/2-0.01,PAGE_H/2-0.01,pageFrontZ); rig.add(fold);
+
+holeYs.forEach((hy)=>{
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(0.055,0.012,8,20), matInk);
+  ring.position.set(-0.52,hy,pageFrontZ-PAGE_DEPTH/2); rig.add(ring);
+});
+
+const marker=new THREE.Group();
+const barrel=new THREE.Mesh(new THREE.CapsuleGeometry(0.095,0.62,4,10), matAccent);
+barrel.rotation.z=Math.PI/2; marker.add(barrel);
+const tip=new THREE.Mesh(new THREE.ConeGeometry(0.095,0.2,10), matInk);
+tip.rotation.z=-Math.PI/2; tip.position.set(0.42,0,0); marker.add(tip);
+const ring2=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.06,10), matInk);
+ring2.rotation.z=Math.PI/2; ring2.position.set(0.29,0,0); marker.add(ring2);
+marker.position.set(0.48,-0.78,pageFrontZ+0.11); marker.rotation.z=0.62;
+rig.add(marker);
+
+const shadow=new THREE.Mesh(new THREE.CircleGeometry(1.05,32), new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.08}));
+shadow.position.set(0,-1.35,-0.3); rig.add(shadow);
+
+rig.rotation.set(-0.12,-0.35,0);
+const baseRotY=rig.rotation.y, baseRotX=rig.rotation.x;
+
+let pointerX=0, pointerY=0;
+heroInner.addEventListener('pointermove',(e)=>{
+  const r = heroInner.getBoundingClientRect();
+  pointerX = ((e.clientX - r.left)/r.width)*2-1;
+  pointerY = ((e.clientY - r.top)/r.height)*2-1;
+});
+heroInner.addEventListener('pointerleave',()=>{ pointerX=0; pointerY=0; });
+
+let scrollProgress = 0;
+function onScroll(){
+  const rect = pinWrap.getBoundingClientRect();
+  const total = pinWrap.offsetHeight - window.innerHeight;
+  const scrolled = -rect.top;
+  scrollProgress = Math.min(1, Math.max(0, scrolled/total));
+  const p = scrollProgress;
+  heroInner.style.opacity = String(Math.max(0, 1 - p*1.3));
+  heroInner.style.transform = `scale(${1 - p*0.16}) translateY(${p*-30}px)`;
+  const fade = String(Math.max(0, 1 - p*2.4));
+  revealSvg.querySelectorAll('.line,.frame').forEach(el=>{ el.style.opacity = fade; });
+  handLeft.style.opacity = String(Math.max(0, 0.82 - p*2.4));
+  handRight.style.opacity = String(Math.max(0, 0.82 - p*2.4));
+}
+window.addEventListener('scroll', onScroll, { passive:true });
+
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  const targetRotY = baseRotY + Math.sin(t*0.2)*0.08 + pointerX*0.4;
+  const targetRotX = baseRotX + Math.sin(t*0.15)*0.03 - pointerY*0.22;
+  rig.rotation.y = THREE.MathUtils.lerp(rig.rotation.y, targetRotY, 0.045);
+  rig.rotation.x = THREE.MathUtils.lerp(rig.rotation.x, targetRotX, 0.045);
+  effect.render(scene, camera);
+}
+
+resize();
+loadingEl.style.display='none';
+requestAnimationFrame(()=> requestAnimationFrame(()=>{
+  revealSvg.classList.add('play');
+  canvasHolder.classList.add('play');
+  handLeft.classList.add('play');
+  handRight.classList.add('play');
+}));
+animate();
+onScroll();
+</script>
+
+</body>
+</html>

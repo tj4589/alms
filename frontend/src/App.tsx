@@ -15,6 +15,7 @@ import { SquaresFourIcon } from '@phosphor-icons/react/dist/icons/SquaresFour';
 import { UploadSimpleIcon } from '@phosphor-icons/react/dist/icons/UploadSimple';
 import { UsersThreeIcon } from '@phosphor-icons/react/dist/icons/UsersThree';
 import { XIcon } from '@phosphor-icons/react/dist/icons/X';
+import { BookOpen } from 'lucide-react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import './App.css';
 import './Navigation.css';
@@ -61,11 +62,11 @@ type NavigationItem = {
 
 const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
   {
-    label: 'Main',
+    label: 'Study space',
     items: [
-      { label: 'Dashboard', screen: 'dashboard', icon: SquaresFourIcon },
+      { label: 'My desk', screen: 'dashboard', icon: SquaresFourIcon },
       { label: 'AI Assistant', screen: 'assistant', icon: MagicWandIcon },
-      { label: 'Upload', screen: 'upload', icon: UploadSimpleIcon },
+      { label: 'Add material', screen: 'upload', icon: UploadSimpleIcon },
       { label: 'Offline Library', screen: 'offline', icon: BooksIcon },
       { label: 'Practice', screen: 'practice', icon: ExamIcon },
     ],
@@ -78,9 +79,9 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
     ],
   },
   {
-    label: 'Community',
+    label: 'Study together',
     items: [
-      { label: 'Collaboration', screen: 'collab', icon: ChatsCircleIcon },
+      { label: 'Discussions', screen: 'collab', icon: ChatsCircleIcon },
       { label: 'Study Groups', screen: 'groups', icon: UsersThreeIcon },
     ],
   },
@@ -177,6 +178,19 @@ export default function App() {
     if (!sidebarOpen) return;
     mobileMenuCloseRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') {
+        const controls = document.querySelectorAll<HTMLButtonElement>('#mobile-nav-sheet button:not([disabled])');
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+        return;
+      }
       if (event.key !== 'Escape') return;
       setSidebarOpen(false);
       mobileMenuButtonRef.current?.focus();
@@ -429,11 +443,11 @@ export default function App() {
   const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
 
   return (
-    <div className="shell">
+    <div className="shell workspace-shell">
       <aside className="sidebar" id="sidebar" aria-label="Primary navigation">
         <div className="logo" aria-label="ExamMind">
-          <div className="logo-mark">E</div>
-          <div className="logo-name">Exam<span>Mind</span></div>
+          <div className="logo-mark"><BookOpen size={24} strokeWidth={1.8} /></div>
+          <div className="logo-name">ExamMind<span>.</span></div>
         </div>
         <nav className="nav">
           {NAV_GROUPS.map((group) => (
@@ -525,16 +539,13 @@ export default function App() {
           >
             {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
           </button>
-          <button type="button" className="topbar-brand" aria-label="Go to Dashboard" onClick={() => go('dashboard')}>
-            <span className="topbar-brand-mark" aria-hidden="true">E</span>
-            <span className="topbar-brand-name" aria-hidden="true">Exam<span>Mind</span></span>
-          </button>
+          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
           <div className="search global-search" ref={searchBoxRef}>
             <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
               type="text"
               aria-label="Search ExamMind"
-              placeholder="Search topics, notes, past questions, groups, rooms..."
+              placeholder="Find a note, topic, or study group…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => { if (searchQuery.trim().length >= 2) setSearchOpen(true); }}
@@ -648,7 +659,7 @@ export default function App() {
           <div className="tb-right">
             <OfflineStatus />
             <button type="button" className="ico-btn" aria-label="Open settings" title="Settings" onClick={() => go('settings')}><GearSixIcon aria-hidden="true" weight="regular" /></button>
-            <button type="button" className="ico-btn" aria-label="Open notifications" title="Notifications" onClick={() => notifyUnavailable('Notifications')}><BellIcon aria-hidden="true" weight="regular" /><span className="notif-pip"></span></button>
+            <button type="button" className="ico-btn" aria-label="Open notifications" title="Notifications" onClick={() => notifyUnavailable('Notifications')}><BellIcon aria-hidden="true" weight="regular" /></button>
             <button type="button" className="topbar-avatar" aria-label="Open account settings" onClick={() => go('settings')}>{userInitials}</button>
           </div>
         </header>
