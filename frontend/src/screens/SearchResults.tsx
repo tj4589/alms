@@ -324,7 +324,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
           <section className="search-learn-card">
             <div>
               <div className="search-card-title">Learn more with ExamMind AI</div>
-              <p>Ask the AI Assistant to explain this step-by-step using uploaded materials where available.</p>
+              <p>Ask Maxe to explain this step-by-step using uploaded materials where available.</p>
             </div>
             <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Learn more with AI</button>
           </section>

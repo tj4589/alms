@@ -8,7 +8,6 @@ import { ExamIcon } from '@phosphor-icons/react/dist/icons/Exam';
 import { GaugeIcon } from '@phosphor-icons/react/dist/icons/Gauge';
 import { GearSixIcon } from '@phosphor-icons/react/dist/icons/GearSix';
 import { ListIcon } from '@phosphor-icons/react/dist/icons/List';
-import { MagicWandIcon } from '@phosphor-icons/react/dist/icons/MagicWand';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
 import { SignOutIcon } from '@phosphor-icons/react/dist/icons/SignOut';
 import { SquaresFourIcon } from '@phosphor-icons/react/dist/icons/SquaresFour';
@@ -67,7 +66,6 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
     label: 'Study space',
     items: [
       { label: 'My desk', screen: 'dashboard', icon: SquaresFourIcon },
-      { label: 'AI Assistant', screen: 'assistant', icon: MagicWandIcon },
       { label: 'Add material', screen: 'upload', icon: UploadSimpleIcon },
       { label: 'Offline Library', screen: 'offline', icon: BooksIcon },
       { label: 'Practice', screen: 'practice', icon: ExamIcon },
@@ -91,7 +89,6 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
 
 const MOBILE_NAV_ITEMS: NavigationItem[] = [
   { label: 'Home', screen: 'dashboard', icon: SquaresFourIcon },
-  { label: 'AI', screen: 'assistant', icon: MagicWandIcon },
   { label: 'Upload', screen: 'upload', icon: UploadSimpleIcon },
   { label: 'Practice', screen: 'practice', icon: ExamIcon },
 ];

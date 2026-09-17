@@ -1116,7 +1116,7 @@ const GENERIC_PROMPTS = [
 function ThinkingBubble({ text }: { text: string }) {
   return (
     <div className="msg">
-      <div className="msg-ava ai">AI</div>
+      <div className="msg-ava ai">M</div>
       <div className="bubble ai thinking-bubble">
         <span className="thinking-text">{text}</span>
         <span className="thinking-dots" aria-hidden="true">
@@ -1523,11 +1523,11 @@ export default function Assistant({
             </div>
           </div>
 
-          <div className="ai-msgs">
+          <div className="ai-msgs" role="log" aria-label="Conversation with Maxe" aria-live="polite">
             {messages.map(message => (
               <div className={`msg ${message.role === 'user' ? 'usr' : ''}`} key={message.id}>
                 <div className={`msg-ava ${message.role === 'user' ? 'usr' : 'ai'}`}>
-                  {message.role === 'user' ? 'You' : 'AI'}
+                  {message.role === 'user' ? 'You' : 'M'}
                 </div>
                 <div className={`bubble ${message.role === 'user' ? 'usr' : 'ai'}`}>
                   <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>

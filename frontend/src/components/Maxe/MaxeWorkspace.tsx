@@ -146,7 +146,7 @@ export default function MaxeWorkspace({
               <X size={20} aria-hidden="true" />
             </button>
           </header>
-          <div className="maxe-workspace-conversation" role="log" aria-label="Conversation with Maxe" aria-live="polite">
+          <div className="maxe-workspace-conversation">
             <Assistant
               go={navigate}
               selectedQuestion={selectedQuestion}
