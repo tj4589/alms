@@ -10,7 +10,7 @@ const pending = new Map();
 const errors = [];
 ws.onmessage = e => {
   const msg = JSON.parse(e.data);
-  if (msg.method === 'Runtime.exceptionThrown') errors.push(msg.params.exceptionDetails.text);
+  if (msg.method === 'Runtime.exceptionThrown') errors.push(msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text);
   if (msg.id) { const promise = pending.get(msg.id); pending.delete(msg.id); if (msg.error) promise.reject(msg.error); else promise.resolve(msg.result); }
 };
 const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params })); });
@@ -63,7 +63,7 @@ async function capture(width, name, height = 1000) {
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor:1, mobile:false });
   await evaluate('window.scrollTo(0,0)');
   await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
-  const dims = await evaluate(`({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,sidebar:getComputedStyle(document.querySelector('.sidebar')).display,heading:document.querySelector('#s-dashboard h1').textContent})`);
+  const dims = await evaluate(`({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,sidebar:document.querySelector('.sidebar')?getComputedStyle(document.querySelector('.sidebar')).display:'none',heading:(document.querySelector('#s-dashboard h1')||document.querySelector('#s-assistant .assistant-title'))?.textContent||'unknown'})`);
   assert.ok(dims.scroll <= width, 'Overflow at '+width+': '+JSON.stringify(dims));
   const {contentSize} = await send('Page.getLayoutMetrics');
   const shot = await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:Math.max(height,contentSize.height),scale:1}});
@@ -103,8 +103,17 @@ await evaluate(`window.__workspaceFixture='error';document.querySelector('button
 await waitFor(`document.querySelector('.desk-error')`);
 await capture(1440,'workspace-error');
 await evaluate(`window.__workspaceFixture='empty';document.querySelector('.desk-error button').click()`);
+await evaluate(`document.querySelector('button[aria-label="AI Assistant"]').click();document.querySelector('button[aria-label="My desk"]').click()`);
 await waitFor(`!document.querySelector('.desk-error') && document.querySelector('.desk-course-empty')`);
 assert.match(await evaluate(`document.querySelector('.desk-course-empty h3').textContent`),/home for every course/);
+await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+await evaluate(`document.querySelector('button[aria-label="AI Assistant"]').click()`);
+await waitFor(`document.querySelector('#s-assistant .assistant-title')`);
+assert.ok(await evaluate(`document.querySelector('#s-assistant .ai-inp') !== null`),'Assistant input missing');
+await capture(1440,'assistant-desktop');
+await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),'Assistant overflows on mobile');
+await capture(390,'assistant-mobile',844);
 assert.deepEqual(errors,[], 'Browser errors');
 await writeFile('.impeccable/review/workspace-checks.json',JSON.stringify({results,interactions:'upload, groups, course search, archive filter, mobile menu Escape, error retry passed',errors,fixtures:true},null,2));
 console.log(JSON.stringify({results,interactions:'passed',errors},null,2));

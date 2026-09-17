@@ -248,6 +248,7 @@ export default function App() {
   const go = (screen: ScreenType) => {
     setActiveScreen(screen);
     setSidebarOpen(false);
+    setSearchOpen(false);
     setToast('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

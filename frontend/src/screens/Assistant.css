@@ -1,0 +1,59 @@
+/* Assistant is a working conversation, not a marketing panel. It shares the desk's paper palette. */
+#s-assistant.assistant-page{width:100%;max-width:1320px;margin:0 auto;padding:34px 36px 64px;color:#252b24;font-family:'Outfit Variable',sans-serif}
+#s-assistant .assistant-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px}
+#s-assistant .assistant-title{font:400 clamp(32px,3vw,44px)/1.06 'Instrument Serif',Georgia,serif;letter-spacing:-1px;color:#252b24}
+#s-assistant .assistant-title em{font-style:italic;color:#ac401e}
+#s-assistant .assistant-sub{color:#687062;font-size:14px;line-height:1.6;margin-top:9px;max-width:600px}
+#s-assistant .assistant-heading-action{display:inline-flex;align-items:center;gap:10px;border:1px solid #d3d6c7;background:#fffdf7;border-radius:22px;padding:10px 16px;color:#46583b;font-size:12px;white-space:nowrap}
+#s-assistant .assistant-heading-action:hover{background:#e7ebdc}
+#s-assistant .assistant-heading-action span{font-size:18px;line-height:1;color:#ac401e}
+#s-assistant .ai-layout{display:grid;grid-template-columns:minmax(0,1fr) 304px;gap:28px;align-items:start}
+#s-assistant .ai-panel{min-width:0;background:#fffdf8;border:1px solid #dedfd4;border-radius:18px;box-shadow:0 8px 24px rgba(47,54,40,.06);overflow:hidden}
+#s-assistant .ai-hd{min-height:64px;padding:0 23px;border-bottom:1px solid #e2e2d8;display:flex;align-items:center;gap:10px;background:#fffdf8}
+#s-assistant .ai-dot{width:8px;height:8px;background:#6d7d59;box-shadow:none;animation:none}
+#s-assistant .ai-hd-title{font-size:15px;font-weight:600;color:#30382a}
+#s-assistant .ai-hd-sub{font-size:11px;color:#7b806f}
+#s-assistant .ai-msgs{min-height:360px;max-height:52vh;overflow:auto;padding:25px 23px 15px;background:#fffdf8;scrollbar-color:#d6dacb transparent}
+#s-assistant .msg{gap:10px;margin-bottom:16px}
+#s-assistant .msg-ava{width:28px;height:28px;border-radius:9px;font-size:10px}
+#s-assistant .msg-ava.ai{background:#dfe7cb;color:#46583b}
+#s-assistant .msg-ava.usr{background:#eadcc7;color:#72502d}
+#s-assistant .bubble{max-width:min(680px,88%);padding:12px 15px;border-radius:13px;font-size:14px;line-height:1.65}
+#s-assistant .bubble.ai{background:#f1f2eb;border:1px solid #e1e3d9;border-top-left-radius:4px;color:#30372d}
+#s-assistant .bubble.usr{background:#eee5d6;border:1px solid #e2d6c2;border-top-right-radius:4px;color:#3e392f;border-left:1px solid #e2d6c2}
+#s-assistant .pq-ref{background:#e5ebdc;border:1px solid #d0d9bd;border-radius:8px;padding:8px 10px}
+#s-assistant .pq-ref-yr{font-family:'Outfit Variable',sans-serif;color:#63744c;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+#s-assistant .pq-ref-q{color:#46583b;font-size:11px}
+#s-assistant .assistant-prompts{display:flex;gap:7px;flex-wrap:wrap;padding:0 23px 17px;background:#fffdf8}
+#s-assistant .assistant-prompts .pill{padding:8px 12px;background:#f1f2eb;border:1px solid #dfe2d5;color:#536047;border-radius:18px;font-size:12px;transition:background-color 150ms ease-out,border-color 150ms ease-out}
+#s-assistant .assistant-prompts .pill:hover{background:#e5ebdc;border-color:#cbd5b7}
+#s-assistant .ai-foot{padding:14px 18px;border-top:1px solid #e2e2d8;background:#f3f2ec;gap:9px}
+#s-assistant .ai-inp{min-height:44px;border:1px solid #d9ddd1;border-radius:11px;background:#fffdf8;color:#252b24;padding:10px 14px;font-size:13px}
+#s-assistant .ai-inp:focus{border-color:#a9b691;box-shadow:0 0 0 3px #dfe7cb}
+#s-assistant .ai-inp::placeholder{color:#8a8e80}
+#s-assistant .send{width:44px;height:44px;border-radius:11px;background:#34452e;color:#fffdf5;font-size:16px;transition:background-color 150ms ease-out,transform 150ms ease-out}
+#s-assistant .send:hover:not(:disabled){background:#48613e;transform:translateY(-1px)}
+#s-assistant .send:disabled{opacity:.45;cursor:not-allowed}
+#s-assistant .related-panel{display:flex;flex-direction:column;gap:20px}
+#s-assistant .related-panel .card,#s-assistant .related-panel .note-absent{background:#e7ebd8;border:1px solid #d5ddc3;border-radius:16px;box-shadow:none;overflow:hidden}
+#s-assistant .related-panel .assistant-sources-card{background:#f1f0e7;border-color:#dedfd4}
+#s-assistant .related-panel .card-hd{padding:19px 20px 0;border:0;background:transparent}
+#s-assistant .related-panel .card-ttl{font-size:20px;line-height:1.25;font-weight:500;letter-spacing:-.4px;color:#303d28}
+#s-assistant .assistant-help-card .note-absent-msg,#s-assistant .assistant-sources-card .note-absent-msg{padding:13px 20px 3px;color:#59634c;font-size:13px;line-height:1.65}
+#s-assistant .assistant-action-list{display:flex;flex-direction:column;gap:8px;padding:15px 20px 20px}
+#s-assistant .assistant-action-list .cta{width:100%;justify-content:space-between;margin:0!important;min-height:40px;padding:9px 13px;border-radius:9px;background:#f6f6ef;color:#46583b;border:1px solid #ced7bc;font-size:12px}
+#s-assistant .assistant-action-list .cta:hover{background:#dce5c9}
+#s-assistant .assistant-source-action{padding:15px 20px 20px}
+#s-assistant .assistant-source-action .cta{width:100%;justify-content:center;min-height:40px;border-radius:20px;background:#fffdf7;color:#536047;border:1px solid #d4d8ca;font-size:12px}
+#s-assistant .assistant-source-action .cta:hover{background:#e5ebdc}
+#s-assistant .note-absent{padding:0 0 18px}
+#s-assistant .note-absent-lbl{padding:18px 20px 0;color:#ac401e;font-size:11px;letter-spacing:.4px;text-transform:none}
+#s-assistant .note-absent .upload-prompt{margin:13px 20px 0;border-radius:20px;background:#34452e;color:#fffdf5;border:0;padding:9px 13px}
+#s-assistant .note-absent .upload-prompt:hover{background:#48613e}
+#s-assistant .prog-list{padding:12px 20px 0}
+#s-assistant .prog-list .qi{padding:11px 0;border-bottom:1px solid #d9ddcc}
+#s-assistant .prog-list .qi-title{font-size:12px;color:#46583b;line-height:1.45}
+@media(max-width:1050px){#s-assistant.assistant-page{padding:30px 26px 50px}#s-assistant .ai-layout{grid-template-columns:minmax(0,1fr) 270px;gap:20px}}
+@media(max-width:820px){#s-assistant .ai-layout{grid-template-columns:1fr}#s-assistant .related-panel{display:grid;grid-template-columns:1fr 1fr;align-items:start}#s-assistant .assistant-sources-card{grid-column:1/-1}}
+@media(max-width:560px){#s-assistant.assistant-page{padding:25px 20px 36px}#s-assistant .assistant-heading{align-items:flex-start;flex-direction:column;gap:15px;margin-bottom:23px}#s-assistant .assistant-title{font-size:36px}#s-assistant .assistant-sub{font-size:13px}#s-assistant .assistant-heading-action{align-self:flex-start}#s-assistant .ai-msgs{min-height:340px;max-height:none;padding:20px 15px 10px}#s-assistant .ai-hd{padding:0 16px}#s-assistant .ai-hd-sub{font-size:10px}#s-assistant .bubble{max-width:88%;font-size:13px}#s-assistant .assistant-prompts{padding:0 15px 14px}#s-assistant .ai-foot{padding:12px}#s-assistant .related-panel{display:flex;gap:16px}#s-assistant .related-panel .card-hd{padding-left:17px;padding-right:17px}#s-assistant .assistant-help-card .note-absent-msg,#s-assistant .assistant-sources-card .note-absent-msg{padding-left:17px;padding-right:17px}#s-assistant .assistant-action-list,#s-assistant .assistant-source-action{padding-left:17px;padding-right:17px}}
+@media(prefers-reduced-motion:reduce){#s-assistant *{animation:none!important;transition:none!important}}

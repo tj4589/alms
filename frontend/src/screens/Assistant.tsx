@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, MsgType, ScreenType, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
+import './Assistant.css';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1503,19 +1504,20 @@ export default function Assistant({
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="page" id="s-assistant">
-      <div className="pg-head">
-        <div className="pg-title">AI <em>Assistant</em></div>
-        <div className="pg-sub">
-          Describe a topic, course, past question, or exam in plain language. Exact keywords are not required.
+    <div className="page assistant-page" id="s-assistant">
+      <div className="assistant-heading">
+        <div>
+          <div className="assistant-title">Study <em>with me.</em></div>
+          <div className="assistant-sub">Ask from memory, your notes, or the question that keeps coming back.</div>
         </div>
+        <button type="button" className="assistant-heading-action" onClick={() => go('upload')}>Add a source <span aria-hidden="true">+</span></button>
       </div>
 
       <div className="ai-layout">
         <div className="ai-panel">
           <div className="ai-hd">
             <div className="ai-dot"></div>
-            <div className="ai-hd-title">ExamMind AI</div>
+            <div className="ai-hd-title">Your study partner</div>
             <div className="ai-hd-sub">
               {thinkingPhase !== 'idle' ? PHASE_TEXT[thinkingPhase] : 'Ready for your questions'}
             </div>
@@ -1564,7 +1566,7 @@ export default function Assistant({
             <div ref={msgsEndRef} />
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 20px 14px' }}>
+          <div className="assistant-prompts">
             {promptChips.map(p => (
               <button className="pill" key={p} onClick={() => void handleSend(p)} disabled={loading}>
                 {p}
@@ -1591,12 +1593,12 @@ export default function Assistant({
         {/* ── Right panel ── */}
         <div className="related-panel">
           {!latestStudyAssistant && (
-            <div className="card">
-              <div className="card-hd"><div className="card-ttl">What can you ask?</div></div>
+            <div className="card assistant-help-card">
+              <div className="card-hd"><div className="card-ttl">Start anywhere</div></div>
               <div className="note-absent-msg">
                 Ask about any course topic, uploaded note, past question, material, or exam preparation task. You can describe what you remember, even if you do not know the exact topic name.
               </div>
-              <div style={{ marginTop: 12 }}>
+              <div className="assistant-action-list">
                 {[
                   { label: 'Search uploaded materials', screen: 'questions' as ScreenType },
                   { label: 'Upload course material', screen: 'upload' as ScreenType },
@@ -1606,7 +1608,6 @@ export default function Assistant({
                   <button
                     key={label}
                     className="cta cta-ghost"
-                    style={{ width: '100%', justifyContent: 'center', fontSize: 12, marginTop: 8 }}
                     onClick={() => go(screen)}
                   >
                     {label}
@@ -1636,8 +1637,8 @@ export default function Assistant({
             </div>
           )}
 
-          <div className="card">
-            <div className="card-hd"><div className="card-ttl">Sources</div></div>
+          <div className="card assistant-sources-card">
+            <div className="card-hd"><div className="card-ttl">Pulled from your desk</div></div>
             {latestStudyAssistant?.sources && latestStudyAssistant.sources.length > 0 ? (
               <div className="prog-list">
                 {latestStudyAssistant.sources.map(source => (
@@ -1653,10 +1654,9 @@ export default function Assistant({
                   : 'Sources appear here after you ask a study question that searches uploaded material.'}
               </div>
             )}
-            <div style={{ marginTop: 12 }}>
+            <div className="assistant-source-action">
               <button
                 className="cta cta-ghost"
-                style={{ width: '100%', justifyContent: 'center', fontSize: 12 }}
                 onClick={() => notifyUnavailable('Related questions view')}
               >
                 View related questions
