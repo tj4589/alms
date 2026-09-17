@@ -35,6 +35,7 @@ await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-m
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `
 localStorage.setItem('exammind-first-upload-auth-reset-v1','true');
 localStorage.setItem('token','exammind:local-development-session');
+localStorage.setItem('exammind-maxe-nudge-v1','seen');
 window.__workspaceFixture = 'empty';
 window.__fixtureRequests = [];
 const originalFetch = window.fetch.bind(window);
@@ -70,9 +71,23 @@ async function capture(width, name, height = 1000) {
   await writeFile('.impeccable/review/'+name+'.png',Buffer.from(shot.data,'base64'));
   results.push({width,...dims});
 }
+async function captureViewport(width, name, height) {
+  await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor:1, mobile:false });
+  await evaluate('window.scrollTo(0,0)');
+  await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'),'Overflow at '+width);
+  const shot = await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+  await writeFile('.impeccable/review/'+name+'.png',Buffer.from(shot.data,'base64'));
+}
 await capture(1440,'workspace-desktop');
 await capture(1920,'workspace-user-1920',1080);
 await capture(390,'workspace-mobile',844);
+assert.equal(await evaluate(`getComputedStyle(document.querySelector('.maxe-figure')).animationName`),'none','Reduced motion did not stop Maxe');
+assert.ok(await evaluate(`(() => {
+  const maxe = document.querySelector('.maxe-trigger').getBoundingClientRect();
+  const nav = document.querySelector('.mob-nav').getBoundingClientRect();
+  return maxe.bottom <= nav.top;
+})()`),'Maxe overlaps the mobile navigation');
 for (const width of [320,768,1024]) {
   await send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
   assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'),'Overflow at '+width);
@@ -103,18 +118,51 @@ await evaluate(`window.__workspaceFixture='error';document.querySelector('button
 await waitFor(`document.querySelector('.desk-error')`);
 await capture(1440,'workspace-error');
 await evaluate(`window.__workspaceFixture='empty';document.querySelector('.desk-error button').click()`);
-await evaluate(`document.querySelector('button[aria-label="AI Assistant"]').click();document.querySelector('button[aria-label="My desk"]').click()`);
+await evaluate(`document.querySelector('button[aria-label="Open Maxe"]').click()`);
+await waitFor(`document.querySelector('.maxe-workspace-dialog')`);
+await evaluate(`document.querySelector('button[aria-label="Close Maxe"]').click()`);
+await waitFor(`!document.querySelector('.maxe-workspace-dialog')`);
+await evaluate(`document.querySelector('button[aria-label="My desk"]').click()`);
 await waitFor(`!document.querySelector('.desk-error') && document.querySelector('.desk-course-empty')`);
 assert.match(await evaluate(`document.querySelector('.desk-course-empty h3').textContent`),/home for every course/);
 await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-await evaluate(`document.querySelector('button[aria-label="AI Assistant"]').click()`);
-await waitFor(`document.querySelector('#s-assistant .assistant-title')`);
-assert.ok(await evaluate(`document.querySelector('#s-assistant .ai-inp') !== null`),'Assistant input missing');
-await capture(1440,'assistant-desktop');
+await evaluate(`document.querySelector('button[aria-label="Open Maxe"]').click()`);
+await waitFor(`document.querySelector('.maxe-workspace-dialog')`);
+assert.ok(await evaluate(`document.querySelector('.maxe-workspace-dialog .ai-inp') !== null`),'Maxe input missing');
+assert.ok(await evaluate(`document.querySelector('.maxe-workspace-dialog [role="log"]') !== null`),'Maxe conversation log missing');
+const maxeMessageCount = await evaluate(`document.querySelectorAll('.maxe-workspace-dialog .msg').length`);
+await captureViewport(1440,'maxe-workspace-desktop',1000);
+await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+await waitFor(`!document.querySelector('.maxe-workspace-dialog')`);
+assert.equal(await evaluate(`document.activeElement?.getAttribute('aria-label')`),'Open Maxe','Escape did not return focus to Maxe');
+assert.equal(await evaluate(`document.activeElement instanceof HTMLButtonElement && !document.activeElement.disabled`),true,'Maxe trigger is not keyboard activatable');
+await evaluate(`document.activeElement.click()`);
+await waitFor(`document.querySelector('.maxe-workspace-dialog')`);
+assert.equal(await evaluate(`document.querySelectorAll('.maxe-workspace-dialog .msg').length`),maxeMessageCount,'Conversation did not persist after reopen');
 await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
-assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),'Assistant overflows on mobile');
-await capture(390,'assistant-mobile',844);
+assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),'Maxe overflows on mobile');
+await evaluate(`document.querySelector('.maxe-workspace-menu').click()`);
+await waitFor(`document.querySelector('.maxe-workspace-history.is-open')`);
+await captureViewport(390,'maxe-workspace-mobile',844);
+await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+await waitFor(`!document.querySelector('.maxe-workspace-dialog')`);
+await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+await send('Performance.enable');
+const beforeMotion = Object.fromEntries((await send('Performance.getMetrics')).metrics.map(metric => [metric.name, metric.value]));
+await new Promise(resolve => setTimeout(resolve, 2200));
+const afterMotion = Object.fromEntries((await send('Performance.getMetrics')).metrics.map(metric => [metric.name, metric.value]));
+assert.ok((afterMotion.LayoutCount - beforeMotion.LayoutCount) <= 1,'Maxe idle motion triggered repeated layout');
+assert.ok((afterMotion.TaskDuration - beforeMotion.TaskDuration) < 0.25,'Maxe idle motion consumed meaningful main-thread time');
+await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+await evaluate(`document.querySelector('button[aria-label="My desk"]').click()`);
+await waitFor(`document.querySelectorAll('.desk-shortcuts button').length >= 2`);
+await evaluate(`document.querySelectorAll('.desk-shortcuts button')[1].click()`);
+await waitFor(`document.querySelector('#s-questions')`);
+assert.ok(await evaluate(`document.querySelector('button[aria-label="Open Maxe"]') !== null`),'Maxe missing from list-heavy screen');
+await evaluate(`localStorage.removeItem('token'); location.hash=''; location.reload()`);
+await waitFor(`document.querySelector('.lp-nav')`);
+assert.equal(await evaluate(`document.querySelector('button[aria-label="Open Maxe"]')`),null,'Maxe should not mount on the public landing page');
 assert.deepEqual(errors,[], 'Browser errors');
-await writeFile('.impeccable/review/workspace-checks.json',JSON.stringify({results,interactions:'upload, groups, course search, archive filter, mobile menu Escape, error retry passed',errors,fixtures:true},null,2));
+await writeFile('.impeccable/review/workspace-checks.json',JSON.stringify({results,interactions:'upload, groups, course search, archive filter, Maxe open-close-focus-persistence, reduced motion, compositor-only idle motion, list screen and landing regression passed',errors,fixtures:true},null,2));
 console.log(JSON.stringify({results,interactions:'passed',errors},null,2));
 ws.close();

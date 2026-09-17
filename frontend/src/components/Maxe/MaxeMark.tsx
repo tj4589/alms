@@ -5,7 +5,6 @@ type MaxeMarkProps = {
 
 const MAXE_MARK_STYLES = `
 .maxe-mark{display:block;width:100%;height:100%;overflow:visible}
-.maxe-mark *{vector-effect:non-scaling-stroke}
 `;
 
 export default function MaxeMark({ eyesClosed = false, className = '' }: MaxeMarkProps) {

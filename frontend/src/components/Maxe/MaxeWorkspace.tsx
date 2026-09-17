@@ -20,6 +20,7 @@ const MAXE_WORKSPACE_STYLES = `
 .maxe-workspace-scrim{position:absolute;inset:0;width:100%;height:100%;border:0;background:rgba(37,43,36,.26);cursor:default}
 .maxe-workspace-dialog{position:absolute;inset:10px;display:grid;grid-template-columns:248px minmax(0,1fr);overflow:hidden;border:1px solid #d7d9cd;border-radius:18px;background:#faf8f3;box-shadow:0 24px 72px rgba(37,43,36,.18);isolation:isolate}
 .maxe-workspace-history{display:flex;min-width:0;flex-direction:column;background:#efede5;border-right:1px solid #dadcd0}
+.maxe-workspace-history-scrim{display:none}
 .maxe-workspace-brand{display:flex;align-items:center;gap:11px;min-height:72px;padding:0 18px;border-bottom:1px solid #dadcd0}
 .maxe-workspace-brand-mark{display:block;width:31px;height:42px;overflow:hidden}
 .maxe-workspace-brand-mark .maxe-mark{width:50px;height:67px;transform:translate(-9px,-7px)}
@@ -50,7 +51,7 @@ const MAXE_WORKSPACE_STYLES = `
 .maxe-workspace-dialog #s-assistant .assistant-prompts{padding:0 clamp(20px,7vw,110px) 15px;background:#faf8f3}
 .maxe-workspace-dialog #s-assistant .ai-foot{position:sticky;bottom:0;padding:15px clamp(20px,7vw,110px) 18px;background:#f0eee7}
 .maxe-workspace-dialog :is(button,input):focus-visible{outline:2px solid var(--em-ink,#090a0a);outline-offset:3px}
-@media(max-width:760px){.maxe-workspace-dialog{inset:0;grid-template-columns:1fr;border:0;border-radius:0}.maxe-workspace-history{position:absolute;inset:0 auto 0 0;z-index:4;width:min(84vw,300px);box-shadow:12px 0 36px rgba(37,43,36,.16);transform:translateX(-102%);transition:transform 180ms cubic-bezier(.23,1,.32,1)}.maxe-workspace-history.is-open{transform:translateX(0)}.maxe-workspace-menu{display:grid;place-items:center;width:38px;height:38px;border:0;border-radius:9px;background:transparent;color:#525a4d}.maxe-workspace-menu:hover{background:#e9e9df}.maxe-workspace-topbar{min-height:62px;padding:0 13px}.maxe-workspace-dialog #s-assistant .ai-hd{padding:0 15px}.maxe-workspace-dialog #s-assistant .ai-msgs{padding:20px 15px 14px}.maxe-workspace-dialog #s-assistant .assistant-prompts{padding:0 15px 13px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.maxe-workspace-dialog #s-assistant .assistant-prompts::-webkit-scrollbar{display:none}.maxe-workspace-dialog #s-assistant .assistant-prompts .pill{flex:0 0 auto}.maxe-workspace-dialog #s-assistant .ai-foot{padding:12px 12px calc(12px + env(safe-area-inset-bottom))}.maxe-workspace-dialog #s-assistant .ai-msgs{min-height:0}}
+@media(max-width:760px){.maxe-workspace-dialog{inset:0;grid-template-columns:1fr;border:0;border-radius:0}.maxe-workspace-history-scrim.is-open{display:block;position:absolute;inset:0;z-index:3;border:0;background:rgba(37,43,36,.3)}.maxe-workspace-history{position:absolute;inset:0 auto 0 0;z-index:4;width:min(84vw,300px);box-shadow:12px 0 36px rgba(37,43,36,.16);transform:translateX(-102%);transition:transform 180ms cubic-bezier(.23,1,.32,1)}.maxe-workspace-history.is-open{transform:translateX(0)}.maxe-workspace-menu{display:grid;place-items:center;width:38px;height:38px;border:0;border-radius:9px;background:transparent;color:#525a4d}.maxe-workspace-menu:hover{background:#e9e9df}.maxe-workspace-topbar{min-height:62px;padding:0 13px}.maxe-workspace-dialog #s-assistant .ai-hd{padding:0 15px}.maxe-workspace-dialog #s-assistant .ai-msgs{padding:20px 15px 14px}.maxe-workspace-dialog #s-assistant .assistant-prompts{padding:0 15px 13px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.maxe-workspace-dialog #s-assistant .assistant-prompts::-webkit-scrollbar{display:none}.maxe-workspace-dialog #s-assistant .assistant-prompts .pill{flex:0 0 auto}.maxe-workspace-dialog #s-assistant .ai-foot{padding:12px 12px calc(12px + env(safe-area-inset-bottom))}.maxe-workspace-dialog #s-assistant .ai-msgs{min-height:0}}
 @media(prefers-reduced-motion:reduce){.maxe-workspace-history{transition:none}.maxe-workspace-dialog *{scroll-behavior:auto!important;animation:none!important}}
 `;
 
@@ -87,7 +88,12 @@ export default function MaxeWorkspace({
         return;
       }
       if (event.key !== 'Tab') return;
-      const controls = [...document.querySelectorAll<HTMLElement>('.maxe-workspace-dialog button:not([disabled]), .maxe-workspace-dialog input:not([disabled]), .maxe-workspace-dialog [tabindex]:not([tabindex="-1"])')];
+      const controls = [...document.querySelectorAll<HTMLElement>('.maxe-workspace-dialog button:not([disabled]), .maxe-workspace-dialog input:not([disabled]), .maxe-workspace-dialog [tabindex]:not([tabindex="-1"])')]
+        .filter(control => {
+          const bounds = control.getBoundingClientRect();
+          const styles = window.getComputedStyle(control);
+          return styles.display !== 'none' && styles.visibility !== 'hidden' && bounds.right > 0 && bounds.left < window.innerWidth;
+        });
       const first = controls[0];
       const last = controls[controls.length - 1];
       if (!first || !last) return;
@@ -117,6 +123,7 @@ export default function MaxeWorkspace({
       <style>{MAXE_WORKSPACE_STYLES}</style>
       <button type="button" className="maxe-workspace-scrim" aria-label="Close Maxe" onClick={onClose} />
       <section className="maxe-workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="maxe-workspace-title">
+        <button type="button" className={`maxe-workspace-history-scrim${historyOpen ? ' is-open' : ''}`} aria-label="Close thread history" onClick={() => setHistoryOpen(false)} />
         <aside className={`maxe-workspace-history${historyOpen ? ' is-open' : ''}`} aria-label="Maxe thread history">
           <div className="maxe-workspace-brand">
             <span className="maxe-workspace-brand-mark" aria-hidden="true"><MaxeMark /></span>

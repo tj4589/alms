@@ -27,7 +27,7 @@ const MAXE_TRIGGER_STYLES = `
 .maxe-wrapper.is-open{pointer-events:none}
 .maxe-wrapper.is-open .maxe-trigger{opacity:0;pointer-events:none}
 @media(hover:hover) and (pointer:fine){.maxe-trigger:hover{transform:scale(1) translate(0,0)}.maxe-trigger:hover .maxe-trigger-label{opacity:1;transform:translateY(0)}.maxe-trigger:active{transform:scale(.97) translate(0,0)}}
-@media(max-width:768px){.maxe-wrapper{--maxe-drift-distance:-44px;right:3px;bottom:72px}}
+@media(max-width:768px){.maxe-wrapper{--maxe-drift-distance:-44px;right:3px;bottom:104px}}
 @media(prefers-reduced-motion:reduce){.maxe-wrapper,.maxe-wrapper.is-strolling,.maxe-figure,.maxe-wrapper.is-marching .maxe-figure,.maxe-wrapper.is-marching .maxe-leg-left,.maxe-wrapper.is-marching .maxe-leg-right{animation:none!important}.maxe-trigger,.maxe-trigger-label{transition:opacity 120ms ease!important}.maxe-trigger:focus-visible,.maxe-wrapper.is-nudging .maxe-trigger{transform:scale(1) translate(0,0)}}
 `;
 
@@ -57,8 +57,8 @@ const MaxeTrigger = forwardRef<HTMLButtonElement, MaxeTriggerProps>(function Max
 
   useEffect(() => {
     if (open || reduceMotion || !tabVisible) {
-      setStrolling(false);
-      return;
+      const stopTimer = window.setTimeout(() => setStrolling(false), 0);
+      return () => window.clearTimeout(stopTimer);
     }
     let strollTimer: number | null = null;
     let cancelled = false;
