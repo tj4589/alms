@@ -13,8 +13,8 @@ const MAXE_TRIGGER_STYLES = `
 @keyframes maxe-drift{0%,100%{transform:translateX(0)}50%{transform:translateX(var(--maxe-drift-distance,-88px))}}
 .maxe-wrapper{--maxe-drift-distance:-88px;position:fixed;right:8px;bottom:8px;z-index:340;width:176px;height:154px;pointer-events:none;color:var(--em-ink,#090a0a)}
 .maxe-wrapper.is-strolling{animation:maxe-drift 2.3s cubic-bezier(.77,0,.175,1) both}
-.maxe-trigger{position:absolute;inset:0;width:176px;height:154px;padding:0;border:0;background:transparent;color:inherit;pointer-events:auto;cursor:pointer;transform:scale(.44) translate(48%,52%);transform-origin:bottom right;transition:transform 220ms cubic-bezier(.23,1,.32,1),opacity 150ms ease-out}
-.maxe-trigger:active{transform:scale(.42) translate(48%,52%)}
+.maxe-trigger{position:absolute;inset:0;width:176px;height:154px;padding:0;border:0;background:transparent;color:inherit;pointer-events:auto;cursor:pointer;transform:scale(.44);transform-origin:bottom right;transition:transform 220ms cubic-bezier(.23,1,.32,1),opacity 150ms ease-out}
+.maxe-trigger:active{transform:scale(.42)}
 .maxe-trigger-surface{position:absolute;inset:0;overflow:hidden;border:1px solid rgba(9,10,10,.14);border-radius:16px;background:var(--em-paper,#f3f4ef);box-shadow:0 16px 38px rgba(64,45,19,.13),0 0 34px rgba(233,161,58,.18)}
 .maxe-figure{position:absolute;left:-29px;top:-30px;width:234px;height:315px;animation:maxe-idle-bob 3.4s var(--ease,cubic-bezier(.16,.84,.44,1)) infinite;will-change:transform}
 .maxe-wrapper.is-marching .maxe-figure{animation:maxe-idle-bob 1.15s var(--ease,cubic-bezier(.16,.84,.44,1)) 2}
