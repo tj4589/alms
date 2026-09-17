@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BellIcon } from '@phosphor-icons/react/dist/icons/Bell';
 import { BooksIcon } from '@phosphor-icons/react/dist/icons/Books';
 import { ChartLineUpIcon } from '@phosphor-icons/react/dist/icons/ChartLineUp';
@@ -49,6 +49,8 @@ import Empty from './screens/Empty';
 import SearchResults from './screens/SearchResults';
 import Settings from './screens/Settings';
 import OfflineStatus from './components/OfflineStatus';
+import MaxeTrigger from './components/Maxe/MaxeTrigger';
+import MaxeWorkspace from './components/Maxe/MaxeWorkspace';
 import { Auth } from './components/Auth';
 import Landing from './components/Landing';
 import { apiGet } from './lib/api';
@@ -154,6 +156,7 @@ export default function App() {
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [toast, setToast] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
+  const [maxeOpen, setMaxeOpen] = useState(false);
   const [practiceInitialTopic, setPracticeInitialTopic] = useState('');
   const [practiceContext, setPracticeContext] = useState<SearchActionContext | null>(null);
   const [communityContext, setCommunityContext] = useState<(SearchActionContext & { action: 'discussion' | 'study_group' | 'reading_room' }) | null>(null);
@@ -173,6 +176,7 @@ export default function App() {
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseRef = useRef<HTMLButtonElement>(null);
+  const maxeTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -243,15 +247,28 @@ export default function App() {
     setActiveScreen('dashboard');
     setPublicView('landing');
     setSidebarOpen(false);
+    setMaxeOpen(false);
   };
 
   const go = (screen: ScreenType) => {
+    if (screen === 'assistant') {
+      setSidebarOpen(false);
+      setSearchOpen(false);
+      setMaxeOpen(true);
+      return;
+    }
     setActiveScreen(screen);
     setSidebarOpen(false);
     setSearchOpen(false);
     setToast('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  const closeMaxe = useCallback(() => {
+    setMaxeOpen(false);
+    setSelectedQuestion('');
+    window.requestAnimationFrame(() => maxeTriggerRef.current?.focus());
+  }, []);
 
   const notifyUnavailable = (feature: string) => {
     setToast(`${feature} is not available yet.`);
@@ -699,6 +716,20 @@ export default function App() {
           />
         )}
       </main>
+
+      <MaxeTrigger ref={maxeTriggerRef} open={maxeOpen} onOpen={() => { setSearchOpen(false); setSidebarOpen(false); setMaxeOpen(true); }} />
+      {maxeOpen && (
+        <MaxeWorkspace
+          go={go}
+          selectedQuestion={selectedQuestion}
+          notifyUnavailable={notifyUnavailable}
+          messages={chatMessages}
+          onMessagesChange={setChatMessages}
+          onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }}
+          onClose={closeMaxe}
+          user={user}
+        />
+      )}
 
       {sidebarOpen && (
         <section
