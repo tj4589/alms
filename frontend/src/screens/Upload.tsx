@@ -3,6 +3,8 @@ import type { ScreenType, User } from '../types';
 import { queuePendingUpload } from '../offline';
 import { apiDelete, apiFormPost, apiGet } from '../lib/api';
 
+import './Upload.css';
+
 type RecentUpload = {
   id: number;
   year: number | null;

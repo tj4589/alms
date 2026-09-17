@@ -595,10 +595,10 @@
 
 /* VISUAL POLISH PASS */
 .card,.ana-card,.search-card,.search-overview,.search-learn-card,.ai-panel,.drop-zone,.pred-card,.success-card,.duplicate-card,.failure-card,.note-absent,.danger-card{
-  border:1px solid var(--border);
+  border:1px solid #e1e2d5;
   border-radius:var(--rlg);
-  background:linear-gradient(180deg,var(--bg2),rgba(18,20,26,0.88));
-  box-shadow:0 2px 16px rgba(0,0,0,0.25);
+  background:#f1f0e7;
+  box-shadow:none;
 }
 .card,.ana-card,.search-card,.search-overview,.search-learn-card,.pred-card{padding:1.5rem;}
 .card-ttl,.search-card-title,.ai-hd-title,.pred-title,.failure-title,.success-title,.duplicate-title{font-size:1.12rem;font-weight:600;line-height:1.35;}
