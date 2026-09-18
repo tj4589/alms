@@ -37,6 +37,8 @@
 .progress-report .progress-topic-bar{height:4px;overflow:hidden;background:var(--desk-raised);}
 .progress-report .progress-topic-bar>span{display:block;height:100%;background:var(--highlighter);}
 .progress-report .progress-topic-list li>strong{color:var(--paper-ink-soft);font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;}
+.progress-report .progress-frequency-list li{grid-template-columns:34px minmax(180px,.8fr) minmax(180px,1.4fr) 76px;}
+.progress-report .progress-topic-unit{color:var(--pencil);font-family:var(--font);font-size:10px;font-weight:500;}
 
 .progress-report .progress-attempt-table{border-top:1px solid var(--margin-rule);}
 .progress-report .progress-attempt-head,.progress-report .progress-attempt-row{display:grid;grid-template-columns:130px minmax(180px,1fr) 120px 60px;gap:18px;align-items:center;}
@@ -87,6 +89,7 @@
   .progress-report .progress-evidence>div:nth-child(-n+2){border-bottom:1px solid var(--margin-rule);}
   .progress-report .progress-evidence>div:nth-child(3){padding-left:0;}
   .progress-report .progress-topic-list li{grid-template-columns:26px minmax(0,1fr) 44px;gap:10px;padding:12px 0;}
+  .progress-report .progress-frequency-list li{grid-template-columns:26px minmax(0,1fr) 68px;}
   .progress-report .progress-topic-bar{grid-column:2/4;width:100%;}
   .progress-report .progress-attempt-head{display:none;}
   .progress-report .progress-attempt-row{grid-template-columns:minmax(0,1fr) auto;gap:5px 14px;padding:11px 0;}

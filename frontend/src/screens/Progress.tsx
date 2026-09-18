@@ -41,6 +41,16 @@ function topicLabel(value: string | null): string {
   return topic || 'Mixed revision';
 }
 
+// attempt.score is the number answered correctly, not a percentage; Progress
+// was rendering it raw, so 7 out of 10 read as "7%". Ported from Analytics.tsx,
+// which had this right, before that screen was retired.
+function scorePercent(attempt: AttemptEntry): number {
+  if (attempt.total_questions > 0 && attempt.score <= attempt.total_questions) {
+    return (attempt.score / attempt.total_questions) * 100;
+  }
+  return attempt.score;
+}
+
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Date unavailable';
@@ -100,6 +110,24 @@ export default function Progress({ go, userId }: { go: (screen: ScreenType) => v
       .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
       .slice(0, 6);
   }, [analytics]);
+
+  const topicFrequency = useMemo(() => {
+    if (!analytics) return [];
+    const byTopic = new Map<string, number>();
+    analytics.attempts.forEach((attempt) => {
+      const label = topicLabel(attempt.topic);
+      byTopic.set(label, (byTopic.get(label) ?? 0) + 1);
+    });
+    return Array.from(byTopic.entries())
+      .map(([topic, attempts]) => ({ topic, attempts }))
+      .sort((a, b) => b.attempts - a.attempts || a.topic.localeCompare(b.topic))
+      .slice(0, 6);
+  }, [analytics]);
+
+  const maxTopicAttempts = useMemo(
+    () => Math.max(...topicFrequency.map((entry) => entry.attempts), 1),
+    [topicFrequency],
+  );
 
   const totalQuestions = useMemo(
     () => analytics?.attempts.reduce((sum, attempt) => sum + Math.max(0, attempt.total_questions || 0), 0) ?? 0,
@@ -225,6 +253,34 @@ export default function Progress({ go, userId }: { go: (screen: ScreenType) => v
             )}
           </section>
 
+          <section className="progress-section" aria-labelledby="practice-frequency-title">
+            <div className="progress-section-head">
+              <div>
+                <p className="progress-section-label">Where the time went</p>
+                <h2 id="practice-frequency-title">Practice frequency</h2>
+              </div>
+              <span>Most attempted first</span>
+            </div>
+
+            {topicFrequency.length ? (
+              <ol className="progress-topic-list progress-frequency-list">
+                {topicFrequency.map((entry, index) => (
+                  <li key={entry.topic}>
+                    <span className="progress-topic-rank">{String(index + 1).padStart(2, '0')}</span>
+                    <span className="progress-topic-name">{entry.topic}</span>
+                    <span className="progress-topic-bar" aria-hidden="true"><span style={{ width: `${Math.round((entry.attempts / maxTopicAttempts) * 100)}%` }} /></span>
+                    <strong>{entry.attempts}<span className="progress-topic-unit"> {entry.attempts === 1 ? 'try' : 'tries'}</span></strong>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="progress-inline-empty">
+                <span>No practice has been recorded yet.</span>
+                <button type="button" onClick={() => go('practice')}>Sit a paper</button>
+              </div>
+            )}
+          </section>
+
           <section className="progress-section progress-history" aria-labelledby="practice-history-title">
             <div className="progress-section-head">
               <div>
@@ -244,7 +300,7 @@ export default function Progress({ go, userId }: { go: (screen: ScreenType) => v
                     <span role="cell">{formatDate(attempt.completed_at)}</span>
                     <strong role="cell">{topicLabel(attempt.topic)}</strong>
                     <span role="cell">{Math.max(0, attempt.total_questions)} questions</span>
-                    <span role="cell" className="progress-attempt-score">{clampScore(attempt.score)}%</span>
+                    <span role="cell" className="progress-attempt-score">{clampScore(scorePercent(attempt))}%</span>
                   </div>
                 ))}
               </div>
