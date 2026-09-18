@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ScreenType } from '../types';
 import { apiDownload, apiGet, apiPost } from '../lib/api';
 import MaxeMark from '../components/Maxe/MaxeMark';
+import SaveButton from '../components/SaveButton';
 import './Reader.css';
 
 type ReaderProps = {
@@ -80,9 +81,6 @@ export default function Reader({ go, noteId }: ReaderProps) {
   const [question, setQuestion] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [asking, setAsking] = useState(false);
-
-  const [downloadState, setDownloadState] = useState<'idle' | 'working' | 'failed'>('idle');
-  const [downloadNote, setDownloadNote] = useState('');
 
   // Where a selection popover should sit, in page coordinates.
   const [selection, setSelection] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -205,21 +203,14 @@ export default function Reader({ go, noteId }: ReaderProps) {
     }
   }, [question, asking, note, context, sourceName]);
 
+  // Returns the saved filename so the Save menu can report it; errors bubble
+  // to the menu, which is what shows them now.
   const download = useCallback(async () => {
-    if (!note || !note.has_file) return;
-    setDownloadState('working');
-    setDownloadNote('');
-    try {
-      const filename = await apiDownload(
-        `/materials/lecture-notes/${note.id}/download`,
-        note.file_name || `${note.title}.pdf`,
-      );
-      setDownloadState('idle');
-      setDownloadNote(`Saved ${filename}`);
-    } catch (error) {
-      setDownloadState('failed');
-      setDownloadNote(error instanceof Error ? error.message : 'That file could not be downloaded.');
-    }
+    if (!note) throw new Error('Nothing is open.');
+    return apiDownload(
+      `/materials/lecture-notes/${note.id}/download`,
+      note.file_name || `${note.title}.pdf`,
+    );
   }, [note]);
 
   return (
@@ -253,21 +244,25 @@ export default function Reader({ go, noteId }: ReaderProps) {
             </p>
             <h1 className="rd-title">{note.title}</h1>
             <div className="rd-actions">
-              {note.has_file ? (
-                <button type="button" className="rd-download" onClick={() => void download()} disabled={downloadState === 'working'}>
-                  {downloadState === 'working' ? 'Preparing...' : 'Download original'}
-                  {readableSize(note.file_size) && downloadState !== 'working' && (
-                    <span className="rd-filesize">{readableSize(note.file_size)}</span>
-                  )}
-                </button>
-              ) : (
+              <SaveButton
+                target={{
+                  itemType: 'lecture_note',
+                  refId: note.id,
+                  title: note.title,
+                  meta: [note.course_code, readableSize(note.file_size)].filter(Boolean).join(' · '),
+                  // Only offered when there are real bytes behind the note.
+                  download: note.has_file ? download : undefined,
+                  // The sections are already loaded to render the page, so
+                  // caching them costs nothing and makes the note readable
+                  // offline exactly as it reads here.
+                  snapshot: async () => (sections.length > 0 || fallbackBody)
+                    ? { ...note, sections, content_text: note.content_text ?? fallbackBody }
+                    : null,
+                }}
+              />
+              {!note.has_file && (
                 <span className="rd-nofile">
                   Filed before originals were kept, so only the text is here.
-                </span>
-              )}
-              {downloadNote && (
-                <span className={`rd-downloadnote${downloadState === 'failed' ? ' is-failed' : ''}`} role="status">
-                  {downloadNote}
                 </span>
               )}
             </div>

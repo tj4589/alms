@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScreenType, User } from '../types';
 import { saveStudyPack } from '../offline';
+import SaveButton from '../components/SaveButton';
+import { apiDownload } from '../lib/api';
 import { apiGet, apiPost } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -531,6 +533,22 @@ export default function SmartSearch({
                     >
                       Ask AI →
                     </button>
+                    <SaveButton
+                      compact
+                      target={{
+                        itemType: 'past_question',
+                        refId: q.id,
+                        title: (q.content_text || 'Past question').slice(0, 80),
+                        meta: [pqCourseLabel(q), q.year, q.semester].filter(Boolean).join(' · '),
+                        // Every past question row has a file behind it: the
+                        // download route walks back to the row that holds the
+                        // bytes for this document.
+                        download: () => apiDownload(`/materials/past-questions/${q.id}/download`, 'past-question.pdf'),
+                        // The question text is already here, so it caches as
+                        // itself rather than as a promise to fetch later.
+                        snapshot: async () => q.content_text ? { ...q } : null,
+                      }}
+                    />
                     <button
                       className="cta cta-ghost"
                       style={{ marginTop: 0, fontSize: 11, padding: '3px 10px' }}

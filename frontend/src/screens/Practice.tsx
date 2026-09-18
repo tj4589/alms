@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import SaveButton from '../components/SaveButton';
 import type { ScreenType, SearchActionContext } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 import { queuePracticeAttempt } from '../offline';
@@ -356,6 +357,18 @@ export default function Practice({
           <div className="empty-actions">
             <button className="cta" onClick={() => go('progress')}>View full progress →</button>
             <button className="cta cta-ghost" onClick={() => { setResult(null); setGeneratedQuestions([]); setAnswers({}); }}>Practice again</button>
+            {/* No file behind a result, so no Download is offered. */}
+            <SaveButton
+              target={{
+                itemType: 'practice_result',
+                refId: result.attempt_id,
+                title: `Practice result: ${result.readiness_score}% readiness`,
+                meta: [selectedTopic, new Date().toLocaleDateString()].filter(Boolean).join(' · '),
+                // The score and debrief are the whole of it, so saving one
+                // keeps everything there was to keep.
+                snapshot: async () => ({ ...result, topic: selectedTopic }),
+              }}
+            />
           </div>
         </div>
       )}

@@ -3,6 +3,7 @@ import { Menu, MessageCircle, Plus, X } from 'lucide-react';
 import type { ChatMessage, ScreenType, User } from '../../types';
 import Assistant from '../../screens/Assistant';
 import MaxeMark from './MaxeMark';
+import SaveButton from '../SaveButton';
 
 type MaxeWorkspaceProps = {
   go: (screen: ScreenType) => void;
@@ -37,7 +38,8 @@ const MAXE_WORKSPACE_STYLES = `
 .maxe-workspace-topbar{display:flex;align-items:center;gap:12px;min-height:72px;padding:0 22px;border-bottom:1px solid #e0e1d7;background:#faf8f3}
 .maxe-workspace-menu{display:none}
 .maxe-workspace-heading{min-width:0}.maxe-workspace-heading strong{display:block;font-size:15px;font-weight:600;color:#30382a}.maxe-workspace-heading span{display:block;color:#71766a;font-size:11px;margin-top:2px}
-.maxe-workspace-close{display:grid;place-items:center;width:38px;height:38px;margin-left:auto;border:0;border-radius:9px;background:transparent;color:#525a4d;transition:background-color 150ms ease-out,transform 120ms ease-out}
+.maxe-workspace-save{margin-left:auto;display:inline-flex}
+.maxe-workspace-close{display:grid;place-items:center;width:38px;height:38px;margin-left:10px;border:0;border-radius:9px;background:transparent;color:#525a4d;transition:background-color 150ms ease-out,transform 120ms ease-out}
 .maxe-workspace-close:hover{background:#e9e9df}.maxe-workspace-close:active{transform:scale(.96)}
 .maxe-workspace-conversation{min-height:0;flex:1;overflow:auto;background:#faf8f3}
 .maxe-workspace-dialog #s-assistant.assistant-page{width:100%;height:100%;max-width:none;margin:0;padding:0;background:#faf8f3}
@@ -75,6 +77,12 @@ export default function MaxeWorkspace({
   const [historyOpen, setHistoryOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const title = useMemo(() => threadTitle(messages), [messages]);
+  // Nothing worth saving until the student has actually asked something; the
+  // opening greeting is not a conversation.
+  const conversationKey = useMemo(
+    () => messages.find((message) => message.role === 'user')?.id ?? null,
+    [messages],
+  );
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -150,6 +158,27 @@ export default function MaxeWorkspace({
               <strong id="maxe-workspace-title">Ask Maxe</strong>
               <span>Your notes and questions, in one conversation</span>
             </div>
+            {/* Saving takes the conversation as it stands right now. There is
+                no thread history behind this -- the messages live in one
+                in-memory array -- so a save is a snapshot, not a bookmark
+                into something that would still be there later. */}
+            {conversationKey && (
+              <span className="maxe-workspace-save">
+                <SaveButton
+                  compact
+                  target={{
+                    itemType: 'maxe_conversation',
+                    // Keyed on the first thing the student asked, which is
+                    // stable for the life of the thread: saving twice updates
+                    // the same entry instead of leaving two copies behind.
+                    refId: conversationKey,
+                    title: title || 'Conversation with Maxe',
+                    meta: `${messages.length} message${messages.length === 1 ? '' : 's'}`,
+                    snapshot: async () => messages.length > 0 ? messages : null,
+                  }}
+                />
+              </span>
+            )}
             <button ref={closeRef} type="button" className="maxe-workspace-close" onClick={onClose} aria-label="Close Maxe">
               <X size={20} aria-hidden="true" />
             </button>
