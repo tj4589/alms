@@ -101,3 +101,23 @@
 @media(prefers-reduced-motion:reduce){
   #s-groups :is(.gs-row,.gs-tab,.gs-primary,.gs-ghost){transition:none}
 }
+
+/* ---- reading rooms ----------------------------------------------------- */
+#s-groups .gs-goal{display:block;margin-top:4px;overflow:hidden;color:var(--text3);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+#s-groups .gs-enter{font-family:var(--font);font-size:12px;font-weight:500;color:var(--highlighter)}
+#s-groups .gs-row:disabled{cursor:default;opacity:.62}
+#s-groups .gs-row:disabled:hover{background:transparent}
+
+#s-groups .gs-mine{list-style:none;margin:0;padding:0}
+#s-groups .gs-link{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);width:100%;min-height:44px;padding:8px 0;border:0;border-bottom:1px solid var(--border);background:none;color:var(--text);font-family:var(--font);font-size:13px;font-weight:500;text-align:left;cursor:pointer}
+#s-groups .gs-mine li:last-child .gs-link{border-bottom:0}
+#s-groups .gs-link:hover span:first-child{text-decoration:underline}
+#s-groups .gs-tag-studying,#s-groups .gs-tag-break{flex-shrink:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase}
+#s-groups .gs-tag-studying{color:var(--teal)}
+#s-groups .gs-tag-break{color:var(--text3)}
+
+/* What is in a room, as terms rather than emoji bullets. */
+#s-groups .gs-explainer{margin:var(--space-4) 0 0}
+#s-groups .gs-explainer>div{padding:9px 0;border-top:1px solid var(--border)}
+#s-groups .gs-explainer dt{font-size:12.5px;font-weight:600;color:var(--text)}
+#s-groups .gs-explainer dd{margin:2px 0 0;font-size:12px;line-height:1.5;color:var(--text3)}

@@ -105,19 +105,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const IS: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--bg3)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '9px 12px',
-  color: 'var(--text)',
-  fontFamily: 'var(--font)',
-  fontSize: 13,
-  outline: 'none',
-};
 
-const SS: React.CSSProperties = { ...IS, cursor: 'pointer' };
 
 
 // ── Room Detail ───────────────────────────────────────────────────────────────
@@ -841,6 +829,7 @@ export default function StudyGroups({
   };
 
   const myGroups = groups.filter((g) => g.is_member);
+  const liveRooms = sessions.filter((room) => room.status === 'active');
 
   // ── If room is selected, show detail ─────────────────────────────────────
   if (selectedSession) {
@@ -877,7 +866,7 @@ export default function StudyGroups({
           aria-current={mainTab === 'rooms' ? 'page' : undefined}
           onClick={() => setMainTab('rooms')}
         >
-          Reading Rooms {sessions.filter(s => s.status === 'active').length > 0 ? `(${sessions.filter(s => s.status === 'active').length} live)` : ''}
+          Reading Rooms {liveRooms.length > 0 ? `(${liveRooms.length} live)` : ''}
         </button>
       </div>
 
@@ -1082,135 +1071,133 @@ export default function StudyGroups({
       )}
 
       {mainTab === 'rooms' && (
-        <div className="two-col">
-          <div className="card">
-            <div className="card-hd">
-              <div className="card-ttl">
-                Live Reading Rooms
-                {sessions.filter(s => s.status === 'active').length > 0 && (
-                  <span className="ni-badge" style={{ marginLeft: 7 }}>{sessions.filter(s => s.status === 'active').length}</span>
-                )}
-              </div>
-              <button
-                className="cta"
-                style={{ marginTop: 0, padding: '6px 14px', fontSize: 12, minHeight: 40 }}
-                onClick={() => { setShowRoomForm((v) => !v); setRoomFormError(''); }}
-              >
-                {showRoomForm ? 'Cancel' : '+ Start Reading Room'}
+        <div className="gs-layout">
+          <div>
+            <div className="gs-bar">
+              <p className="gs-bar-label">
+                {liveRooms.length > 0
+                  ? `${liveRooms.length} live now`
+                  : sessions.length > 0 ? `${sessions.length} room${sessions.length === 1 ? '' : 's'}` : 'Reading rooms'}
+              </p>
+              <button className="gs-primary" onClick={() => { setShowRoomForm((v) => !v); setRoomFormError(''); }}>
+                {showRoomForm ? 'Cancel' : 'Start a room'}
               </button>
             </div>
 
             {showRoomForm && (
-              <div style={{ marginBottom: 18, padding: 14, background: 'var(--bg3)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 10 }}>Start a Reading Room</div>
-                {roomFormError && <div className="upload-alert" style={{ marginBottom: 8 }}>{roomFormError}</div>}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input style={IS} type="text" placeholder="Room title (e.g. MIS415 Project Management Revision)" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus />
-                  <input style={IS} type="text" placeholder="Topic focus (e.g. critical path or cost variance)" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} />
-                  <input style={IS} type="text" placeholder="Exam goal (e.g. revise uploaded past-question topics tonight)" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} />
-                  <select style={SS} value={roomCourseId} onChange={(e) => setRoomCourseId(e.target.value ? Number(e.target.value) : '')}>
+              <div className="gs-form">
+                <p className="gs-form-title">Start a reading room</p>
+                {roomFormError && <div className="upload-alert">{roomFormError}</div>}
+                <div className="gs-field">
+                  <label htmlFor="room-title">What are you revising?</label>
+                  <input id="room-title" type="text" placeholder="MIS 415 project management revision" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus />
+                </div>
+                <div className="gs-field">
+                  <label htmlFor="room-course">Course</label>
+                  <select id="room-course" value={roomCourseId} onChange={(e) => setRoomCourseId(e.target.value ? Number(e.target.value) : '')}>
                     <option value="">No specific course</option>
-                    {courses.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+                    {courses.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
                   </select>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="cta" style={{ marginTop: 0, fontSize: 12 }} onClick={() => void createRoom()} disabled={creatingRoom || !roomTitle.trim()}>
-                      {creatingRoom ? 'Creating…' : 'Start Reading Room'}
-                    </button>
-                    <button className="cta cta-ghost" style={{ marginTop: 0, fontSize: 12 }} onClick={() => { setShowRoomForm(false); setRoomFormError(''); }}>Cancel</button>
-                  </div>
+                </div>
+                <div className="gs-field">
+                  <label htmlFor="room-topic">Topic focus (optional)</label>
+                  <input id="room-topic" type="text" placeholder="Critical path, cost variance" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} />
+                </div>
+                <div className="gs-field">
+                  <label htmlFor="room-goal">Goal for tonight (optional)</label>
+                  <input id="room-goal" type="text" placeholder="Get through the 2023 paper" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} />
+                </div>
+                <div className="gs-form-actions">
+                  <button className="gs-primary" onClick={() => void createRoom()} disabled={creatingRoom || !roomTitle.trim()}>
+                    {creatingRoom ? 'Starting...' : 'Start room'}
+                  </button>
+                  <button className="gs-ghost" onClick={() => { setShowRoomForm(false); setRoomFormError(''); }}>Cancel</button>
                 </div>
               </div>
             )}
 
-            {sessionsLoading && <div style={{ fontSize: 13, color: 'var(--text3)', padding: '12px 0' }}>Loading rooms…</div>}
+            {sessionsLoading && <p className="gs-state">Loading rooms...</p>}
             {sessionsError && <div className="upload-alert">{sessionsError}</div>}
-
             {!sessionsLoading && !sessionsError && sessions.length === 0 && (
-              <div className="empty-state" style={{ padding: '20px 0' }}>
-                <div className="empty-title">No active reading rooms</div>
-                <div className="empty-body">Start a live revision room for a course/topic. Everyone can discuss and turn AI answers into shared study cards.</div>
-              </div>
+              <p className="gs-state">No reading rooms yet. Start one for tonight and anyone on the course can sit in it with you.</p>
             )}
 
-            {!sessionsLoading && sessions.map((room) => {
-              const course = room.course_id ? courseMap.get(room.course_id) : null;
-              return (
-              <div className="qd" style={{ cursor: 'default' }} key={room.id}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{room.title}</div>
-                    {course && (
-                      <div style={{ fontSize: 12.5, color: 'var(--text2)', marginBottom: 5 }}>{course.code} — {course.name}</div>
-                    )}
-                    {room.exam_goal && (
-                      <div style={{ fontSize: 12.5, color: 'var(--text2)', marginBottom: 5 }}>Goal: {room.exam_goal}</div>
-                    )}
-                    <div className="qd-meta" style={{ flexWrap: 'wrap' }}>
-                      {room.topic && <span className="tag tag-m">{room.topic}</span>}
-                      <span style={{ fontSize: 11, color: room.status === 'active' ? 'var(--teal)' : 'var(--text3)', fontWeight: 600 }}>
-                        {room.status === 'active' ? `${room.studying_count} studying · ${room.on_break_count} on break` : 'Ended'}
-                      </span>
-                      {room.creator_username && (
-                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>by @{room.creator_username}</span>
-                      )}
-                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>{timeAgo(room.created_at)}</span>
-                    </div>
-                  </div>
-                  {room.status === 'active' && (
+            <ul className="gs-list">
+              {!sessionsLoading && sessions.map((room) => {
+                const course = room.course_id ? courseMap.get(room.course_id) : null;
+                const live = room.status === 'active';
+                const inRoom = room.my_status && room.my_status !== 'left';
+                return (
+                  <li key={room.id}>
                     <button
-                      className="cta"
-                      style={{ marginTop: 0, fontSize: 12, padding: '6px 16px', flexShrink: 0, minHeight: 40 }}
-                      onClick={() => setSelectedSession(room)}
+                      type="button"
+                      className="gs-row"
+                      onClick={() => { if (live) setSelectedSession(room); }}
+                      disabled={!live}
+                      aria-label={live ? `${inRoom ? 'Re-enter' : 'Join'} ${room.title}` : `${room.title}, ended`}
                     >
-                      {room.my_status && room.my_status !== 'left' ? 'Re-enter →' : 'Join Room →'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )})}
-          </div>
-
-          {/* Right: info card */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="card" style={{ background: 'linear-gradient(135deg, var(--bg2), rgba(62,207,178,0.03))', borderColor: 'rgba(62,207,178,0.18)' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--teal)', marginBottom: 8 }}>Reading Rooms</div>
-              <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 6 }}>Study live together</div>
-              <div style={{ fontSize: 12.5, color: 'var(--text2)', lineHeight: 1.65, marginBottom: 12 }}>
-                Start a room for tonight's session. Inside the room, everyone can see who's studying, chat normally, and ask AI questions that appear as shared study cards.
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.65 }}>
-                <div style={{ marginBottom: 4 }}>📖 <strong>AI Study Board</strong> — shared AI answers with sources</div>
-                <div style={{ marginBottom: 4 }}>💬 <strong>Discussion</strong> — normal room chat</div>
-                <div>👥 <strong>People</strong> — see who's studying vs. on break</div>
-              </div>
-            </div>
-
-            {sessions.filter(s => s.my_status && s.my_status !== 'left' && s.status === 'active').length > 0 && (
-              <div className="card">
-                <div className="card-hd"><div className="card-ttl">My Active Rooms</div></div>
-                {sessions
-                  .filter(s => s.my_status && s.my_status !== 'left' && s.status === 'active')
-                  .map((room) => (
-                    <div className="collab-item" key={room.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedSession(room)}>
-                      <div className="collab-top">
-                        <div className="collab-name">{room.title}</div>
-                        <span style={{
-                          fontSize: 11,
-                          padding: '1px 6px',
-                          borderRadius: 4,
-                          background: room.my_status === 'on_break' ? 'rgba(232,162,58,0.1)' : 'rgba(62,207,178,0.1)',
-                          color: room.my_status === 'on_break' ? 'var(--gold)' : 'var(--teal)',
-                        }}>
-                          {room.my_status === 'on_break' ? '☕ break' : '📖 studying'}
+                      <span className={`gs-avatar ${tintClass(room.id)}`} aria-hidden="true">{groupInitials(room.title)}</span>
+                      <span>
+                        <span className="gs-name">{room.title}</span>
+                        <span className="gs-sub">
+                          {course ? `${course.code} - ` : ''}
+                          {live ? `${room.studying_count} studying, ${room.on_break_count} on break` : 'Ended'}
+                          {room.topic ? ` - ${room.topic}` : ''}
                         </span>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
+                        {room.exam_goal && <span className="gs-goal">Goal: {room.exam_goal}</span>}
+                      </span>
+                      <span className="gs-right">
+                        {live
+                          ? <span className="gs-live">{inRoom ? 'You are in' : 'Live'}</span>
+                          : <span className="gs-when">{timeAgo(room.created_at)}</span>}
+                        {live && <span className="gs-enter">{inRoom ? 'Re-enter' : 'Join'}</span>}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
+
+          <aside className="gs-margin">
+            {liveRooms.filter((room) => room.my_status && room.my_status !== 'left').length > 0 && (
+              <section className="margin-block">
+                <p className="margin-label">You are in</p>
+                <ul className="gs-mine">
+                  {liveRooms
+                    .filter((room) => room.my_status && room.my_status !== 'left')
+                    .map((room) => (
+                      <li key={room.id}>
+                        <button type="button" className="gs-link" onClick={() => setSelectedSession(room)}>
+                          <span>{room.title}</span>
+                          <span className={room.my_status === 'on_break' ? 'gs-tag-break' : 'gs-tag-studying'}>
+                            {room.my_status === 'on_break' ? 'On break' : 'Studying'}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              </section>
+            )}
+
+            <section className="margin-block margin-block--end">
+              <p className="margin-label">Reading rooms</p>
+              <h2 className="margin-title">Study live together</h2>
+              <p className="margin-note">
+                A room is tonight's session. Inside it you can see who is actually studying,
+                talk normally, and ask the assistant questions that land on a board everyone
+                shares.
+              </p>
+              <dl className="gs-explainer">
+                <div><dt>AI study board</dt><dd>Shared answers, with their sources</dd></div>
+                <div><dt>Discussion</dt><dd>Ordinary room chat</dd></div>
+                <div><dt>People</dt><dd>Who is studying, who is on a break</dd></div>
+              </dl>
+            </section>
+          </aside>
         </div>
       )}
+
     </div>
   );
 }
