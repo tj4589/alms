@@ -108,3 +108,35 @@ export function apiFormPost(path: string, formData: FormData | URLSearchParams) 
     'Request failed.',
   );
 }
+
+/**
+ * Download a file the backend serves behind auth.
+ *
+ * A plain <a href> cannot carry the bearer token, so the bytes are fetched,
+ * handed to the browser as a blob, and the object URL is revoked once the
+ * click has been dispatched. Returns the filename the server chose, so the
+ * caller can say what was saved.
+ */
+export async function apiDownload(path: string, fallbackName: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'GET', headers: authHeaders() });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'That file could not be downloaded.'));
+  }
+
+  // The server names the file in Content-Disposition; fall back to the
+  // caller's name when the header is absent or unparseable.
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = /filename="?([^"]+)"?/.exec(disposition);
+  const filename = match ? match[1] : fallbackName;
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return filename;
+}

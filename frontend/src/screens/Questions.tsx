@@ -141,7 +141,7 @@ export default function SmartSearch({
   user: _user,
   onGoToPractice,
 }: {
-  go: (s: ScreenType) => void;
+  go: (s: ScreenType, arg?: string | number | null) => void;
   onAskQuestion: (questionText: string) => void;
   onQuestionCountChange?: (count: number) => void;
   user: User | null;
@@ -576,6 +576,12 @@ export default function SmartSearch({
                     {note.topic && <span className="tag tag-m">{note.topic}</span>}
                     {note.year && <span className="qi-yr">{note.year}</span>}
                     {note.semester && <span className="qi-yr">{note.semester}</span>}
+                    <button
+                      className="ask-ai-btn"
+                      onClick={() => go('reader', note.id)}
+                    >
+                      Open to read →
+                    </button>
                     <button
                       className="ask-ai-btn"
                       onClick={() => onAskQuestion(`Explain: ${note.title}`)}

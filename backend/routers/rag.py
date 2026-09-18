@@ -18,11 +18,24 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 MAX_RAG_QUESTION_CHARS = int(os.getenv("MAX_RAG_QUESTION_CHARS", "2000"))
 
 
+NL = chr(10)
+
+# A highlighted passage is an extract, not a document; past this it is being
+# used to smuggle a whole note into the prompt.
+MAX_PASSAGE_CHARS = 2000
+
+
 class AskQuestionRequest(BaseModel):
     question: str
     topic_id: Optional[int] = None
     course_id: Optional[int] = None
     recent_context: Optional[str] = None
+    # A passage the student is reading and pointing at. Carried separately from
+    # recent_context because that slot is labelled as conversation history in
+    # the prompt -- putting a quoted extract there tells the model someone said
+    # it, rather than that it is the text on the page in front of the student.
+    passage: Optional[str] = None
+    passage_source: Optional[str] = None
 
 
 class AskQuestionResponse(BaseModel):
@@ -277,7 +290,17 @@ def ask_question(
             status_code=413,
             detail=f"Question is too long. Limit it to {MAX_RAG_QUESTION_CHARS} characters.",
         )
-    room_context = f"Recent conversation:\n{req.recent_context[:1200]}" if req.recent_context else None
+    parts: list[str] = []
+    if req.recent_context:
+        parts.append("Recent conversation:" + NL + req.recent_context[:1200])
+    if req.passage:
+        where = f" (from {req.passage_source})" if req.passage_source else ""
+        parts.append(
+            "The student is reading this passage" + where + " and is asking about it. "
+            "Answer about this passage first, then add what the archive says:"
+            + NL + req.passage[:MAX_PASSAGE_CHARS]
+        )
+    room_context = (NL + NL).join(parts) if parts else None
     return run_rag_query(question, req.course_id, req.topic_id, db, room_context=room_context)
 
 

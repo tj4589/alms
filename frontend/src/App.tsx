@@ -46,6 +46,7 @@ import Empty from './screens/Empty';
 import SearchResults from './screens/SearchResults';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
+import Reader from './screens/Reader';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
 import OfflineStatus from './components/OfflineStatus';
@@ -150,6 +151,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
+  const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedQuestion, setSelectedQuestion] = useState('');
@@ -249,10 +251,12 @@ export default function App() {
     setMaxeOpen(false);
   };
 
-  // A second argument carries whose profile to open. Every existing call site
-  // passes one argument and means "my own", so they keep working untouched.
-  const go = (screen: ScreenType, username?: string | null) => {
-    setProfileUsername(screen === 'profile' ? (username ?? null) : null);
+  // A second argument names what the screen should open: whose profile, or
+  // which material to read. Every existing call site passes one argument and
+  // means "mine" or "none", so they keep working untouched.
+  const go = (screen: ScreenType, arg?: string | number | null) => {
+    setProfileUsername(screen === 'profile' && typeof arg === 'string' ? arg : null);
+    if (screen === 'reader') setReaderNoteId(typeof arg === 'number' ? arg : null);
     if (screen === 'assistant') {
       setSidebarOpen(false);
       setSearchOpen(false);
@@ -559,7 +563,7 @@ export default function App() {
           >
             {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
           </button>
-          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
+          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'reader' ? 'Reading' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
           <div className="search global-search" ref={searchBoxRef}>
             <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
@@ -722,6 +726,7 @@ export default function App() {
         {activeScreen === 'empty' && <Empty go={go} />}
         {activeScreen === 'settings' && <Settings go={go} user={user} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
+        {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}
