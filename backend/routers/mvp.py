@@ -1,6 +1,7 @@
 from collections import defaultdict
 import json
 import re
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -13,6 +14,7 @@ import models
 from ai_clients import AIProviderError, generate_ai_response
 from database import get_db
 from routers.rag import run_rag_query
+from routers.search import _document_key
 
 router = APIRouter(tags=["mvp"])
 
@@ -374,6 +376,32 @@ def serialize_past_question(row: models.PastQuestion) -> dict:
     }
 
 
+# A past-question upload writes one row per text chunk, because each chunk
+# needs its own embedding to be searchable. That is correct for retrieval and
+# wrong for any number shown to a person: a single twelve-chunk PDF would read
+# as twelve uploads.
+#
+# _document_key is search.py's grouping, the one that already collapses those
+# chunks into a single card in search results. Importing it rather than writing
+# a second version means counting and search can never drift apart.
+#
+# Only the three columns the key needs are selected, so counting never pulls a
+# row's stored file bytes into memory.
+_DOCUMENT_KEY_COLUMNS = (
+    models.PastQuestion.metadata_json,
+    models.PastQuestion.year,
+    models.PastQuestion.semester,
+)
+
+
+def _document_keys(rows) -> set:
+    """Distinct uploaded documents among (metadata_json, year, semester) rows."""
+    return {
+        _document_key(SimpleNamespace(metadata_json=metadata, year=year, semester=semester))
+        for metadata, year, semester in rows
+    }
+
+
 def serialize_lecture_note(row: models.LectureNote) -> dict:
     return {
         "id": row.id,
@@ -631,11 +659,11 @@ def public_profile(
 
     is_self = user.id == current_user.id
 
-    past_questions = (
-        db.query(func.count(models.PastQuestion.id))
+    past_questions = len(_document_keys(
+        db.query(*_DOCUMENT_KEY_COLUMNS)
         .filter(models.PastQuestion.uploaded_by == user.id)
-        .scalar()
-    ) or 0
+        .all()
+    ))
     lecture_notes = (
         db.query(func.count(models.LectureNote.id))
         .filter(models.LectureNote.uploaded_by == user.id)
@@ -670,15 +698,18 @@ def public_profile(
              "past_questions": 0, "lecture_notes": 0, "materials": 0, "rooms": 0},
         )
 
-    pq_by_course = (
-        db.query(models.PastQuestion.course_id, func.count(models.PastQuestion.id))
+    # Grouped in Python rather than by SQL, because the key lives inside
+    # metadata_json and has to be computed the same way search computes it.
+    pq_rows_by_course: dict[int, list] = defaultdict(list)
+    for course_id, metadata, year, semester in (
+        db.query(models.PastQuestion.course_id, *_DOCUMENT_KEY_COLUMNS)
         .filter(models.PastQuestion.uploaded_by == user.id)
         .filter(models.PastQuestion.course_id.isnot(None))
-        .group_by(models.PastQuestion.course_id)
         .all()
-    )
-    for course_id, count in pq_by_course:
-        _bucket(course_id)["past_questions"] = count
+    ):
+        pq_rows_by_course[course_id].append((metadata, year, semester))
+    for course_id, rows in pq_rows_by_course.items():
+        _bucket(course_id)["past_questions"] = len(_document_keys(rows))
 
     ln_by_course = (
         db.query(models.LectureNote.course_id, func.count(models.LectureNote.id))

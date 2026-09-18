@@ -1,5 +1,46 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - One upload counts as one
+
+The past-question ingest writes one `PastQuestion` row per text chunk, because
+each chunk needs its own embedding to be findable. That is right for retrieval
+and wrong for any number shown to a person: a twelve-chunk PDF read as twelve
+uploads on the profile, and cleared the "Ten filed" badge on its own.
+
+Ingestion is unchanged. The bug was downstream, in `mvp.py`, where two
+user-facing counts were taken straight off row counts -- the overall
+`past_questions_uploaded` and the per-course breakdown, which together feed the
+"Materials" figure and both upload badges.
+
+Both now count distinct documents using `_document_key` imported from
+`search.py`. That function already collapses chunk rows into one card per
+document in search results, so it is the definition of "same file" the app
+already trusts. Importing it rather than writing a second copy means counting
+and search grouping cannot drift apart later.
+
+The per-course count groups in Python rather than SQL, because the key lives
+inside `metadata_json` and has to be built the same way search builds it. Both
+queries select only the three columns the key needs, so counting never pulls a
+row's stored file bytes into memory.
+
+No migration. The grouping is computed from metadata that is already written on
+every row.
+
+Verified against rows shaped exactly as `ingest.py` writes them: one 12-chunk
+upload counts 1, three uploads of 12+5+1 chunks count 3, the same file filed
+under two semesters counts 2, and an unindexed single empty row counts 1. Not
+yet verified against a live database -- there is no Postgres running locally
+and Neon is not connected yet, so this is verification of the counting function,
+not of the query against real rows.
+
+Two things worth knowing. Rows whose `metadata_json` is entirely empty collapse
+together, so two such uploads would count as one; in practice ingest always
+writes `source_file`, so this needs a file with no name to happen. And a real
+`document_id` column would remove the need to recompute keys from JSON on every
+count -- worth doing eventually, but it is a schema change and a bigger decision
+than making the number correct, so it stays a suggestion.
+
+
 # 2026-09-18 - Profile split out of Settings
 
 Four things led to one screen: the sidebar user row, the Settings nav item, the
