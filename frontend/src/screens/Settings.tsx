@@ -1,147 +1,81 @@
 import type { ScreenType, User } from '../types';
+import './Settings.css';
 
 type SettingsProps = {
   go: (s: ScreenType) => void;
   user: User | null;
 };
 
-const panelStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 14,
-};
-
-const infoRowStyle = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 16,
-  padding: '12px 0',
-  borderBottom: '1px solid var(--border)',
-};
-
-function FieldRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={infoRowStyle}>
-      <div style={{ color: 'var(--text3)', fontSize: 12 }}>{label}</div>
-      <div style={{ color: 'var(--text)', fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{value}</div>
-    </div>
-  );
-}
-
-function InfoCard({
-  icon,
-  title,
-  body,
-}: {
-  icon: string;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="card">
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <div
-          className="ni-ico"
-          style={{
-            width: 34,
-            height: 34,
-            borderColor: 'rgba(232,162,58,0.35)',
-            color: 'var(--gold)',
-            flex: '0 0 auto',
-          }}
-        >
-          {icon}
-        </div>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{title}</div>
-          <div style={{ color: 'var(--text2)', fontSize: 13, lineHeight: 1.65 }}>{body}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// The three cards that used to sit under "Privacy summary" restated the same
+// three facts at greater length. Merged: the shorter headings, the fuller bodies,
+// one list.
+const DATA_NOTES = [
+  {
+    heading: 'Protected pages require a login',
+    body: 'ExamMind protects student-facing pages with JWT-based login. Uploads, search, assistance, practice, progress, study groups and reading rooms all require an authenticated session.',
+  },
+  {
+    heading: 'Progress belongs to your account',
+    body: 'Practice attempts and readiness are tied to the signed-in account. The progress screen requests your own student record and does not expose another student’s progress.',
+  },
+  {
+    heading: 'Uploaded materials are processed for retrieval',
+    body: 'Academic PDFs are read for text extraction, OCR cleanup, metadata detection, semantic search and retrieval. Raw extracted text is kept for traceability and is not shown as the main preview.',
+  },
+];
 
 export default function Settings({ user }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
+  // Word initials, so "Dev Student" reads DS like the sidebar avatar, not DE.
+  const initials = (user?.name || 'Student')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
 
   return (
     <div className="page" id="s-settings">
       <div className="pg-head">
-        <div>
-          <div className="pg-title">Student <em>Settings</em></div>
-          <div className="pg-sub">Account details, authenticated access, and privacy notes for your ExamMind study workspace.</div>
-        </div>
+        <div className="pg-title">Student <em>Settings</em></div>
+        <div className="pg-sub">Your account record, and how ExamMind handles your session and the materials you add.</div>
       </div>
 
-      <div className="two-col">
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Student account</div>
-            <span className="tag tag-e">Student</span>
+      <section className="account-sheet" aria-labelledby="settings-account-title">
+        <span className="account-marks" aria-hidden="true"><i /><i /><i /><i /></span>
+
+        <div className="account-id">
+          <span className="account-initials" aria-hidden="true">{initials}</span>
+          <div>
+            <h2 className="account-name" id="settings-account-title">{user?.name || 'Student account'}</h2>
+            <p className="account-handle">{username}</p>
           </div>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 10 }}>
-            <div className="ava" style={{ width: 54, height: 54, fontSize: 18 }}>
-              {(user?.name || 'Student').slice(0, 2).toUpperCase()}
-            </div>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>{user?.name || 'Student account'}</div>
-              <div style={{ color: 'var(--text3)', fontSize: 12 }}>{username}</div>
-            </div>
-          </div>
-          <FieldRow label="Name" value={user?.name || 'Loading...'} />
-          <FieldRow label="Username" value={username} />
-          <FieldRow label="Email" value={user?.email || 'Loading...'} />
-          <FieldRow label="Account type" value="Student" />
         </div>
 
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Privacy summary</div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div className="offline-item">
-              <div>
-                <div className="offline-item-title">Protected pages require login</div>
-                <div className="offline-item-meta">ExamMind uses JWT-based authenticated access for student features.</div>
-              </div>
-              <span className="tag tag-e">Active</span>
-            </div>
-            <div className="offline-item">
-              <div>
-                <div className="offline-item-title">Progress belongs to your account</div>
-                <div className="offline-item-meta">Practice attempts and readiness views are scoped to the logged-in student.</div>
-              </div>
-              <span className="tag">Student data</span>
-            </div>
-            <div className="offline-item">
-              <div>
-                <div className="offline-item-title">Raw OCR stays out of main views</div>
-                <div className="offline-item-meta">Extracted text previews use cleaned academic content where available.</div>
-              </div>
-              <span className="tag tag-m">Preview safe</span>
-            </div>
-          </div>
-        </div>
-      </div>
+        <dl className="account-facts">
+          <div><dt>Name</dt><dd>{user?.name || 'Not available'}</dd></div>
+          <div><dt>Username</dt><dd>{username}</dd></div>
+          <div><dt>Email</dt><dd>{user?.email || 'Not available'}</dd></div>
+          <div><dt>Account type</dt><dd>Student</dd></div>
+        </dl>
+      </section>
 
-      <div style={panelStyle}>
-        <InfoCard
-          icon="J"
-          title="Authenticated access"
-          body="ExamMind protects student-facing pages with JWT-based login. Uploads, search, AI assistance, practice, progress, study groups, and reading rooms require an authenticated student session."
-        />
-        <InfoCard
-          icon="P"
-          title="Student data privacy"
-          body="Student analytics and practice progress are tied to the logged-in account. The progress screen requests your own student record and does not expose another student's private progress in the interface."
-        />
-        <InfoCard
-          icon="D"
-          title="Uploaded materials notice"
-          body="Uploaded academic PDFs are processed for text extraction, OCR cleanup, metadata detection, semantic search, and AI retrieval. Raw extracted text is kept for traceability and is not shown as the main student preview."
-        />
-      </div>
-
+      <section className="notes" aria-labelledby="settings-notes-title">
+        <p className="notes-label">Session and data</p>
+        <h2 className="notes-title" id="settings-notes-title">How this account is handled</h2>
+        <ol className="notes-list">
+          {DATA_NOTES.map((note, index) => (
+            <li key={note.heading}>
+              <span className="notes-no">{String(index + 1).padStart(2, '0')}</span>
+              <div>
+                <h3 className="notes-heading">{note.heading}</h3>
+                <p className="notes-body">{note.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
     </div>
   );
 }

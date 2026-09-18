@@ -1,5 +1,31 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Settings on the paper system, and de-duplicated
+
+Settings said everything twice. A "Privacy summary" list of three facts sat above
+three `InfoCard`s in an auto-fit `repeat(auto-fit, minmax(260px, 1fr))` grid that
+restated the same three facts at greater length, each behind a letter glyph -- "J",
+"P", "D" -- in a gold-bordered circle. That is the equal-weight card grid MASTER.md's
+Avoid list names, carrying duplicate content.
+
+Merged into one numbered list: the shorter headings from the summary, the fuller
+bodies from the cards. Half the screen's content disappeared without losing a single
+fact.
+
+Dropped the `.tag` chips. Settings is entirely read-only, and a chip beside a
+statement implies a switch you can flip. The facts now carry themselves.
+
+Structure is the app-side pattern: an identity sheet with crop marks over a hairline
+definition list with mono uppercase terms, then the data notes as numbered marginalia
+at a 78ch measure.
+
+Fixed a small wrong detail: the sheet's initials used `name.slice(0, 2)`, so
+"Dev Student" rendered DE while the sidebar avatar rendered DS. Now takes word
+initials and both read DS.
+
+Verified at 390/768/1024/1440: zero `.card`, zero `.tag`, zero inline-styled nodes
+left on the screen, four account facts, three notes, no horizontal overflow.
+
 # 2026-09-18 - Offline Library and the shared empty state on the paper system
 
 Both screens were still on the generic `.card` + `.two-col` chrome with filled
