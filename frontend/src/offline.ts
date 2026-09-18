@@ -1,5 +1,8 @@
 const DB_NAME = 'exammind-offline';
-const DB_VERSION = 1;
+// Bumped to 2 to add the savedItems store. The upgrade handler only creates
+// stores that are missing, so an existing database keeps studyPacks,
+// pendingUploads and practiceAttempts and their contents untouched.
+const DB_VERSION = 2;
 
 export type OfflineStudyPack = {
   id: string;
@@ -23,6 +26,27 @@ export type PendingUpload = {
   fileData: ArrayBuffer; // actual bytes so sync can re-POST the file
 };
 
+export type StoreName = 'studyPacks' | 'pendingUploads' | 'practiceAttempts' | 'savedItems';
+
+/**
+ * Something the student chose to keep.
+ *
+ * `cachedOffline` is the honest bit: it is true only when `snapshot` actually
+ * holds readable content. A bookmark without a snapshot still opens, but it
+ * needs the network, and the library says so rather than promising offline
+ * access it cannot deliver.
+ */
+export type SavedItem = {
+  id: string;
+  itemType: 'lecture_note' | 'past_question' | 'maxe_conversation' | 'practice_result';
+  refId: string | number;
+  title: string;
+  meta: string;
+  savedAt: string;
+  cachedOffline: boolean;
+  snapshot?: unknown;
+};
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -37,6 +61,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('practiceAttempts')) {
         db.createObjectStore('practiceAttempts', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('savedItems')) {
+        db.createObjectStore('savedItems', { keyPath: 'id' });
       }
     };
 
@@ -91,6 +118,16 @@ export async function removePracticeAttempt(id: string) {
   });
 }
 
+export async function removeStudyPack(id: string) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('studyPacks', 'readwrite');
+    tx.objectStore('studyPacks').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function removePendingUpload(id: string) {
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
@@ -101,7 +138,7 @@ export async function removePendingUpload(id: string) {
   });
 }
 
-export async function countRecords(storeName: 'studyPacks' | 'pendingUploads' | 'practiceAttempts') {
+export async function countRecords(storeName: StoreName) {
   const db = await openDb();
   return new Promise<number>((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readonly');
@@ -111,7 +148,7 @@ export async function countRecords(storeName: 'studyPacks' | 'pendingUploads' | 
   });
 }
 
-export async function listRecords<T>(storeName: 'studyPacks' | 'pendingUploads' | 'practiceAttempts') {
+export async function listRecords<T>(storeName: StoreName) {
   const db = await openDb();
   return new Promise<T[]>((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readonly');
@@ -119,6 +156,32 @@ export async function listRecords<T>(storeName: 'studyPacks' | 'pendingUploads' 
     request.onsuccess = () => resolve(request.result as T[]);
     request.onerror = () => reject(request.error);
   });
+}
+
+/** Saving the same item twice replaces it rather than adding a duplicate. */
+export async function saveItem(item: SavedItem) {
+  await writeRecord('savedItems', item);
+}
+
+export async function removeItem(id: string) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('savedItems', 'readwrite');
+    tx.objectStore('savedItems').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Newest first, the order a library of saved things is read in. */
+export async function listItems(): Promise<SavedItem[]> {
+  const items = await listRecords<SavedItem>('savedItems');
+  return items.sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
+}
+
+/** A stable id, so re-saving a document updates its entry instead of doubling it. */
+export function savedItemId(itemType: SavedItem['itemType'], refId: string | number): string {
+  return `${itemType}:${refId}`;
 }
 
 export function registerServiceWorker() {
