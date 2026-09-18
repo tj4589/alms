@@ -1,5 +1,33 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Discussion threads carry what they are about
+
+The screen's own subtitle says "Discussions anchored to specific past questions", but
+nothing anchored anything. `createThread` sent only `course_id: initialContext?.course_id`,
+which is null unless you arrived from a search deep link, so every thread started on
+this screen was unanchored -- a feed of vague posts with no course, no question and no
+way for the right people to find them.
+
+The API already accepted both fields; `POST /threads` maps `req.course_id` and
+`req.past_question_id` onto the row. Only the frontend never sent them.
+
+Composing now asks what the thread is about. A course is required -- Post stays
+disabled and the hint reads "Pick a course so the right people see it" -- and a
+specific past question is optional, with its list filtered to the chosen course and
+disabled until one is picked. Both are sent on create.
+
+Every row now shows its anchor: the course code as a teal chip, since teal is the
+source-grounded colour, and the paper as an outlined chip beside it. A thread with no
+course reads "No course" rather than showing nothing, so the gap is visible on old
+rows. The conversation header carries the same two chips.
+
+This adds two reads on mount, `/courses` and `/past-questions`, both already used
+elsewhere in the app. No endpoint, payload shape or handler signature changed.
+
+Verified against fixtures: typing without a course leaves Post disabled with the
+prompt; choosing CSC 301 enables it, enables the question select and filters it to
+that course's two papers; rows render "CSC 301 / 2023 paper", "CSC 301" and "ECO 101".
+
 # 2026-09-18 - Study Groups: a list you enter, not cards you expand
 
 Groups were `.qd` cards with a "Members (12) v" toggle that expanded a member list

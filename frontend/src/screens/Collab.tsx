@@ -13,6 +13,19 @@ type Thread = {
   created_at: string;
 };
 
+type Course = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+type PastQuestionRef = {
+  id: number;
+  title: string;
+  course_id: number | null;
+  year: number | null;
+};
+
 type ThreadMessage = {
   id: number;
   thread_id: number;
@@ -53,6 +66,10 @@ export default function Collab({
 }) {
   void notifyUnavailable;
   const [threads, setThreads] = useState<Thread[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [pastQuestions, setPastQuestions] = useState<PastQuestionRef[]>([]);
+  const [formCourseId, setFormCourseId] = useState<number | ''>('');
+  const [formQuestionId, setFormQuestionId] = useState<number | ''>('');
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [threadsError, setThreadsError] = useState('');
 
@@ -152,9 +169,11 @@ export default function Collab({
     try {
       await apiPost('/threads', {
         title,
-        course_id: initialContext?.course_id ?? null,
+        course_id: formCourseId || initialContext?.course_id || null,
+        past_question_id: formQuestionId || null,
       });
       setNewTitle('');
+      setFormQuestionId('');
       setShowForm(false);
       await loadThreads();
     } catch (err) {
@@ -167,8 +186,24 @@ export default function Collab({
   const mentionsAI = messageInput.toLowerCase().includes('@ai');
 
   // ── Render helpers ─────────────────────────────────────────
+  const courseMap = new Map(courses.map((course) => [course.id, course.code]));
+  const questionMap = new Map(
+    pastQuestions.map((question) => [question.id, question.year ? `${question.year} paper` : question.title]),
+  );
+
   const meInitials = (user?.name || user?.username || 'You')
     .split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+
+  // Threads are meant to be anchored to a course, and ideally to one past
+  // question. Both endpoints are already used elsewhere in the app.
+  useEffect(() => {
+    apiGet('/courses')
+      .then((data) => setCourses(data as Course[]))
+      .catch(() => setCourses([]));
+    apiGet('/past-questions')
+      .then((data) => setPastQuestions(data as PastQuestionRef[]))
+      .catch(() => setPastQuestions([]));
+  }, []);
 
   const rightPanel = (
     <aside className="collab-margin">
@@ -203,6 +238,12 @@ export default function Collab({
               </button>
               <h1>{selectedThread.title}</h1>
               <p>
+                {courseMap.get(selectedThread.course_id ?? -1) && (
+                  <><span className="anchor-course">{courseMap.get(selectedThread.course_id ?? -1)}</span>{' '}</>
+                )}
+                {questionMap.get(selectedThread.past_question_id ?? -1) && (
+                  <><span className="anchor-question">{questionMap.get(selectedThread.past_question_id ?? -1)}</span>{' '}</>
+                )}
                 Started by {selectedThread.created_by_username ? `@${selectedThread.created_by_username}` : 'someone'}
                 {' '}&middot; {timeAgo(selectedThread.created_at)}
               </p>
@@ -284,7 +325,7 @@ export default function Collab({
                 id="new-thread"
                 className="composer-input"
                 rows={showForm || newTitle ? 3 : 1}
-                placeholder="Ask the year above you something..."
+                placeholder="Ask about a past question or a topic you are stuck on..."
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 onFocus={() => setShowForm(true)}
@@ -292,15 +333,52 @@ export default function Collab({
               />
               {formError && <div className="upload-alert" style={{ marginTop: 8 }}>{formError}</div>}
               {(showForm || newTitle) && (
-                <div className="composer-foot">
-                  <span className="composer-hint">Enter to post &middot; Shift+Enter for a new line</span>
-                  <div className="composer-actions">
-                    <button type="button" className="btn-quiet" onClick={() => { setShowForm(false); setNewTitle(''); setFormError(''); }}>Cancel</button>
-                    <button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim()}>
-                      {creating ? 'Posting...' : 'Post'}
-                    </button>
+                <>
+                  <div className="composer-anchor">
+                    <label className="sr-only" htmlFor="thread-course">Course this is about</label>
+                    <select
+                      id="thread-course"
+                      className="anchor-select"
+                      value={formCourseId}
+                      onChange={(e) => { setFormCourseId(e.target.value ? Number(e.target.value) : ''); setFormQuestionId(''); }}
+                    >
+                      <option value="">Which course?</option>
+                      {courses.map((course) => (
+                        <option key={course.id} value={course.id}>{course.code}</option>
+                      ))}
+                    </select>
+
+                    <label className="sr-only" htmlFor="thread-question">Past question this is about</label>
+                    <select
+                      id="thread-question"
+                      className="anchor-select"
+                      value={formQuestionId}
+                      disabled={!formCourseId}
+                      onChange={(e) => setFormQuestionId(e.target.value ? Number(e.target.value) : '')}
+                    >
+                      <option value="">{formCourseId ? 'A specific past question (optional)' : 'Pick a course first'}</option>
+                      {pastQuestions
+                        .filter((question) => question.course_id === formCourseId)
+                        .map((question) => (
+                          <option key={question.id} value={question.id}>
+                            {question.year ? `${question.year} - ` : ''}{question.title}
+                          </option>
+                        ))}
+                    </select>
                   </div>
-                </div>
+
+                  <div className="composer-foot">
+                    <span className="composer-hint">
+                      {formCourseId ? 'Enter to post' : 'Pick a course so the right people see it'}
+                    </span>
+                    <div className="composer-actions">
+                      <button type="button" className="btn-quiet" onClick={() => { setShowForm(false); setNewTitle(''); setFormQuestionId(''); setFormError(''); }}>Cancel</button>
+                      <button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim() || !formCourseId}>
+                        {creating ? 'Posting...' : 'Post'}
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -308,7 +386,7 @@ export default function Collab({
           {threadsLoading && <p className="feed-state">Loading discussions...</p>}
           {threadsError && <div className="upload-alert">{threadsError}</div>}
           {!threadsLoading && !threadsError && threads.length === 0 && (
-            <p className="feed-state">No discussions yet. Ask the first question above and your coursemates will see it.</p>
+            <p className="feed-state">No discussions yet. Ask about a past question and everyone taking that course will see it.</p>
           )}
 
           <ul className="feed">
@@ -323,7 +401,14 @@ export default function Collab({
                       <span aria-hidden="true">&middot;</span>
                       <span>{timeAgo(thread.created_at)}</span>
                     </span>
-                    <span className="thread-replies">Open thread &rarr;</span>
+                    <span className="thread-anchor">
+                      {courseMap.get(thread.course_id ?? -1)
+                        ? <span className="anchor-course">{courseMap.get(thread.course_id ?? -1)}</span>
+                        : <span className="anchor-none">No course</span>}
+                      {questionMap.get(thread.past_question_id ?? -1) && (
+                        <span className="anchor-question">{questionMap.get(thread.past_question_id ?? -1)}</span>
+                      )}
+                    </span>
                   </span>
                 </button>
               </li>

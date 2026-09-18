@@ -40,6 +40,22 @@
 
 #s-collab .feed-state{padding:var(--space-8) var(--space-3);border-bottom:1px solid var(--border);color:var(--text3);font-size:13px;line-height:1.6}
 
+
+/* ---- what a thread is about -------------------------------------------- */
+/* A thread with no course is a thread nobody can find, so the anchor is part
+   of posting rather than an optional afterthought. */
+#s-collab .composer-anchor{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-3)}
+#s-collab .anchor-select{min-height:38px;max-width:100%;padding:0 var(--space-3);border:1px solid var(--border2);border-radius:19px;background:var(--surface);color:var(--text);font-family:var(--font);font-size:12.5px;cursor:pointer}
+#s-collab .anchor-select:disabled{color:var(--text3);cursor:not-allowed}
+#s-collab .anchor-select:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+
+#s-collab .thread-anchor{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-3)}
+#s-collab .anchor-course,#s-collab .anchor-question,#s-collab .anchor-none{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+#s-collab .anchor-course{padding:3px 9px;border-radius:12px;background:var(--teal2);color:var(--teal)}
+#s-collab .anchor-question{padding:3px 9px;border-radius:12px;border:1px solid var(--border2);color:var(--text3)}
+#s-collab .anchor-none{color:var(--text3);opacity:.8}
+#s-collab .thread-head .anchor-course,#s-collab .thread-head .anchor-question{margin-right:4px}
+
 /* ---- conversation ------------------------------------------------------ */
 #s-collab .back-link{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0;border:0;background:none;color:var(--highlighter);font-family:var(--font);font-size:12.5px;font-weight:500;cursor:pointer}
 #s-collab .back-link:hover{text-decoration:underline}
