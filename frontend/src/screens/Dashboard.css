@@ -99,3 +99,64 @@
 @media(max-width:1000px){#s-dashboard .desk-layout{grid-template-columns:1fr}#s-dashboard .desk-aside{display:grid;grid-template-columns:1fr 1fr;gap:24px}#s-dashboard .desk-agenda{margin-top:0;padding-top:8px}#s-dashboard .desk-activity{margin-top:0}#s-dashboard .desk-heading{align-items:flex-start}#s-dashboard .desk-date{display:none}#s-dashboard .desk-next{grid-template-columns:1.2fr 1fr}#s-dashboard .desk-next-side{display:block}}
 @media(max-width:768px){#s-dashboard.student-desk{padding:28px 22px 32px}#s-dashboard .desk-heading{margin-bottom:24px}#s-dashboard .desk-heading h1{font-size:29px}#s-dashboard .desk-next{gap:24px}#s-dashboard .desk-next h2{font-size:30px}#s-dashboard .desk-course{min-height:145px}}
 @media(max-width:540px){#s-dashboard.student-desk{padding:25px 20px 32px}#s-dashboard .desk-heading h1{font-size:27px}#s-dashboard .desk-heading p{font-size:13px}#s-dashboard .desk-next{grid-template-columns:1fr;padding:25px;border-radius:15px}#s-dashboard .desk-next-side{display:none}#s-dashboard .desk-next h2{font-size:30px}#s-dashboard .desk-next-copy>p{font-size:13px}#s-dashboard .desk-layout{gap:28px}#s-dashboard .desk-aside{display:block}#s-dashboard .desk-together-photo{height:200px}#s-dashboard .desk-together-copy{padding:24px}#s-dashboard .desk-agenda{margin-top:26px}#s-dashboard .desk-activity{margin-top:24px}#s-dashboard .desk-course-grid{grid-template-columns:1fr}#s-dashboard .desk-course{min-height:135px}#s-dashboard .desk-section{margin-top:27px}#s-dashboard .desk-course-empty{padding:26px 20px}#s-dashboard .desk-material time{display:none}#s-dashboard .desk-error{align-items:flex-start;padding:14px;gap:12px}#s-dashboard .desk-summary{gap:12px;font-size:11px}}
+
+/* ---- dark palette -------------------------------------------------------
+   Dashboard paints its surfaces literally rather than through tokens, so a dark
+   <html> left them as cream islands on a dark ground. These re-point the same
+   surfaces; the type already follows --text and needed nothing. */
+:root[data-theme="dark"] #s-dashboard .desk-next{background:#262019}
+:root[data-theme="dark"] #s-dashboard .desk-course-empty{background:#1c1f22;border-color:#2f3337}
+:root[data-theme="dark"] #s-dashboard .desk-course{background:#1d2023;border-color:#2b2f33;color:#eceee7}
+:root[data-theme="dark"] #s-dashboard .desk-course:nth-child(3n+2){background:#1e2320}
+:root[data-theme="dark"] #s-dashboard .desk-course:nth-child(3n+3){background:#231f1d}
+:root[data-theme="dark"] #s-dashboard .desk-course:hover{background:#2a2f28}
+:root[data-theme="dark"] #s-dashboard .desk-outline{background:#1f2225;border-color:#333739;color:#eceee7}
+:root[data-theme="dark"] #s-dashboard .desk-outline:hover{background:#2a2f28}
+:root[data-theme="dark"] #s-dashboard .desk-together{background:#1f2620}
+:root[data-theme="dark"] #s-dashboard .desk-discussions:hover{background:#2a3327}
+:root[data-theme="dark"] #s-dashboard .desk-material:hover{background:#22262a}
+:root[data-theme="dark"] #s-dashboard .desk-error{background:#2a2118}
+:root[data-theme="dark"] #s-dashboard .desk-loading{background:#1d2023}
+:root[data-theme="dark"] #s-dashboard .desk-summary{border-bottom-color:#2b2f33;color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-resume{border-left-color:#333831}
+:root[data-theme="dark"] #s-dashboard .desk-start-steps li>span{border-color:#444a3d;color:#b9bdb2}
+
+/* Text inks, same treatment: these selectors pin a dark ink that is
+   unreadable on a dark ground. Generated from the light rules above so the
+   two halves cannot drift apart. */
+:root[data-theme="dark"] #s-dashboard .desk-heading h1{color:#eceee7}
+:root[data-theme="dark"] #s-dashboard .desk-heading p{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-date{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-start-steps li>span{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-resume button{color:#c4cbba}
+:root[data-theme="dark"] #s-dashboard .desk-summary{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-summary strong{color:#dfe3d8}
+:root[data-theme="dark"] #s-dashboard .desk-section-head h2{color:#eceee7}
+:root[data-theme="dark"] #s-dashboard .desk-text-button{color:#d79a6a}
+:root[data-theme="dark"] #s-dashboard .desk-course-empty p{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-outline{color:#dfe3d8}
+:root[data-theme="dark"] #s-dashboard .desk-file-hint{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-course{color:#eceee7}
+:root[data-theme="dark"] #s-dashboard .desk-course>small{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-shortcuts strong{color:#dfe3d8}
+:root[data-theme="dark"] #s-dashboard .desk-shortcuts small{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-muted{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-session{color:#eceee7}
+:root[data-theme="dark"] #s-dashboard .desk-session>small{color:#d79a6a}
+:root[data-theme="dark"] #s-dashboard .desk-session>span{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-activity small{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-filters button{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-material strong{color:#dfe3d8}
+:root[data-theme="dark"] #s-dashboard .desk-material small{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-material time{color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-loading{color:#b9bdb2}
+
+/* The panel headings set their ink inside a shorthand `font:` rule plus a
+   separate colour, which the generated pass above did not reach. */
+:root[data-theme="dark"] #s-dashboard .desk-next h2{color:#f0e7d8}
+:root[data-theme="dark"] #s-dashboard .desk-next-copy>p{color:#cfc6b8}
+:root[data-theme="dark"] #s-dashboard .desk-next-side :is(p,strong,span){color:#cfc6b8}
+:root[data-theme="dark"] #s-dashboard .desk-together h2,
+:root[data-theme="dark"] #s-dashboard .desk-together-copy :is(h2,p){color:#dfe7d4}
+:root[data-theme="dark"] #s-dashboard .desk-activity :is(strong,span,time){color:#b9bdb2}
+:root[data-theme="dark"] #s-dashboard .desk-activity strong{color:#dfe3d8}

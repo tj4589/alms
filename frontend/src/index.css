@@ -1,6 +1,8 @@
 :root {
   /* ExamMind's own paper palette, promoted from Landing's local scope to global.
-     This app is light; there is no dark theme. */
+     Light is the default and the landing page is light-only. Authenticated
+     screens can opt into a dark palette via [data-theme="dark"] on <html>;
+     see the block below and the workspace overrides in Navigation.css. */
   --em-paper:#f3f4ef;--em-paper-2:#e7e9e2;--em-ink:#090a0a;--em-accent:#e9a13a;
 
   --desk:var(--em-paper);--desk-panel:var(--em-paper-2);--desk-inset:#ffffff;--desk-raised:#ffffff;
@@ -20,6 +22,31 @@
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;--space-12:48px;
   --fast:.15s;--base:.28s;--slow:.6s;--ease:cubic-bezier(.16,.84,.44,1);
 }
+
+/* ---- dark palette -------------------------------------------------------
+   Every value here is a re-point of the same role, so any screen that styles
+   from the aliases follows without knowing the theme exists. Ink and paper
+   swap; the three semantic accents lighten because the paper-weighted versions
+   do not carry enough contrast on a dark ground.
+   Scoped to the authenticated app: the landing page sets its own palette and
+   must stay light above the fold. */
+:root[data-theme="dark"]{
+  --em-paper:#16181a;--em-paper-2:#1d2023;--em-ink:#f2f3ef;--em-accent:#f0b45c;
+
+  --desk:var(--em-paper);--desk-panel:var(--em-paper-2);--desk-inset:#1d2023;--desk-raised:#1d2023;
+  --paper-ink:var(--em-ink);--paper-ink-soft:rgba(242,243,239,0.72);--pencil:rgba(242,243,239,0.52);
+  --highlighter:#e2703f;--source-verified:#4bbfa5;--correction:#e8705a;
+  --margin-rule:rgba(242,243,239,0.14);--margin-rule-strong:rgba(242,243,239,0.24);
+  --bg:var(--em-paper);--bg2:var(--em-paper-2);--bg3:#1d2023;--surface:#1d2023;--surface2:var(--em-paper-2);
+  --border:var(--margin-rule);--border2:var(--margin-rule-strong);--border3:rgba(242,243,239,0.32);
+  --gold:var(--em-accent);--gold2:rgba(240,180,92,0.22);--gold3:rgba(240,180,92,0.1);
+  --teal:var(--source-verified);--teal2:rgba(75,191,165,0.16);
+  --coral:var(--correction);--coral2:rgba(232,112,90,0.16);
+  --purple:#9b8ae0;--purple2:rgba(155,138,224,0.18);
+  --text:var(--em-ink);--text2:var(--paper-ink-soft);--text3:var(--pencil);
+  color-scheme: dark;
+}
+
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.6;min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
 button,a,input,select,textarea{font:inherit;}

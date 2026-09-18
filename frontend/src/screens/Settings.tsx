@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { ScreenType, User } from '../types';
 import { getSessionPreference, setSessionPreference } from '../lib/session';
+import { getTheme, setTheme } from '../lib/theme';
+import type { Theme } from '../lib/theme';
 import type { SessionPreference } from '../lib/session';
 import './Settings.css';
 
@@ -32,6 +34,13 @@ export default function Settings({ go, user }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
   const [sessionPref, setPref] = useState<SessionPreference>(() => getSessionPreference());
   const staySignedIn = sessionPref === 'stay';
+  const [theme, setThemeState] = useState<Theme>(() => getTheme());
+  const darkMode = theme === 'dark';
+
+  const chooseTheme = (next: Theme) => {
+    setTheme(next);
+    setThemeState(next);
+  };
 
   const choosePreference = (value: SessionPreference) => {
     setSessionPreference(value);
@@ -83,6 +92,36 @@ export default function Settings({ go, user }: SettingsProps) {
           {staySignedIn
             ? 'Signing out from the sidebar ends the session immediately either way.'
             : 'Applied now, not just next time: your current session already ends when the browser closes.'}
+        </p>
+      </section>
+
+      <section className="setting-block" aria-labelledby="settings-theme-title">
+        <p className="notes-label">Appearance</p>
+        <h2 className="notes-title" id="settings-theme-title">Dark mode</h2>
+
+        <div className="setting-row">
+          <label className="setting-row-text" htmlFor="theme-toggle">
+            <span className="setting-row-title">Use the dark palette</span>
+            <span className="setting-row-body">
+              {darkMode
+                ? 'Ink on a dark ground, for reading at night.'
+                : 'Paper and ink, the default. Turn this on for a dark ground.'}
+            </span>
+          </label>
+          <button
+            type="button"
+            id="theme-toggle"
+            role="switch"
+            aria-checked={darkMode}
+            className={`switch${darkMode ? ' is-on' : ''}`}
+            onClick={() => chooseTheme(darkMode ? 'light' : 'dark')}
+          >
+            <span className="switch-track" aria-hidden="true"><span className="switch-knob" /></span>
+            <span className="sr-only">{darkMode ? 'On' : 'Off'}</span>
+          </button>
+        </div>
+        <p className="setting-note">
+          Applies to your study screens. The public landing page stays light.
         </p>
       </section>
 

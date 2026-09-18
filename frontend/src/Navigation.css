@@ -49,3 +49,39 @@
 .mobile-nav-sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}.mobile-nav-sheet-head>div{display:flex;gap:8px;align-items:center}.mobile-nav-sheet-head button{background:none;border:0;color:inherit;padding:8px}.mobile-nav-sheet-mark{color:#ac401e}.mobile-nav-sheet-groups{display:grid;grid-template-columns:1fr 1fr;gap:20px}.mobile-nav-sheet-group h2{font-size:12px;font-weight:500;color:#687062;margin-bottom:10px}.mobile-nav-sheet-group button{display:flex;align-items:center;gap:10px;width:100%;padding:12px 8px;border:0;border-radius:8px;background:none;color:#252b24;text-align:left;font-size:14px}.mobile-nav-sheet-group button svg{width:18px;height:18px}.mobile-nav-sheet-group button.is-active{background:#dde5ca}.mobile-nav-sheet-account{display:flex;align-items:center;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid #dedfd4}.mobile-nav-sheet-account>div{font-size:13px}.mobile-nav-sheet-account small{display:block;color:#687062}.mobile-nav-sheet-account-actions{margin-left:auto;display:flex;gap:6px}.mobile-nav-sheet-account-actions button{background:none;border:1px solid #dedfd4;color:#252b24;border-radius:8px;padding:8px}.mobile-nav-sheet-account-actions svg{width:18px;height:18px}
 }
 @media(prefers-reduced-motion:reduce){.workspace-shell *{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+
+/* ---- dark palette for the authenticated shell ---------------------------
+   .workspace-shell re-scopes the token aliases to the light desk values, so a
+   dark <html> would be overridden right back to cream here. This block
+   re-points the same roles and the handful of surfaces that are painted
+   directly rather than through a token. Landing is untouched: it is light-only
+   above the fold and owns its own palette. */
+:root[data-theme="dark"] .workspace-shell{
+  --text:#eceee7;--text2:#b9bdb2;--text3:#8d9287;--border:#2b2f33;
+  --gold:#e2703f;--highlighter:#e2703f;--paper-ink:#eceee7;--paper-ink-soft:#b9bdb2;
+  background:#16181a;
+}
+:root[data-theme="dark"] .workspace-shell .sidebar,
+:root[data-theme="dark"] .workspace-shell .sidebar:hover{background:#1b1e21;border-right-color:#2b2f33}
+:root[data-theme="dark"] .workspace-shell .main{background:#16181a}
+:root[data-theme="dark"] .workspace-shell .topbar{background:#16181a;border-bottom-color:#2b2f33}
+:root[data-theme="dark"] .workspace-shell .global-search{background:#1f2225;border-color:#2f3337}
+:root[data-theme="dark"] .workspace-shell .rail-button:hover{background:#24282b}
+:root[data-theme="dark"] .workspace-shell .rail-button.on{background:#2c3a2a}
+:root[data-theme="dark"] .workspace-shell .ico-btn:hover{background:#24282b}
+:root[data-theme="dark"] .workspace-shell :is(.ava,.topbar-avatar){background:#3a2f22;color:#f0d9b4}
+:root[data-theme="dark"] .workspace-shell .logo-mark,
+:root[data-theme="dark"] .workspace-shell .logo-name span{color:#e2703f}
+:root[data-theme="dark"] .workspace-shell .mob-nav{background:#1b1e21;border-top-color:#2b2f33}
+:root[data-theme="dark"] .workspace-shell .mob-tab{color:#8d9287}
+:root[data-theme="dark"] .workspace-shell .mob-tab.on{color:#e2703f}
+:root[data-theme="dark"] .workspace-shell .mob-menu{color:#eceee7}
+:root[data-theme="dark"] .workspace-shell .mobile-nav-sheet{background:#1b1e21;border-color:#2b2f33;color:#eceee7}
+:root[data-theme="dark"] .workspace-shell .sidebar-scrim{background:rgba(0,0,0,.55)}
+:root[data-theme="dark"] .workspace-shell :is(button,input,a):focus-visible{outline-color:#e2703f}
+
+/* The active rail item is a filled pill; its label inherits the shell ink,
+   which on the dark green fill was barely there. */
+:root[data-theme="dark"] .workspace-shell .rail-button.on{color:#eaf2e2}
+:root[data-theme="dark"] .workspace-shell .rail-button.on .rail-item-label{color:#eaf2e2}
+:root[data-theme="dark"] .workspace-shell .rail-button.on svg{color:#eaf2e2}

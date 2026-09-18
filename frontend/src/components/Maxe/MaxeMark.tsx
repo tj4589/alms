@@ -16,13 +16,23 @@ type MaxeMarkProps = {
 // top of each other so they scissor past instead of swinging out sideways.
 const MAXE_MARK_STYLES = `
 .maxe-mark{display:block;width:100%;height:100%;overflow:visible}
+:root .maxe-mark{--maxe-body:#f3f4ef;--maxe-line:#090a0a;--maxe-accent:#e9a13a;--maxe-panel:#e2dfd2;--maxe-far:#e4e2d7;--maxe-shadow:rgba(9,10,10,1)}
+/* Body stays light, line stays dark: the drawing reads the same on either
+   ground. Only the ground shadow flips, because it sits on the page. */
+:root[data-theme="dark"] .maxe-mark{--maxe-body:#e9eae4;--maxe-line:#15171a;--maxe-accent:#f0b45c;--maxe-panel:#cfd0c6;--maxe-far:#d6d7cd;--maxe-shadow:rgba(0,0,0,1)}
 `;
 
-const PAPER = 'var(--em-paper, #f3f4ef)';
-const INK = 'var(--em-ink, #090a0a)';
-const ACCENT = 'var(--em-accent, #e9a13a)';
-const PANEL = '#e2dfd2';
-const FAR = '#e4e2d7';
+// Maxe is a drawn object, not a surface, so he does not follow the page the way
+// a panel does. If his body used --em-paper it would go dark with the theme and
+// a dark robot on a dark ground is an outline and nothing else. His own tokens
+// are defined in MaxeMark's stylesheet and re-pointed for dark there: the body
+// stays light and the ink line goes dark, so the drawing keeps its contrast
+// either way.
+const PAPER = 'var(--maxe-body, #f3f4ef)';
+const INK = 'var(--maxe-line, #090a0a)';
+const ACCENT = 'var(--maxe-accent, #e9a13a)';
+const PANEL = 'var(--maxe-panel, #e2dfd2)';
+const FAR = 'var(--maxe-far, #e4e2d7)';
 
 export default function MaxeMark({ eyesClosed = false, profile = false, className = '' }: MaxeMarkProps) {
   return (
@@ -37,7 +47,7 @@ export default function MaxeMark({ eyesClosed = false, profile = false, classNam
       >
         {profile ? (
           <>
-            <ellipse cx="320" cy="700" rx="86" ry="14" fill={INK} opacity="0.08" className="maxe-shadow" />
+            <ellipse cx="320" cy="700" rx="86" ry="14" fill="var(--maxe-shadow, rgba(9,10,10,1))" opacity="0.08" className="maxe-shadow" />
 
             <g className="maxe-leg maxe-leg-left" style={{ transformOrigin: '328px 500px' }}>
               <rect x="290" y="470" width="76" height="184" rx="23" fill={FAR} stroke={INK} strokeWidth="9" />
@@ -80,7 +90,7 @@ export default function MaxeMark({ eyesClosed = false, profile = false, classNam
           </>
         ) : (
           <>
-            <ellipse cx="320" cy="700" rx="120" ry="16" fill={INK} opacity="0.08" className="maxe-shadow" />
+            <ellipse cx="320" cy="700" rx="120" ry="16" fill="var(--maxe-shadow, rgba(9,10,10,1))" opacity="0.08" className="maxe-shadow" />
 
             <g className="maxe-leg maxe-leg-left" style={{ transformOrigin: '266px 500px' }}>
               <rect x="228" y="470" width="76" height="184" rx="23" fill={PAPER} stroke={INK} strokeWidth="9" />
