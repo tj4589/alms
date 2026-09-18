@@ -470,8 +470,8 @@ export default function App() {
     <div className="shell workspace-shell">
       <aside className="sidebar" id="sidebar" aria-label="Primary navigation">
         <div className="logo" aria-label="ExamMind">
-          <div className="logo-mark"><Logo size={30} /></div>
-          <div className="logo-name">ExamMind<span>.</span></div>
+          <div className="logo-mark"><Logo size={26} /></div>
+          <div className="logo-name">Exam<span>Mind.</span></div>
         </div>
         <nav className="nav">
           {NAV_GROUPS.map((group) => (
