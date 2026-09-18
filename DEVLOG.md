@@ -1,5 +1,27 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Offline Library and the shared empty state on the paper system
+
+Both screens were still on the generic `.card` + `.two-col` chrome with filled
+`.tag` status pills. Rebuilt on the app-side patterns recorded in MASTER.md.
+
+Offline Library is now two collections held by a single rule rather than two cards:
+mono uppercase label with a tabular count, a panel title, and a hairline-segmented
+list. Status is ink with a dot -- teal `Ready`, pencil `Queued` -- instead of a filled
+chip, which keeps the two collections distinguishable without two more colours of
+pill. Empty copy states what to do next in both shelves rather than describing the
+absence. Both actions are quiet clay text links, not ghost buttons.
+
+The shared empty state becomes a sheet with crop marks, matching Upload and Practice:
+mono kicker, serif heading with the existing italic accent, body at a 54ch measure,
+and a clay/ghost button pair. Copy drops "your department" for "everyone studying it",
+consistent with the shared-archive framing.
+
+No data, props or offline storage logic changed -- `listRecords` calls are untouched.
+
+Verified in the browser at 390/768/1024/1440: two shelves, both empty bands rendering,
+zero `.card` and zero `.tag` nodes remaining on the screen, no horizontal overflow.
+
 # 2026-09-18 - Exam Analytics folded into Progress
 
 `Analytics.tsx` and `Progress.tsx` were two implementations of one feature. Both

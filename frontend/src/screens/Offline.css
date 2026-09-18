@@ -1,0 +1,68 @@
+/* Offline Library and the shared empty state, on the app-side paper patterns
+   (MASTER.md, "Authenticated screen patterns"): hairline-segmented collections
+   under mono labels rather than generic cards, status carried by ink rather
+   than filled pills, and a sheet with crop marks for the full-page empty.
+   Styled from the workspace aliases so the accent stays clay, not amber. */
+
+/* ---- Offline Library --------------------------------------------------- */
+#s-offline .pg-head{max-width:66ch;margin-bottom:var(--space-10)}
+#s-offline .pg-sub{color:var(--text2);line-height:1.6}
+
+#s-offline .shelf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}
+#s-offline .shelf+.shelf{margin-left:var(--space-8);padding-left:var(--space-8);border-left:1px solid var(--border)}
+
+#s-offline .shelf-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4);min-height:40px;margin-bottom:var(--space-4)}
+#s-offline .shelf-label{margin:0;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+#s-offline .shelf-count{font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;color:var(--text3)}
+#s-offline .shelf-title{margin:0 0 var(--space-4);font-size:15px;font-weight:600;color:var(--text)}
+
+#s-offline .shelf-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--border)}
+#s-offline .shelf-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-4);align-items:baseline;padding:13px 0;border-bottom:1px solid var(--border)}
+#s-offline .shelf-item-title{overflow:hidden;color:var(--text);font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
+#s-offline .shelf-item-meta{margin:3px 0 0;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--text3)}
+
+/* Status reads as ink with a mark, not a filled chip. */
+#s-offline .shelf-status{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+#s-offline .shelf-status::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+#s-offline .shelf-status.is-ready{color:var(--teal)}
+#s-offline .shelf-status.is-queued{color:var(--text3)}
+
+#s-offline .shelf-empty{margin:0;padding:var(--space-5) 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);color:var(--text3);font-size:12.5px;line-height:1.6}
+
+#s-offline .shelf-action{display:inline-flex;align-items:center;min-height:40px;padding:0;border:0;border-bottom:1px solid transparent;background:none;color:var(--highlighter);font-family:var(--font);font-size:12.5px;font-weight:500;cursor:pointer;transition:border-color var(--fast) var(--ease)}
+#s-offline .shelf-action:hover{border-bottom-color:var(--highlighter)}
+#s-offline .shelf-action:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+/* ---- full-page empty state --------------------------------------------- */
+#s-empty .empty-sheet{position:relative;max-width:640px;margin:var(--space-8) 0;padding:var(--space-12) var(--space-10);border:1px solid var(--border);border-radius:2px;background:var(--surface);box-shadow:0 18px 44px -34px rgba(9,10,10,.55)}
+#s-empty .empty-marks{position:absolute;inset:13px;pointer-events:none}
+#s-empty .empty-marks i{position:absolute;width:22px;height:22px;border:0 solid var(--border2)}
+#s-empty .empty-marks i:nth-child(1){top:0;left:0;border-top-width:1px;border-left-width:1px}
+#s-empty .empty-marks i:nth-child(2){top:0;right:0;border-top-width:1px;border-right-width:1px}
+#s-empty .empty-marks i:nth-child(3){bottom:0;left:0;border-bottom-width:1px;border-left-width:1px}
+#s-empty .empty-marks i:nth-child(4){bottom:0;right:0;border-bottom-width:1px;border-right-width:1px}
+
+#s-empty .empty-kicker{margin:0 0 var(--space-3);font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+#s-empty .empty-heading{margin:0;font-family:var(--serif);font-size:32px;font-weight:400;line-height:1.14;letter-spacing:-.01em;color:var(--text)}
+#s-empty .empty-heading em{font-style:italic;color:var(--highlighter)}
+#s-empty .empty-lede{margin:var(--space-4) 0 var(--space-8);max-width:54ch;font-size:14px;line-height:1.65;color:var(--text2)}
+#s-empty .empty-buttons{display:flex;flex-wrap:wrap;gap:var(--space-3)}
+#s-empty .empty-buttons button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 var(--space-6);border:1px solid var(--highlighter);border-radius:2px;background:var(--highlighter);color:var(--surface);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+#s-empty .empty-buttons button:hover{background:var(--text);border-color:var(--text)}
+#s-empty .empty-buttons button.is-ghost{border-color:var(--border2);background:transparent;color:var(--text)}
+#s-empty .empty-buttons button.is-ghost:hover{border-color:var(--text);background:transparent}
+#s-empty .empty-buttons button:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+@media(max-width:900px){
+  #s-offline .shelf-grid{grid-template-columns:minmax(0,1fr)}
+  #s-offline .shelf+.shelf{margin:var(--space-8) 0 0;padding:var(--space-8) 0 0;border-left:0;border-top:1px solid var(--border)}
+}
+@media(max-width:560px){
+  #s-empty .empty-sheet{padding:var(--space-8) var(--space-5)}
+  #s-empty .empty-heading{font-size:24px}
+  #s-empty .empty-buttons button{width:100%}
+  #s-offline .shelf-list li{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}
+}
+@media(prefers-reduced-motion:reduce){
+  #s-offline .shelf-action,#s-empty .empty-buttons button{transition:none}
+}

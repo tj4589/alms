@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ScreenType } from '../types';
 import type { OfflineStudyPack, PendingUpload } from '../offline';
 import { listRecords } from '../offline';
+import './Offline.css';
 
 export default function Offline({ go }: { go: (s: ScreenType) => void }) {
   const [packs, setPacks] = useState<OfflineStudyPack[]>([]);
@@ -19,46 +20,58 @@ export default function Offline({ go }: { go: (s: ScreenType) => void }) {
         <div className="pg-sub">Saved past-question packs and queued uploads stay available when the network drops.</div>
       </div>
 
-      <div className="two-col">
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Saved study packs</div>
-            <button className="cta cta-ghost" onClick={() => go('questions')}>Save more</button>
+      <div className="shelf-grid">
+        <section className="shelf" aria-labelledby="offline-packs-title">
+          <div className="shelf-head">
+            <p className="shelf-label">Available offline</p>
+            <span className="shelf-count">{packs.length}</span>
           </div>
-          {packs.length === 0 ? (
-            <div className="offline-empty">No packs saved yet. Save one from Past Questions before you go offline.</div>
-          ) : (
-            packs.map((pack) => (
-              <div className="offline-item" key={pack.id}>
-                <div>
-                  <div className="offline-item-title">{pack.title}</div>
-                  <div className="offline-item-meta">{pack.courseCode} · {pack.questions.length} questions · {new Date(pack.savedAt).toLocaleDateString()}</div>
-                </div>
-                <span className="tag tag-e">Available</span>
-              </div>
-            ))
-          )}
-        </div>
+          <h2 className="shelf-title" id="offline-packs-title">Saved study packs</h2>
 
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Upload sync queue</div>
-            <button className="cta cta-ghost" onClick={() => go('upload')}>Queue upload</button>
-          </div>
-          {uploads.length === 0 ? (
-            <div className="offline-empty">No pending uploads. Offline PDFs will appear here until sync is available.</div>
+          {packs.length === 0 ? (
+            <p className="shelf-empty">Nothing saved yet. Save a pack from Past Questions and it stays readable with no connection.</p>
           ) : (
-            uploads.map((upload) => (
-              <div className="offline-item" key={upload.id}>
-                <div>
-                  <div className="offline-item-title">{upload.fileName}</div>
-                  <div className="offline-item-meta">{Math.round(upload.fileSize / 1024)} KB · waiting to sync</div>
-                </div>
-                <span className="tag tag-m">Queued</span>
-              </div>
-            ))
+            <ul className="shelf-list">
+              {packs.map((pack) => (
+                <li key={pack.id}>
+                  <div>
+                    <div className="shelf-item-title">{pack.title}</div>
+                    <p className="shelf-item-meta">{pack.courseCode} · {pack.questions.length} questions · saved {new Date(pack.savedAt).toLocaleDateString()}</p>
+                  </div>
+                  <span className="shelf-status is-ready">Ready</span>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+
+          <button className="shelf-action" onClick={() => go('questions')}>Save more packs</button>
+        </section>
+
+        <section className="shelf" aria-labelledby="offline-queue-title">
+          <div className="shelf-head">
+            <p className="shelf-label">Waiting to sync</p>
+            <span className="shelf-count">{uploads.length}</span>
+          </div>
+          <h2 className="shelf-title" id="offline-queue-title">Upload queue</h2>
+
+          {uploads.length === 0 ? (
+            <p className="shelf-empty">Nothing queued. Files added without a connection wait here until sync is possible.</p>
+          ) : (
+            <ul className="shelf-list">
+              {uploads.map((upload) => (
+                <li key={upload.id}>
+                  <div>
+                    <div className="shelf-item-title">{upload.fileName}</div>
+                    <p className="shelf-item-meta">{Math.round(upload.fileSize / 1024)} KB</p>
+                  </div>
+                  <span className="shelf-status is-queued">Queued</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <button className="shelf-action" onClick={() => go('upload')}>Add materials</button>
+        </section>
       </div>
     </div>
   );
