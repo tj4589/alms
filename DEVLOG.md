@@ -1,5 +1,34 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Profile split out of Settings
+
+Four things led to one screen: the sidebar user row, the Settings nav item, the
+topbar gear and the topbar avatar all called `go('settings')`. Clicking your own
+avatar opened Settings, and Settings led with an account record -- so the screen was
+a profile wearing a settings label.
+
+Split into two routes. `'profile'` is new in `ScreenType`.
+
+Profile carries the record: identity sheet with crop marks, the hairline fact list,
+and a short note about what other students actually see -- the username, never the
+email or practice results. Reached from the avatar and the sidebar user row, which
+now reads "Open your profile" rather than "Open account settings".
+
+Settings keeps the session and data notes, with a one-line "signed in as" row
+linking across to the profile. Reached from the gear and the Settings nav item,
+which stays highlighted for either screen since both are the account area.
+
+`Settings.css` is shared. The blocks both screens use were scoped `#s-settings`, so
+Profile would have rendered unstyled; they are now `:is(#s-settings,#s-profile)`,
+with only the split-specific rules scoped to one or the other.
+
+No endpoint involved -- both screens read the same `user` prop that was already
+passed down. Nothing was fetched twice before and nothing is now.
+
+Verified in the browser: avatar lands on `#s-profile` with breadcrumb "Profile" and
+four account facts; the gear lands on `#s-settings` with breadcrumb "Settings", no
+account sheet and three notes; and both cross-links navigate the other way.
+
 # 2026-09-18 - Discussion threads carry what they are about
 
 The screen's own subtitle says "Discussions anchored to specific past questions", but

@@ -45,6 +45,7 @@ import StudyGroups from './screens/StudyGroups';
 import Empty from './screens/Empty';
 import SearchResults from './screens/SearchResults';
 import Settings from './screens/Settings';
+import Profile from './screens/Profile';
 import OfflineStatus from './components/OfflineStatus';
 import MaxeTrigger from './components/Maxe/MaxeTrigger';
 import MaxeWorkspace from './components/Maxe/MaxeWorkspace';
@@ -491,8 +492,8 @@ export default function App() {
           <button
             type="button"
             className="user-btn rail-button"
-            onClick={() => go('settings')}
-            aria-label={`Open account settings for ${user?.name ?? 'Student'}`}
+            onClick={() => go('profile')}
+            aria-label={`Open your profile, ${user?.name ?? 'Student'}`}
           >
             <span className="rail-item-surface rail-account-surface" aria-hidden="true">
               <span className="ava">{userInitials}</span>
@@ -504,7 +505,7 @@ export default function App() {
           </button>
           <button
             type="button"
-            className={`settings-btn rail-button ${activeScreen === 'settings' ? 'on' : ''}`}
+            className={`settings-btn rail-button ${activeScreen === 'settings' || activeScreen === 'profile' ? 'on' : ''}`}
             onClick={() => go('settings')}
             aria-label="Settings"
             aria-current={activeScreen === 'settings' ? 'page' : undefined}
@@ -551,7 +552,7 @@ export default function App() {
           >
             {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
           </button>
-          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
+          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? 'Profile' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
           <div className="search global-search" ref={searchBoxRef}>
             <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
@@ -672,7 +673,7 @@ export default function App() {
             <OfflineStatus />
             <button type="button" className="ico-btn" aria-label="Open settings" title="Settings" onClick={() => go('settings')}><GearSixIcon aria-hidden="true" weight="regular" /></button>
             <button type="button" className="ico-btn" aria-label="Open notifications" title="Notifications" onClick={() => notifyUnavailable('Notifications')}><BellIcon aria-hidden="true" weight="regular" /></button>
-            <button type="button" className="topbar-avatar" aria-label="Open account settings" onClick={() => go('settings')}>{userInitials}</button>
+            <button type="button" className="topbar-avatar" aria-label="Open your profile" onClick={() => go('profile')}>{userInitials}</button>
           </div>
         </header>
 
@@ -695,6 +696,7 @@ export default function App() {
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
         {activeScreen === 'settings' && <Settings go={go} user={user} />}
+        {activeScreen === 'profile' && <Profile go={go} user={user} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}

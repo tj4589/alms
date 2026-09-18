@@ -24,41 +24,22 @@ const DATA_NOTES = [
   },
 ];
 
-export default function Settings({ user }: SettingsProps) {
+export default function Settings({ go, user }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
-  // Word initials, so "Dev Student" reads DS like the sidebar avatar, not DE.
-  const initials = (user?.name || 'Student')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
 
   return (
     <div className="page" id="s-settings">
       <div className="pg-head">
-        <div className="pg-title">Student <em>Settings</em></div>
-        <div className="pg-sub">Your account record, and how ExamMind handles your session and the materials you add.</div>
+        <div className="pg-title">Session <em>and data</em></div>
+        <div className="pg-sub">How ExamMind handles your session and the materials you add.</div>
       </div>
 
-      <section className="account-sheet" aria-labelledby="settings-account-title">
-        <span className="account-marks" aria-hidden="true"><i /><i /><i /><i /></span>
-
-        <div className="account-id">
-          <span className="account-initials" aria-hidden="true">{initials}</span>
-          <div>
-            <h2 className="account-name" id="settings-account-title">{user?.name || 'Student account'}</h2>
-            <p className="account-handle">{username}</p>
-          </div>
+      <section className="settings-account-row" aria-labelledby="settings-signed-in">
+        <p className="notes-label" id="settings-signed-in">Signed in as</p>
+        <div className="settings-account-line">
+          <span>{user?.name || 'Student account'} <span className="settings-handle">{username}</span></span>
+          <button type="button" className="account-link" onClick={() => go('profile')}>View profile &rarr;</button>
         </div>
-
-        <dl className="account-facts">
-          <div><dt>Name</dt><dd>{user?.name || 'Not available'}</dd></div>
-          <div><dt>Username</dt><dd>{username}</dd></div>
-          <div><dt>Email</dt><dd>{user?.email || 'Not available'}</dd></div>
-          <div><dt>Account type</dt><dd>Student</dd></div>
-        </dl>
       </section>
 
       <section className="notes" aria-labelledby="settings-notes-title">
