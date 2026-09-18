@@ -161,22 +161,49 @@ def generate_ai_response(prompt: str, temperature: float = 0.3) -> str:
 
 
 EMBEDDING_DIM = 384
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 
-try:
-    from fastembed import TextEmbedding as _TE
+# Small cloud instances cannot afford this model at boot. fastembed plus the
+# onnxruntime session is roughly 400-600MB resident, and a 512MB container is
+# over its cap before it has served a request -- the platform OOM-kills it
+# during startup and the deploy reads as a crash loop rather than a memory
+# limit. Set DISABLE_LOCAL_EMBEDDINGS=true to skip it entirely: every consumer
+# already treats a missing model as "use keyword search", so the app stays
+# usable, it just stops ranking semantically.
+EMBEDDINGS_DISABLED = os.getenv("DISABLE_LOCAL_EMBEDDINGS", "false").lower() == "true"
 
-    _fe = _TE(model_name="BAAI/bge-small-en-v1.5")
 
-    class _LocalEmbeddings:
-        def embed_query(self, text: str) -> list[float]:
-            return list(list(_fe.embed([text]))[0])
+class _LocalEmbeddings:
+    """Loads the model on first use, not at import.
 
-        def embed_documents(self, texts: list[str]) -> list[list[float]]:
-            return [list(v) for v in _fe.embed(texts)]
+    Deferring it means the API boots in a small container and only the
+    endpoints that actually embed pay the memory. Callers guard on
+    truthiness and wrap the call, so a load failure here degrades to keyword
+    search rather than failing the request outright.
+    """
 
-    embeddings_model = _LocalEmbeddings()
-    print("AI: fastembed embeddings ready (BAAI/bge-small-en-v1.5, 384-dim)")
-except Exception as _e:
+    def __init__(self) -> None:
+        self._model = None
+
+    def _ensure(self):
+        if self._model is None:
+            from fastembed import TextEmbedding
+
+            self._model = TextEmbedding(model_name=EMBEDDING_MODEL_NAME)
+            print(f"AI: fastembed loaded on demand ({EMBEDDING_MODEL_NAME}, {EMBEDDING_DIM}-dim)")
+        return self._model
+
+    def embed_query(self, text: str) -> list[float]:
+        return list(list(self._ensure().embed([text]))[0])
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [list(v) for v in self._ensure().embed(texts)]
+
+
+if EMBEDDINGS_DISABLED:
     embeddings_model = None
-    print(f"Warning: fastembed not available - {_e}")
+    print("AI: local embeddings disabled by DISABLE_LOCAL_EMBEDDINGS")
     print("Semantic search disabled; keyword search fallback remains available.")
+else:
+    embeddings_model = _LocalEmbeddings()
+    print(f"AI: embeddings deferred until first use ({EMBEDDING_MODEL_NAME}, {EMBEDDING_DIM}-dim)")

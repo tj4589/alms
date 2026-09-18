@@ -69,6 +69,11 @@ services:
         value: "2000"
       - key: SQL_ECHO
         value: "false"
+      # Set to "true" to never load the embedding model. Keeps the service at
+      # ~205MB instead of ~359MB; search falls back to keyword ranking, which
+      # every consumer already handles.
+      - key: DISABLE_LOCAL_EMBEDDINGS
+        value: "false"
 
   # ---- frontend --------------------------------------------------------
   - type: web

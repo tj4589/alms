@@ -9,27 +9,35 @@ resources and wires most of the configuration between them:
 | Web service | `exammind-api` | FastAPI on uvicorn, from `backend/` |
 | Static site | `exammind-web` | The Vite build, from `frontend/` |
 
-## Read this first: three constraints on the free plan
+## What it costs to run, measured
 
-**1. The embedding model needs more memory than the free instance has.**
-`ai_clients.py` loads fastembed with `BAAI/bge-small-en-v1.5` through
-onnxruntime at import. Model weights plus the ONNX runtime land around
-400-600MB resident, and a free Render web service is capped at 512MB. Expect
-the API to be OOM-killed on boot. Options, cheapest first:
+Memory, taken from the real import on Python 3.12, uvicorn adds roughly 10MB:
 
-- Move embeddings to a hosted API and drop fastembed from the import path.
-- Upgrade `exammind-api` to a paid instance with 2GB.
+| Stage | RSS |
+| --- | --- |
+| API booted, idle | 205 MB |
+| After the first semantic search or upload | 359 MB |
 
-Everything else here works on free; this is the one thing that probably will
-not. Decide it before you spend time debugging a boot loop.
+That fits a 512MB free instance with headroom, because `ai_clients.py` loads the
+embedding model on first use rather than at import. If it loaded at import the
+API would sit at ~359MB before serving anything and a free container would be
+OOM-killed during boot -- which reads as a crash loop, not a memory limit.
 
-**2. Free Postgres is deleted after 30 days.** Render expires free databases.
+If you need the footprint lower, set `DISABLE_LOCAL_EMBEDDINGS=true` on the API.
+The model is then never loaded and the service stays at 205MB. Every consumer
+already treats a missing model as "use keyword search", so upload, search,
+practice, progress and the assistant all keep working -- results stop being
+ranked semantically, and that is the whole of the difference.
+
+## Two things that do bite on the free plan
+
+**Free Postgres is deleted after 30 days.** Render expires free databases.
 Anything uploaded or indexed goes with it. Fine for a demo, not for a pilot with
 real students.
 
-**3. Free web services sleep after 15 minutes idle.** The next request pays a
-cold start, and this one also re-loads the embedding model, so the first hit
-after a quiet spell is slow rather than instant.
+**Free web services sleep after 15 minutes idle,** so the next request pays a
+cold start. With embeddings enabled, the first search after a sleep also pays
+the model load.
 
 ## Deploy
 
