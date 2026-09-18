@@ -1,5 +1,42 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Discussions rebuilt as a feed
+
+Discussions was a card containing a list, beside two more cards. It now reads the
+way a discussion surface should: a persistent composer at the top, threads as
+full-width rows separated by hairlines, and a conversation view that replaces the
+feed instead of being squeezed into a side panel.
+
+Composer is always present rather than hidden behind a "+ New thread" toggle, and
+expands on focus. Enter posts, Shift+Enter adds a line, and the hint says so.
+
+Threads are rows, not cards: bordered mono-initial avatar, the question at 15px/600
+as the thing you actually read, then `@handle . time` and an open affordance. The
+whole row is a button, so it is keyboard reachable with a visible focus ring.
+
+In the conversation, replies are rows with a mono timestamp. An @AI reply is marked
+by a teal left rule and a teal tint rather than a coloured bubble -- teal is the
+system's "grounded in a source" colour, which is exactly what an @AI answer is.
+
+Removed the four-gradient avatar palette (`linear-gradient(135deg, var(--teal),
+var(--gold))` and friends). Gradient avatars are off-system; the replacements are
+bordered mono initials.
+
+Removed the fabricated "Example threads (no data yet)" block -- two invented
+students and two invented questions rendered at 50% opacity when the list was
+empty. The project's own rule is no fake data, ever. The empty state now says what
+to do instead.
+
+`mentionsAI` was computed and never rendered. It now drives the composer hint: type
+@AI and the hint changes to say the assistant will answer in the thread.
+
+No endpoint, payload or handler changed -- createThread, openThread and postMessage
+are untouched.
+
+Verified against fixtures at 390/768/1440: three thread rows in the feed, three
+replies in the conversation with one marked as AI, zero `.card` nodes, no
+horizontal overflow, no page errors.
+
 # 2026-09-18 - Progress primary buttons stopped flashing amber
 
 Reported from a screenshot of the error state: the "Try again" button looked amber,

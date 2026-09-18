@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScreenType, SearchActionContext, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
+import './Collab.css';
 
 type Thread = {
   id: number;
@@ -22,17 +23,6 @@ type ThreadMessage = {
   created_at: string;
 };
 
-const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, var(--teal), var(--gold))',
-  'linear-gradient(135deg, var(--coral), var(--gold))',
-  'linear-gradient(135deg, var(--gold), var(--coral))',
-  'linear-gradient(135deg, var(--gold), var(--teal))',
-];
-
-function avatarGradient(id: number) {
-  return AVATAR_GRADIENTS[id % AVATAR_GRADIENTS.length];
-}
-
 function threadInitials(title: string): string {
   const parts = title.trim().split(/\s+/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -49,17 +39,6 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const inputStyle: React.CSSProperties = {
-  flex: 1,
-  background: 'var(--bg3)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '9px 12px',
-  color: 'var(--text)',
-  fontFamily: 'var(--font)',
-  fontSize: 13,
-  outline: 'none',
-};
 
 export default function Collab({
   go,
@@ -188,184 +167,170 @@ export default function Collab({
   const mentionsAI = messageInput.toLowerCase().includes('@ai');
 
   // ── Render helpers ─────────────────────────────────────────
+  const meInitials = (user?.name || user?.username || 'You')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+
   const rightPanel = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className="card" style={{ background: 'linear-gradient(135deg, var(--teal2), rgba(62,207,178,0.02))', borderColor: 'rgba(62,207,178,0.18)' }}>
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--teal)', marginBottom: 8 }}>AI in threads</div>
-        <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 5 }}>Type @AI in any thread</div>
-        <div style={{ fontSize: 12.5, color: 'var(--text2)', lineHeight: 1.6 }}>The AI responds instantly with an answer grounded in past questions — visible to everyone in the thread. It scaffolds discussion without replacing it.</div>
-      </div>
-      <div className="card">
-        <div className="card-hd">
-          <div className="card-ttl">Study groups &amp; rooms</div>
-          <button className="card-lnk as-button" style={{ cursor: 'pointer' }} onClick={() => go('groups')}>
-            View all →
-          </button>
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--text3)', lineHeight: 1.6 }}>
-          Join a Study Group for long-term collaboration, or start a Reading Room to study live with classmates tonight.
-        </div>
-      </div>
-    </div>
+    <aside className="collab-margin">
+      <section className="margin-block">
+        <p className="margin-label">AI in threads</p>
+        <h2 className="margin-title">Type @AI in any thread</h2>
+        <p className="margin-note">
+          The assistant answers in the thread itself, grounded in past questions, where
+          everyone can see it. It scaffolds the discussion rather than replacing it.
+        </p>
+      </section>
+      <section className="margin-block margin-block--end">
+        <p className="margin-label">Study together</p>
+        <h2 className="margin-title">Groups and reading rooms</h2>
+        <p className="margin-note">
+          Join a study group for a whole course, or open a reading room to revise live tonight.
+        </p>
+        <button type="button" className="margin-link" onClick={() => go('groups')}>Go to study groups &rarr;</button>
+      </section>
+    </aside>
   );
 
-  // ── Thread view ────────────────────────────────────────────
+  // ── Conversation ──────────────────────────────────────────
   if (selectedThread) {
     return (
       <div className="page" id="s-collab">
-        <div className="pg-head">
-          <button className="cta cta-ghost" style={{ marginBottom: 10, fontSize: 12 }} onClick={() => { setSelectedThread(null); setMessages([]); }}>← Back to threads</button>
-          <div className="pg-title"><em>{selectedThread.title}</em></div>
-          <div className="pg-sub">
-            Thread · started by {selectedThread.created_by_username ? `@${selectedThread.created_by_username}` : 'someone'} · {timeAgo(selectedThread.created_at)}
-          </div>
-        </div>
-        <div className="ai-layout">
-          <div className="ai-panel">
-            <div className="ai-msgs" style={{ maxHeight: 460, overflowY: 'auto' }}>
-              {messagesLoading && (
-                <div className="msg"><div className="msg-ava ai">AI</div><div className="bubble ai">Loading messages...</div></div>
-              )}
-              {!messagesLoading && messages.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text3)', padding: '8px 0' }}>No messages yet. Start the discussion below.</div>
-              )}
-              {messages.map((msg) => {
-                const isMe = !msg.is_ai_response && msg.user_id === user?.id;
-                const isAI = msg.is_ai_response;
-                const displayName = msg.user_username ? `@${msg.user_username}` : '?';
-                return (
-                  <div className={`msg ${isMe ? 'usr' : ''}`} key={msg.id}>
-                    <div className={`msg-ava ${isAI ? 'ai' : isMe ? 'usr' : 'ai'}`} style={!isAI && !isMe ? { background: avatarGradient(msg.user_id ?? 0) } : {}}>
-                      {isAI ? 'AI' : isMe ? 'You' : (msg.user_username ? msg.user_username[0].toUpperCase() : '?')}
-                    </div>
-                    <div className={`bubble ${isMe ? 'usr' : 'ai'}`}>
-                      {isAI && <div style={{ fontSize: 10, color: 'var(--teal)', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: .5 }}>ExamMind AI</div>}
-                      {!isAI && !isMe && <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, marginBottom: 3 }}>{displayName}</div>}
-                      <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>{timeAgo(msg.created_at)}</div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={msgsEndRef} />
+        <div className="collab-layout">
+          <div>
+            <div className="thread-head">
+              <button type="button" className="back-link" onClick={() => { setSelectedThread(null); setMessages([]); }}>
+                &larr; All discussions
+              </button>
+              <h1>{selectedThread.title}</h1>
+              <p>
+                Started by {selectedThread.created_by_username ? `@${selectedThread.created_by_username}` : 'someone'}
+                {' '}&middot; {timeAgo(selectedThread.created_at)}
+              </p>
             </div>
 
-            {mentionsAI && (
-              <div style={{ margin: '0 20px 8px', fontSize: 12, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div className="ai-dot"></div>
-                AI will respond after your message is posted
-              </div>
+            {messagesLoading && <p className="feed-state">Loading replies...</p>}
+            {!messagesLoading && messages.length === 0 && (
+              <p className="feed-state">No replies yet. Answer it below, or type @AI to pull in an answer grounded in past questions.</p>
             )}
 
-            <div className="ai-foot">
-              <input
-                className="ai-inp"
-                type="text"
-                placeholder="Reply to thread... type @AI for an AI response"
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void postMessage(); } }}
-                disabled={posting}
-              />
-              <button className="send" onClick={() => void postMessage()} disabled={posting || !messageInput.trim()}>
-                {posting ? '...' : '>'}
-              </button>
+            <ul className="messages">
+              {messages.map((msg) => {
+                const isAI = msg.is_ai_response;
+                const isMe = !isAI && msg.user_id === user?.id;
+                const who = isAI ? 'ExamMind AI' : isMe ? 'You' : (msg.user_username ? `@${msg.user_username}` : 'Someone');
+                const avatar = isAI ? 'AI' : isMe ? meInitials : (msg.user_username ? msg.user_username.slice(0, 2).toUpperCase() : '?');
+                return (
+                  <li className={`message${isAI ? ' is-ai' : ''}`} key={msg.id}>
+                    <span className="message-avatar" aria-hidden="true">{avatar}</span>
+                    <div>
+                      <p className="message-head">
+                        <span className="message-who">{who}</span>
+                        <span className="message-when">{timeAgo(msg.created_at)}</span>
+                      </p>
+                      <p className="message-body">{msg.content}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="reply-box">
+              <span className="composer-avatar" aria-hidden="true">{meInitials}</span>
+              <div>
+                <label className="sr-only" htmlFor="thread-reply">Reply to this thread</label>
+                <textarea
+                  id="thread-reply"
+                  className="composer-input"
+                  rows={2}
+                  placeholder="Reply, or type @AI to ask the assistant..."
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void postMessage(); } }}
+                  disabled={posting}
+                />
+                <div className="composer-foot">
+                  <span className="composer-hint">
+                    {mentionsAI ? 'ExamMind AI will answer this, in the thread' : '@AI answers in the thread, for everyone'}
+                  </span>
+                  <button type="button" className="btn-post" onClick={() => void postMessage()} disabled={posting || !messageInput.trim()}>
+                    {posting ? 'Sending...' : 'Reply'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
+
           {rightPanel}
         </div>
       </div>
     );
   }
 
-  // ── Thread list view ───────────────────────────────────────
+  // ── Feed ───────────────────────────────────────────────────
   return (
     <div className="page" id="s-collab">
       <div className="pg-head">
         <div className="pg-title">Study <em>Collaboration</em></div>
-        <div className="pg-sub">Discussions anchored to specific past questions — @AI works in any thread</div>
+        <div className="pg-sub">Discussions anchored to specific past questions. Type @AI in any thread.</div>
       </div>
-      <div className="two-col">
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">
-              Active threads
-              {threads.length > 0 && <span className="ni-badge" style={{ marginLeft: 8 }}>{threads.length}</span>}
-            </div>
-            <button className="cta" style={{ padding: '7px 14px', fontSize: 12, marginTop: 0, minHeight: 40 }} onClick={() => { setShowForm((v) => !v); setFormError(''); }}>
-              {showForm ? 'Cancel' : '+ New thread'}
-            </button>
-          </div>
 
-          {showForm && (
-            <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {formError && <div className="upload-alert" style={{ marginBottom: 4 }}>{formError}</div>}
-              <input
-                style={inputStyle}
-                type="text"
-                placeholder="Thread title (e.g. Why does quicksort degrade to O(n²)?)"
+      <div className="collab-layout">
+        <div>
+          <div className="composer">
+            <span className="composer-avatar" aria-hidden="true">{meInitials}</span>
+            <div>
+              <label className="sr-only" htmlFor="new-thread">Start a discussion</label>
+              <textarea
+                id="new-thread"
+                className="composer-input"
+                rows={showForm || newTitle ? 3 : 1}
+                placeholder="Ask the year above you something..."
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void createThread(); }}
-                autoFocus
+                onFocus={() => setShowForm(true)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void createThread(); } }}
               />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="cta" style={{ marginTop: 0, fontSize: 12 }} onClick={() => void createThread()} disabled={creating || !newTitle.trim()}>
-                  {creating ? 'Creating...' : 'Create thread'}
-                </button>
-                <button className="cta cta-ghost" style={{ marginTop: 0, fontSize: 12 }} onClick={() => { setShowForm(false); setNewTitle(''); setFormError(''); }}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {threadsLoading && (
-            <div style={{ fontSize: 13, color: 'var(--text3)', padding: '12px 0' }}>Loading threads...</div>
-          )}
-          {threadsError && <div className="upload-alert">{threadsError}</div>}
-
-          {!threadsLoading && !threadsError && threads.length === 0 && (
-            <div style={{ fontSize: 13, color: 'var(--text3)', padding: '12px 0' }}>
-              No threads yet. Start the first discussion.
-            </div>
-          )}
-
-          {!threadsLoading && threads.map((thread) => (
-            <div className="collab-item" key={thread.id} onClick={() => void openThread(thread)}>
-              <div className="collab-top">
-                <div className="ava" style={{ width: 26, height: 26, fontSize: 10, background: avatarGradient(thread.created_by) }}>
-                  {threadInitials(thread.title)}
-                </div>
-                <div className="collab-name">{thread.title}</div>
-                <div className="collab-time">{timeAgo(thread.created_at)}</div>
-              </div>
-              <div className="collab-msg" style={{ color: 'var(--text3)', fontSize: 12 }}>
-                Started by {thread.created_by_username ? `@${thread.created_by_username}` : 'someone'}
-              </div>
-            </div>
-          ))}
-
-          {!threadsLoading && !threadsError && threads.length === 0 && (
-            <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, letterSpacing: .8, textTransform: 'uppercase', marginBottom: 12 }}>Example threads (no data yet)</div>
-              {[
-                { initials: 'CK', msg: 'Can someone explain why Bellman-Ford handles negative weights but Dijkstra doesn\'t?', link: '📄 CSC 301 · 2021 Q3a', time: '2m ago' },
-                { initials: 'NE', msg: 'For BST deletion — the tricky case is two children. Key is using the inorder successor.', link: '📄 CSC 301 · 2022 Q2b', time: '18m ago' },
-              ].map((demo) => (
-                <div className="collab-item" key={demo.initials} style={{ opacity: .5, cursor: 'default' }}>
-                  <div className="collab-top">
-                    <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{demo.initials}</div>
-                    <div className="collab-name">Example student</div>
-                    <div className="collab-time">{demo.time}</div>
+              {formError && <div className="upload-alert" style={{ marginTop: 8 }}>{formError}</div>}
+              {(showForm || newTitle) && (
+                <div className="composer-foot">
+                  <span className="composer-hint">Enter to post &middot; Shift+Enter for a new line</span>
+                  <div className="composer-actions">
+                    <button type="button" className="btn-quiet" onClick={() => { setShowForm(false); setNewTitle(''); setFormError(''); }}>Cancel</button>
+                    <button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim()}>
+                      {creating ? 'Posting...' : 'Post'}
+                    </button>
                   </div>
-                  <div className="collab-msg">{demo.msg}</div>
-                  <div className="collab-link">{demo.link}</div>
                 </div>
-              ))}
+              )}
             </div>
+          </div>
+
+          {threadsLoading && <p className="feed-state">Loading discussions...</p>}
+          {threadsError && <div className="upload-alert">{threadsError}</div>}
+          {!threadsLoading && !threadsError && threads.length === 0 && (
+            <p className="feed-state">No discussions yet. Ask the first question above and your coursemates will see it.</p>
           )}
+
+          <ul className="feed">
+            {!threadsLoading && threads.map((thread) => (
+              <li key={thread.id}>
+                <button type="button" className="thread-row" onClick={() => void openThread(thread)}>
+                  <span className="thread-avatar" aria-hidden="true">{threadInitials(thread.created_by_username || thread.title)}</span>
+                  <span>
+                    <span className="thread-title">{thread.title}</span>
+                    <span className="thread-meta">
+                      <span className="handle">{thread.created_by_username ? `@${thread.created_by_username}` : 'someone'}</span>
+                      <span aria-hidden="true">&middot;</span>
+                      <span>{timeAgo(thread.created_at)}</span>
+                    </span>
+                    <span className="thread-replies">Open thread &rarr;</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
+
         {rightPanel}
       </div>
     </div>
