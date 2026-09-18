@@ -1,0 +1,63 @@
+/* A social profile, in the paper system. The shape is the one every social app
+   uses -- avatar beside name, handle, a row of counts, then actions -- because
+   that is the shape people already know how to read. What differs is what it
+   counts: contributions to the shared archive, not follower numbers.
+   Every value is a token, so it follows dark mode. */
+
+#s-profile .pf-head{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-6);align-items:center;padding:var(--space-6) 0 var(--space-8);border-bottom:1px solid var(--border)}
+#s-profile .pf-avatar{display:grid;place-items:center;width:112px;height:112px;border:1px solid var(--border2);border-radius:50%;background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:30px;letter-spacing:.02em}
+
+#s-profile .pf-nameline{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--space-3)}
+#s-profile .pf-name{margin:0;font-family:var(--serif);font-size:34px;font-weight:400;line-height:1.1;color:var(--text)}
+#s-profile .pf-handle{font-family:var(--mono);font-size:13px;color:var(--text3)}
+
+/* Counts read as a row of figures, the way a follower row does -- number first
+   at weight, label under it in mono. */
+#s-profile .pf-counts{display:flex;flex-wrap:wrap;gap:var(--space-8);margin:var(--space-5) 0 0}
+#s-profile .pf-counts>div{display:flex;flex-direction:column-reverse}
+#s-profile .pf-counts dt{margin-top:2px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+#s-profile .pf-counts dd{margin:0;font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text)}
+
+#s-profile .pf-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-6)}
+#s-profile .pf-btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 var(--space-6);border:1px solid var(--highlighter);border-radius:21px;background:var(--highlighter);color:var(--surface);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+#s-profile .pf-btn:hover{background:var(--text);border-color:var(--text)}
+#s-profile .pf-btn.is-quiet{border-color:var(--border2);background:transparent;color:var(--text)}
+#s-profile .pf-btn.is-quiet:hover{border-color:var(--text);background:transparent}
+#s-profile :is(.pf-btn,.pf-link):focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+#s-profile .pf-state{margin:var(--space-8) 0;color:var(--text3);font-size:13px;line-height:1.6}
+#s-profile .pf-state-error{padding-left:var(--space-4);border-left:2px solid var(--correction);color:var(--text2)}
+
+#s-profile .pf-section{max-width:78ch;margin-top:var(--space-10)}
+#s-profile .pf-section--end{padding-bottom:var(--space-6)}
+#s-profile .pf-label{margin:0 0 var(--space-2);font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+#s-profile .pf-section-title{margin:0 0 var(--space-5);font-family:var(--serif);font-size:24px;font-weight:400;line-height:1.2;color:var(--text)}
+#s-profile .pf-note{margin:var(--space-4) 0 0;max-width:62ch;color:var(--text3);font-size:12.5px;line-height:1.6}
+#s-profile .pf-link{display:inline-flex;align-items:center;min-height:40px;margin-top:var(--space-3);padding:0;border:0;background:none;color:var(--highlighter);font-family:var(--font);font-size:12.5px;font-weight:500;cursor:pointer}
+#s-profile .pf-link:hover{text-decoration:underline}
+
+#s-profile .pf-breakdown{margin:0;border-top:1px solid var(--border)}
+#s-profile .pf-breakdown>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-4);align-items:baseline;padding:12px 0;border-bottom:1px solid var(--border)}
+#s-profile .pf-breakdown dt{color:var(--text2);font-size:13px}
+#s-profile .pf-breakdown dd{margin:0;font-family:var(--mono);font-size:14px;font-variant-numeric:tabular-nums;color:var(--text)}
+
+/* An unearned badge is shown, not hidden: knowing what is next is the point. */
+#s-profile .pf-badges{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:var(--space-3);margin:0;padding:0;list-style:none}
+#s-profile .pf-badge{padding:var(--space-4);border:1px solid var(--border);border-left:2px solid var(--border2);border-radius:2px;background:var(--surface);opacity:.55}
+#s-profile .pf-badge.is-earned{border-left-color:var(--teal);opacity:1}
+#s-profile .pf-badge-label{display:block;color:var(--text);font-size:13.5px;font-weight:600}
+#s-profile .pf-badge.is-earned .pf-badge-label{color:var(--teal)}
+#s-profile .pf-badge-detail{display:block;margin-top:3px;color:var(--text3);font-size:12px;line-height:1.5}
+#s-profile .pf-badge-state{display:inline-block;margin-top:6px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+
+@media(max-width:700px){
+  #s-profile .pf-head{grid-template-columns:auto minmax(0,1fr);gap:var(--space-4);align-items:start}
+  #s-profile .pf-avatar{width:72px;height:72px;font-size:20px}
+  #s-profile .pf-name{font-size:25px}
+  #s-profile .pf-counts{gap:var(--space-5)}
+  #s-profile .pf-counts dd{font-size:18px}
+  #s-profile .pf-btn{flex:1}
+}
+@media(prefers-reduced-motion:reduce){
+  #s-profile .pf-btn{transition:none}
+}

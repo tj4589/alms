@@ -490,6 +490,72 @@ def cohort_analytics(db: Session = Depends(get_db), current_user: models.User = 
     }
 
 
+@router.get("/profiles/{username}")
+def public_profile(
+    username: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """A student's public record, viewable by any signed-in student.
+
+    What is public is what a student contributes to the shared archive: the
+    materials they filed, the groups they are in, the rooms they sat in. What
+    stays private is how well they are doing -- readiness and practice scores
+    are the student's own, and /analytics/student/{id} already refuses anyone
+    but the owner. Viewing your own profile adds those private counts back.
+    """
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="No student with that username.")
+
+    is_self = user.id == current_user.id
+
+    past_questions = (
+        db.query(func.count(models.PastQuestion.id))
+        .filter(models.PastQuestion.uploaded_by == user.id)
+        .scalar()
+    ) or 0
+    lecture_notes = (
+        db.query(func.count(models.LectureNote.id))
+        .filter(models.LectureNote.uploaded_by == user.id)
+        .scalar()
+    ) or 0
+    groups = (
+        db.query(func.count(models.StudyGroupMember.id))
+        .filter(models.StudyGroupMember.user_id == user.id)
+        .scalar()
+    ) or 0
+    # Distinct, because joining the same room twice is still one room sat in.
+    rooms = (
+        db.query(func.count(func.distinct(models.StudySessionParticipant.session_id)))
+        .filter(models.StudySessionParticipant.user_id == user.id)
+        .scalar()
+    ) or 0
+
+    payload: dict[str, Any] = {
+        "id": user.id,
+        "username": user.username,
+        "name": user.name,
+        "is_self": is_self,
+        "joined_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
+        "past_questions_uploaded": past_questions,
+        "lecture_notes_uploaded": lecture_notes,
+        "materials_uploaded": past_questions + lecture_notes,
+        "groups_joined": groups,
+        "rooms_joined": rooms,
+    }
+
+    if is_self:
+        attempts = (
+            db.query(func.count(models.PracticeAttempt.id))
+            .filter(models.PracticeAttempt.user_id == user.id)
+            .scalar()
+        ) or 0
+        payload["practice_attempts"] = attempts
+
+    return payload
+
+
 @router.get("/analytics/student/{student_id}")
 def student_analytics(
     student_id: int,

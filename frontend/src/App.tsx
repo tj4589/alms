@@ -149,6 +149,7 @@ export default function App() {
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
+  const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedQuestion, setSelectedQuestion] = useState('');
@@ -248,7 +249,10 @@ export default function App() {
     setMaxeOpen(false);
   };
 
-  const go = (screen: ScreenType) => {
+  // A second argument carries whose profile to open. Every existing call site
+  // passes one argument and means "my own", so they keep working untouched.
+  const go = (screen: ScreenType, username?: string | null) => {
+    setProfileUsername(screen === 'profile' ? (username ?? null) : null);
     if (screen === 'assistant') {
       setSidebarOpen(false);
       setSearchOpen(false);
@@ -555,7 +559,7 @@ export default function App() {
           >
             {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
           </button>
-          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? 'Profile' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
+          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
           <div className="search global-search" ref={searchBoxRef}>
             <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
@@ -717,7 +721,7 @@ export default function App() {
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
         {activeScreen === 'settings' && <Settings go={go} user={user} />}
-        {activeScreen === 'profile' && <Profile go={go} user={user} />}
+        {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}
