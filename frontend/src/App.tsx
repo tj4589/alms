@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BellIcon } from '@phosphor-icons/react/dist/icons/Bell';
 import { BooksIcon } from '@phosphor-icons/react/dist/icons/Books';
-import { ChartLineUpIcon } from '@phosphor-icons/react/dist/icons/ChartLineUp';
 import { ChatsCircleIcon } from '@phosphor-icons/react/dist/icons/ChatsCircle';
 import { DotsThreeIcon } from '@phosphor-icons/react/dist/icons/DotsThree';
 import { ExamIcon } from '@phosphor-icons/react/dist/icons/Exam';
@@ -39,7 +38,6 @@ import Questions from './screens/Questions';
 import Assistant from './screens/Assistant';
 import Upload from './screens/Upload';
 import Offline from './screens/Offline';
-import Analytics from './screens/Analytics';
 import Collab from './screens/Collab';
 import Practice from './screens/Practice';
 import Progress from './screens/Progress';
@@ -74,8 +72,7 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
   {
     label: 'Insights',
     items: [
-      { label: 'Exam Analytics', screen: 'analytics', icon: ChartLineUpIcon },
-      { label: 'My Progress', screen: 'progress', icon: GaugeIcon },
+      { label: 'Progress', screen: 'progress', icon: GaugeIcon },
     ],
   },
   {
@@ -692,7 +689,6 @@ export default function App() {
         {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} user={user} />}
         {activeScreen === 'upload' && <Upload go={go} user={user} />}
         {activeScreen === 'offline' && <Offline go={go} />}
-        {activeScreen === 'analytics' && <Analytics go={go} notifyUnavailable={notifyUnavailable} user={user} />}
         {activeScreen === 'collab' && <Collab go={go} user={user} notifyUnavailable={notifyUnavailable} initialContext={discussionContext} />}
         {activeScreen === 'practice' && <Practice go={go} initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
