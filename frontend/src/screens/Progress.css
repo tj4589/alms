@@ -13,7 +13,9 @@
 .progress-report .progress-decision h2 em{color:var(--highlighter);font-weight:400;}
 .progress-report .progress-decision-copy>p:not(.progress-section-label){max-width:650px;margin:12px 0 0;color:var(--paper-ink-soft);font-size:12px;line-height:1.65;}
 .progress-report .progress-decision button,.progress-report .progress-state button{margin-top:20px;border:1px solid var(--highlighter);background:var(--highlighter);color:var(--desk-inset);}
-.progress-report .progress-decision button:hover,.progress-report .progress-state button:hover{border-color:#f0b14e;background:#f0b14e;}
+/* Deepen to ink on hover. This used to go to #f0b14e, a light amber -- a full
+   hue jump off clay, and amber is the landing accent, not the workspace one. */
+.progress-report .progress-decision button:hover,.progress-report .progress-state button:hover{border-color:var(--text);background:var(--text);}
 .progress-report .progress-primary-measure{min-width:0;display:flex;flex-direction:column;justify-content:center;padding:30px 0 30px 38px;border-left:1px solid var(--margin-rule-strong);}
 .progress-report .progress-primary-measure>span{color:var(--pencil);font-size:9px;font-weight:700;text-transform:uppercase;}
 .progress-report .progress-primary-measure strong{margin-top:10px;color:var(--paper-ink);font-family:var(--mono);font-size:42px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;}

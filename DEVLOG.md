@@ -1,5 +1,24 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Progress primary buttons stopped flashing amber
+
+Reported from a screenshot of the error state: the "Try again" button looked amber,
+not the workspace clay. Measured it -- resting is `rgb(172,64,30)`, correct, but
+`Progress.css` sent `:hover` to `#f0b14e`, a light amber. A full hue jump off clay on
+hover, and amber is the landing accent, which MASTER.md reserves away from app
+surfaces. The screenshot had simply caught the button under the cursor.
+
+Both affected rules -- the "Practice this topic" decision CTA and the state buttons --
+now deepen to `var(--text)` on hover, matching the primaries on Practice, Settings and
+the shared empty state. Verified: hover is `rgb(37,43,36)`.
+
+Worth recording separately, since the same screenshot raised it: that error state is
+not what a first-time user sees. With the API reachable and no attempts recorded,
+`/analytics/student/{id}` returns empty arrays and Progress renders the empty state --
+"No progress data yet / Complete a practice session to establish your first readiness
+score" with a Start practice action. The error state only appears when the request
+fails, which in local development means the FastAPI backend is not running.
+
 # 2026-09-18 - Settings on the paper system, and de-duplicated
 
 Settings said everything twice. A "Privacy summary" list of three facts sat above
