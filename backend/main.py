@@ -1,6 +1,7 @@
 import os
 
 from fastapi import FastAPI
+from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from routers import auth, ingest, mvp, rag, search, sessions, understand
 import models as _models  # noqa: F401 — registers all ORM classes with Base
@@ -15,8 +16,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Auto-create any new tables on startup (idempotent — safe to run every time)
-Base.metadata.create_all(bind=engine)
+def _prepare_database() -> None:
+    """Idempotent, safe to run every boot.
+
+    pgvector has to exist before create_all: models.py maps a Vector column,
+    and a freshly provisioned managed database has no extensions enabled, so
+    the CREATE TABLE would fail on an unknown type.
+    """
+    with engine.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    Base.metadata.create_all(bind=engine)
+
+
+_prepare_database()
 
 default_cors_origins = "http://localhost:5173,http://127.0.0.1:5173"
 cors_origins = [

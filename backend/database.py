@@ -19,7 +19,30 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not configured. Set DATABASE_URL in the backend environment.")
 
-engine = create_engine(DATABASE_URL, echo=os.getenv("SQL_ECHO", "false").lower() == "true")
+
+def _normalise(url: str) -> str:
+    """Managed hosts (Render, Heroku, Fly) hand out postgres:// or
+    postgresql:// URLs. SQLAlchemy needs an explicit driver or it reaches for
+    psycopg2, which is not in requirements -- we install psycopg 3."""
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+DATABASE_URL = _normalise(DATABASE_URL)
+
+# Managed Postgres drops idle connections; pre-ping swaps a dead one rather
+# than surfacing it as a 500 on the first request after a quiet spell.
+engine = create_engine(
+    DATABASE_URL,
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+    pool_pre_ping=True,
+    # Without this a missing database makes startup hang on the TCP connect
+    # instead of failing, and uvicorn never binds its port.
+    connect_args={"connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "10"))},
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
