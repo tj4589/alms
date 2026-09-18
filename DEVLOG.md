@@ -1,5 +1,57 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - One Save control, one Materials library
+
+The Offline screen listed things you could look at but not touch. It is now My
+Materials: five shelves merged from all four IndexedDB stores, every row with
+an open and a remove. A saved document opens straight into the reading desk,
+which closes the gap where search was the only route back to your own uploads.
+
+Saving runs through one control used in four places -- the reading desk, past
+question cards, the practice result and the Maxe workspace. It offers Download
+only where real file bytes exist, so a result and a conversation never show it,
+and it reports what happened rather than what was asked: asking to save offline
+with nothing cacheable says so instead of claiming an offline copy that is not
+there.
+
+savedItems was added beside the three existing stores. The version bump only
+creates missing stores, so existing data is untouched. Practice results needed
+a fourth itemType, which the brief's type did not have -- filing one under
+maxe_conversation would have put it in the conversations shelf, which is a lie
+about what it is.
+
+Saving a conversation is a snapshot. The messages live in one in-memory array
+with no thread history behind them, so there is nothing to bookmark; the entry
+is keyed on the first question asked, which is stable for that thread.
+
+## One CSS rule caused two bugs
+
+App.css:472 runs `animation: fadeUp .35s ease both` on every direct child of
+`.page`. `both` fills the final frame forever, so each of those children keeps
+`transform: translateY(0)` after the animation ends. That has two consequences
+nobody wrote down:
+
+1. A transformed element becomes the containing block for `position: fixed`
+   descendants and opens its own stacking context. The Save menu was positioned
+   against `.rd-head` instead of the viewport -- rendering at x=496 when its
+   inline style said 248 -- and painted underneath the page's own text.
+2. A filled animation value beats an inline style. This is why the reading
+   desk's selection popover computed an identity transform earlier in the week
+   despite a valid inline `transform`, and why it had to be positioned from
+   measured coordinates instead.
+
+The menu escapes both by being portalled to `document.body`. The underlying
+rule is untouched: fixing it changes the entrance animation on every screen,
+which is a bigger call than this task. Worth doing deliberately -- animating
+opacity alone, or dropping the fill, would remove a whole class of layout bug
+that is very hard to diagnose from the symptom.
+
+Verified in the browser, not by reading CSS: the menu opened on a document, a
+past question, a practice result and a conversation; Esc closed it and returned
+focus; the saved rows appeared in the right shelves with the offline tag only
+where content was really cached.
+
+
 # 2026-09-18 - One upload counts as one
 
 The past-question ingest writes one `PastQuestion` row per text chunk, because
