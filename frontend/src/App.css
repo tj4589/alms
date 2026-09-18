@@ -5,7 +5,9 @@
 
 /* LOGO */
 .logo{padding:22px 20px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
-.logo-mark{width:30px;height:30px;background:var(--gold);border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:17px;color:#0c0d11;font-style:italic;flex-shrink:0;}
+/* The mark carries its own paper, ink and accent, so it stands on the page
+   rather than sitting in a tinted chip the way the old glyph did. */
+.logo-mark{display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .logo-name{font-family:var(--serif);font-size:19px;letter-spacing:-.2px;}
 .logo-name span{color:var(--gold);}
 
@@ -1729,7 +1731,7 @@
 .auth-back:hover { border-color: transparent; color: var(--auth-orange); transform: translateX(-2px); }
 .auth-top-brand { display: inline-flex; align-items: center; gap: 9px; border: 0; padding: 0; color: var(--auth-ink); background: transparent; font-size: 25px; font-weight: 620; letter-spacing: -.04em; cursor: pointer; }
 .auth-top-brand > span:last-child > span { color: var(--auth-orange); }
-.auth-top-brand-mark { display: grid; place-items: center; width: 34px; height: 38px; color: var(--auth-orange); }
+.auth-top-brand-mark { display: grid; place-items: center; height: 38px; }
 .auth-top-note { justify-self: end; color: var(--auth-muted); font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
 .auth-shell { width: min(1150px, 100%); max-width: none; margin: clamp(42px, 8vh, 92px) auto 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 430px); align-items: center; gap: clamp(54px, 9vw, 142px); position: relative; z-index: 1; }
 .auth-panel { display: block; min-height: 0; max-width: 650px; padding: 0; border: 0; background: transparent; box-shadow: none; }

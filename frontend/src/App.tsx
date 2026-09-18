@@ -13,7 +13,6 @@ import { SquaresFourIcon } from '@phosphor-icons/react/dist/icons/SquaresFour';
 import { UploadSimpleIcon } from '@phosphor-icons/react/dist/icons/UploadSimple';
 import { UsersThreeIcon } from '@phosphor-icons/react/dist/icons/UsersThree';
 import { XIcon } from '@phosphor-icons/react/dist/icons/X';
-import { BookOpen } from 'lucide-react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import './App.css';
 import './Navigation.css';
@@ -47,6 +46,7 @@ import SearchResults from './screens/SearchResults';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
 import Reader from './screens/Reader';
+import Logo from './components/Logo';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
 import OfflineStatus from './components/OfflineStatus';
@@ -470,7 +470,7 @@ export default function App() {
     <div className="shell workspace-shell">
       <aside className="sidebar" id="sidebar" aria-label="Primary navigation">
         <div className="logo" aria-label="ExamMind">
-          <div className="logo-mark"><BookOpen size={24} strokeWidth={1.8} /></div>
+          <div className="logo-mark"><Logo size={30} /></div>
           <div className="logo-name">ExamMind<span>.</span></div>
         </div>
         <nav className="nav">

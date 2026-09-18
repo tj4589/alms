@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import Logo from './Logo';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, FileText, GraduationCap, Layers, Menu, Search, ShieldCheck, Sparkles, Upload, X } from 'lucide-react';
 import '@fontsource-variable/outfit';
 import './Landing.css';
@@ -24,7 +25,7 @@ const scenarios = [
 const navLinks = [{ href: '#capabilities', label: 'Why ExamMind' }, { href: '#workflow', label: 'How it works' }, { href: '#integrity', label: 'Your sources' }];
 
 function Brand() {
-  return <><span className="lp-brand-mark" aria-hidden="true"><BookOpen size={22} strokeWidth={2.3} /></span><span>ExamMind<span className="lp-brand-dot">.</span></span></>;
+  return <><span className="lp-brand-mark" aria-hidden="true"><Logo size={32} /></span><span>ExamMind<span className="lp-brand-dot">.</span></span></>;
 }
 
 export default function Landing({ onGetStarted, onSignIn }: LandingProps) {

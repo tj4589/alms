@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, KeyRound, Search, Sparkles, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, KeyRound, Search, Sparkles, Users } from 'lucide-react';
+import Logo from './Logo';
 import { apiFormPost, apiPost } from '../lib/api';
 import {
   DEV_AUTH_ENABLED,
@@ -97,7 +98,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
           Back to overview
         </button>
         <button className="auth-top-brand" onClick={onBackToLanding} type="button" aria-label="Return to ExamMind home">
-          <span className="auth-top-brand-mark" aria-hidden="true"><BookOpen size={21} strokeWidth={2.2} /></span>
+          <span className="auth-top-brand-mark" aria-hidden="true"><Logo size={30} /></span>
           <span>ExamMind<span>.</span></span>
         </button>
         <span className="auth-top-note">Student workspace</span>
