@@ -580,18 +580,23 @@ def download_past_question(
     if not row:
         raise HTTPException(status_code=404, detail="That past question does not exist.")
     # A past-question upload writes one row per chunk and keeps the file on the
-    # first of them, so a later chunk points back at its own document's file.
+    # first of them, so any other chunk has to find its own document's row zero.
+    # Matched on _document_key rather than on the filename: two students can
+    # both upload "paper.pdf" for different courses, and a filename match would
+    # hand one of them the other's file.
     if not row.file_data:
-        source = (row.metadata_json or {}).get("source_file")
-        sibling = None
-        if source:
-            sibling = (
-                db.query(models.PastQuestion)
+        wanted = _document_key(row)
+        sibling = next(
+            (
+                candidate
+                for candidate in db.query(models.PastQuestion)
                 .filter(models.PastQuestion.uploaded_by == row.uploaded_by)
-                .filter(models.PastQuestion.file_url == source)
                 .filter(models.PastQuestion.file_data.isnot(None))
-                .first()
-            )
+                .all()
+                if _document_key(candidate) == wanted
+            ),
+            None,
+        )
         if not sibling:
             raise HTTPException(
                 status_code=404,
