@@ -60,13 +60,21 @@
 
 /* ---- an actual setting -------------------------------------------------- */
 #s-settings .setting-block{max-width:78ch;margin-top:var(--space-10)}
-#s-settings .setting-choices{display:grid;gap:var(--space-2);margin-top:var(--space-4)}
-#s-settings .setting-choice{display:grid;grid-template-columns:20px minmax(0,1fr);gap:var(--space-3);align-items:start;padding:var(--space-4);border:1px solid var(--border);border-radius:2px;background:var(--surface);font-family:var(--font);text-align:left;cursor:pointer;transition:border-color var(--fast) var(--ease)}
-#s-settings .setting-choice:hover{border-color:var(--border2)}
-#s-settings .setting-choice.is-on{border-color:var(--text)}
-#s-settings .setting-choice:focus-visible{outline:2px solid var(--text);outline-offset:2px}
-#s-settings .setting-choice-mark{width:16px;height:16px;margin-top:2px;border:1px solid var(--border2);border-radius:50%;background:var(--surface)}
-#s-settings .setting-choice.is-on .setting-choice-mark{border-color:var(--text);box-shadow:inset 0 0 0 4px var(--surface),inset 0 0 0 16px var(--text)}
-#s-settings .setting-choice-title{display:block;color:var(--text);font-size:13.5px;font-weight:600}
-#s-settings .setting-choice-body{display:block;margin-top:3px;color:var(--text3);font-size:12.5px;line-height:1.55}
+#s-settings .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+#s-settings .setting-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-6);margin-top:var(--space-4);padding:var(--space-4) 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+#s-settings .setting-row-text{max-width:52ch;cursor:pointer}
+#s-settings .setting-row-title{display:block;color:var(--text);font-size:13.5px;font-weight:600}
+#s-settings .setting-row-body{display:block;margin-top:4px;color:var(--text3);font-size:12.5px;line-height:1.55}
+
+/* 44px hit area around a 40x22 track, so the target is not just the pill. */
+#s-settings .switch{display:grid;place-items:center;flex-shrink:0;width:52px;height:44px;padding:0;border:0;background:none;cursor:pointer}
+#s-settings .switch-track{position:relative;display:block;width:40px;height:22px;border:1px solid var(--border2);border-radius:11px;background:var(--bg);transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+#s-settings .switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--text3);transition:transform var(--fast) var(--ease),background-color var(--fast) var(--ease)}
+#s-settings .switch.is-on .switch-track{border-color:var(--text);background:var(--text)}
+#s-settings .switch.is-on .switch-knob{transform:translateX(18px);background:var(--surface)}
+#s-settings .switch:hover .switch-track{border-color:var(--text)}
+#s-settings .switch:focus-visible{outline:2px solid var(--text);outline-offset:2px;border-radius:4px}
+@media(prefers-reduced-motion:reduce){
+  #s-settings .switch-track,#s-settings .switch-knob{transition:none}
+}
 #s-settings .setting-note{margin:var(--space-3) 0 0;color:var(--text3);font-size:12px;line-height:1.55}

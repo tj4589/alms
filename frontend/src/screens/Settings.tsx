@@ -4,18 +4,6 @@ import { getSessionPreference, setSessionPreference } from '../lib/session';
 import type { SessionPreference } from '../lib/session';
 import './Settings.css';
 
-const SESSION_CHOICES: { value: SessionPreference; title: string; body: string }[] = [
-  {
-    value: 'stay',
-    title: 'Keep me signed in',
-    body: 'Your session survives closing the browser. Convenient on a laptop only you use.',
-  },
-  {
-    value: 'ask',
-    title: 'Sign in each visit',
-    body: 'Your session ends when you close the browser. Use this on a shared or library machine.',
-  },
-];
 
 type SettingsProps = {
   go: (s: ScreenType) => void;
@@ -43,6 +31,7 @@ const DATA_NOTES = [
 export default function Settings({ go, user }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
   const [sessionPref, setPref] = useState<SessionPreference>(() => getSessionPreference());
+  const staySignedIn = sessionPref === 'stay';
 
   const choosePreference = (value: SessionPreference) => {
     setSessionPreference(value);
@@ -67,28 +56,33 @@ export default function Settings({ go, user }: SettingsProps) {
       <section className="setting-block" aria-labelledby="settings-session-title">
         <p className="notes-label">Staying signed in</p>
         <h2 className="notes-title" id="settings-session-title">How long should this session last?</h2>
-        <div className="setting-choices" role="radiogroup" aria-labelledby="settings-session-title">
-          {SESSION_CHOICES.map((choice) => (
-            <button
-              type="button"
-              key={choice.value}
-              role="radio"
-              aria-checked={sessionPref === choice.value}
-              className={`setting-choice${sessionPref === choice.value ? ' is-on' : ''}`}
-              onClick={() => choosePreference(choice.value)}
-            >
-              <span className="setting-choice-mark" aria-hidden="true" />
-              <span>
-                <span className="setting-choice-title">{choice.title}</span>
-                <span className="setting-choice-body">{choice.body}</span>
-              </span>
-            </button>
-          ))}
+
+        <div className="setting-row">
+          <label className="setting-row-text" htmlFor="session-toggle">
+            <span className="setting-row-title">Keep me signed in</span>
+            <span className="setting-row-body">
+              {staySignedIn
+                ? 'This session survives closing the browser. Convenient on a laptop only you use.'
+                : 'This session ends when you close the browser. Safer on a shared or library machine.'}
+            </span>
+          </label>
+          <button
+            type="button"
+            id="session-toggle"
+            role="switch"
+            aria-checked={staySignedIn}
+            className={`switch${staySignedIn ? ' is-on' : ''}`}
+            onClick={() => choosePreference(staySignedIn ? 'ask' : 'stay')}
+          >
+            <span className="switch-track" aria-hidden="true"><span className="switch-knob" /></span>
+            <span className="sr-only">{staySignedIn ? 'On' : 'Off'}</span>
+          </button>
         </div>
+
         <p className="setting-note">
-          {sessionPref === 'ask'
-            ? 'Applied now, not just next time: your current session already ends when the browser closes.'
-            : 'Signing out from the sidebar ends the session immediately, whichever option is chosen.'}
+          {staySignedIn
+            ? 'Signing out from the sidebar ends the session immediately either way.'
+            : 'Applied now, not just next time: your current session already ends when the browser closes.'}
         </p>
       </section>
 
