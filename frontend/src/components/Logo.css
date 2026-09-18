@@ -1,0 +1,7 @@
+/* The mark has no paper of its own, so its ink has to follow the ground it is
+   drawn on. Light ground keeps the ink dark; the dark theme, and the landing
+   footer which is dark whatever the theme, flip it. */
+.em-logo{display:block}
+
+:root[data-theme="dark"] .em-logo{--logo-ink:var(--em-ink, #f2f3ef)}
+.lp-footer .em-logo{--logo-ink:#f3f4ef}

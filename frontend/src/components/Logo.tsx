@@ -1,3 +1,5 @@
+import './Logo.css';
+
 type LogoProps = {
   /** Rendered height in px; the width follows the mark's own proportions. */
   size?: number;
@@ -5,9 +7,13 @@ type LogoProps = {
 };
 
 // The ExamMind mark: a sheet with a turned corner and a highlighter stroke
-// across the middle line. Its colours are the palette's own -- paper, ink and
-// accent -- so it is drawn rather than tinted, and it does not take
-// currentColor the way the lucide glyph it replaced did.
+// across the middle line.
+//
+// The sheet is unfilled, so the mark is ink drawn straight onto whatever it
+// sits on rather than a tile pasted over it. That is why the ink is a token:
+// on a dark ground -- the dark theme's sidebar, the landing footer -- near
+// black ink on near black is nothing at all, so it is re-pointed there. The
+// highlighter keeps its accent on either ground.
 //
 // The source artwork is on a 1000x1000 canvas with the mark sitting in the
 // middle of it. The viewBox below is cropped to the artwork's real bounds
@@ -15,10 +21,8 @@ type LogoProps = {
 // box instead of floating in empty padding at small sizes.
 const VIEW_BOX = '268 177 480 629';
 
-const PAPER = 'var(--logo-paper, #f3f4ef)';
 const INK = 'var(--logo-ink, #090a0a)';
 const ACCENT = 'var(--logo-accent, #e9a13a)';
-const FOLD = 'var(--logo-fold, #e2dfd2)';
 
 export default function Logo({ size = 34, className = '' }: LogoProps) {
   return (
@@ -34,7 +38,7 @@ export default function Logo({ size = 34, className = '' }: LogoProps) {
       {/* The sheet, with the corner cut away at the top right. */}
       <path
         d="M 330,210 L 620,210 L 720,310 L 720,740 Q 720,790 670,790 L 330,790 Q 280,790 280,740 L 280,260 Q 280,210 330,210 Z"
-        fill={PAPER}
+        fill="none"
         stroke={INK}
         strokeWidth="16"
         strokeLinejoin="round"
@@ -72,7 +76,7 @@ export default function Logo({ size = 34, className = '' }: LogoProps) {
       <g transform="translate(648.06,189.19) rotate(9)">
         <path
           d="M 0,0 L 88,0 L 88,88 Z"
-          fill={FOLD}
+          fill="none"
           stroke={INK}
           strokeWidth="13.6"
           strokeLinejoin="round"
