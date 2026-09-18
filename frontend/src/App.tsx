@@ -46,6 +46,8 @@ import Empty from './screens/Empty';
 import SearchResults from './screens/SearchResults';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
+import NotificationPanel from './components/NotificationPanel';
+import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
 import OfflineStatus from './components/OfflineStatus';
 import MaxeTrigger from './components/Maxe/MaxeTrigger';
 import MaxeWorkspace from './components/Maxe/MaxeWorkspace';
@@ -137,16 +139,17 @@ function textPreview(value: string | null | undefined, fallback: string, max = 9
 export default function App() {
   const [token, setToken] = useState(() => {
     if (!localStorage.getItem(AUTH_RESET_KEY)) {
-      localStorage.removeItem('token');
+      clearStoredToken();
       localStorage.setItem(AUTH_RESET_KEY, 'true');
       return null;
     }
-    return localStorage.getItem('token');
+    return readStoredToken();
   });
   const [publicView, setPublicView] = useState<'landing' | 'auth'>('landing');
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [toast, setToast] = useState('');
@@ -211,13 +214,13 @@ export default function App() {
       .then((data) => setUser(data as User))
       .catch(() => {
         // Token is expired or invalid — force back to login
-        localStorage.removeItem('token');
+        clearStoredToken();
         setToken(null);
       });
   }, [token]);
 
   const handleLogin = async (jwt: string) => {
-    localStorage.setItem('token', jwt);
+    storeToken(jwt);
     setToken(jwt);
 
     if (isDevAuthToken(jwt)) {
@@ -236,7 +239,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    clearStoredToken();
     setToken(null);
     setUser(null);
     setActiveScreen('dashboard');
@@ -672,7 +675,25 @@ export default function App() {
           <div className="tb-right">
             <OfflineStatus />
             <button type="button" className="ico-btn" aria-label="Open settings" title="Settings" onClick={() => go('settings')}><GearSixIcon aria-hidden="true" weight="regular" /></button>
-            <button type="button" className="ico-btn" aria-label="Open notifications" title="Notifications" onClick={() => notifyUnavailable('Notifications')}><BellIcon aria-hidden="true" weight="regular" /></button>
+            <span className="notif-anchor">
+              <button
+                type="button"
+                className="ico-btn"
+                data-notification-trigger="true"
+                aria-label="Open notifications"
+                aria-haspopup="dialog"
+                aria-expanded={notificationsOpen}
+                title="Notifications"
+                onClick={() => setNotificationsOpen((open) => !open)}
+              >
+                <BellIcon aria-hidden="true" weight="regular" />
+              </button>
+              <NotificationPanel
+                open={notificationsOpen}
+                onClose={() => setNotificationsOpen(false)}
+                go={go}
+              />
+            </span>
             <button type="button" className="topbar-avatar" aria-label="Open your profile" onClick={() => go('profile')}>{userInitials}</button>
           </div>
         </header>

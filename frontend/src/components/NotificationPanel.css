@@ -1,0 +1,38 @@
+/* Notification popover, anchored under the topbar bell. Paper surfaces, hairline
+   separators, mono labels -- the same vocabulary as the screens beneath it. */
+
+.notif-panel{position:absolute;top:calc(100% + 10px);right:0;z-index:260;width:min(340px,calc(100vw - 24px));padding:var(--space-5);border:1px solid var(--border);border-radius:2px;background:var(--surface);box-shadow:0 20px 48px -28px rgba(9,10,10,.5);text-align:left}
+.notif-panel:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+.notif-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3);padding-bottom:var(--space-3);border-bottom:1px solid var(--border)}
+.notif-label{margin:0;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+.notif-net{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.notif-net::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+.notif-net.is-online{color:var(--teal)}
+.notif-net.is-offline{color:var(--correction)}
+
+.notif-empty{margin:var(--space-5) 0;color:var(--text3);font-size:12.5px;line-height:1.6}
+
+.notif-list{list-style:none;margin:0;padding:0}
+/* A left rule carries the state, so the row stays paper rather than becoming a
+   coloured block. */
+.notif-item{padding:var(--space-4) 0 var(--space-4) var(--space-4);border-bottom:1px solid var(--border);border-left:2px solid transparent}
+.notif-item:last-child{border-bottom:0}
+.notif-item.tone-warn{border-left-color:var(--correction)}
+.notif-item.tone-pending{border-left-color:var(--highlighter)}
+.notif-item.tone-ok{border-left-color:var(--teal)}
+
+.notif-title{margin:0;color:var(--text);font-size:13.5px;font-weight:600;line-height:1.4}
+.notif-body{margin:4px 0 0;color:var(--text3);font-size:12px;line-height:1.55}
+.notif-action{display:inline-flex;align-items:center;min-height:36px;margin-top:6px;padding:0;border:0;background:none;color:var(--highlighter);font-family:var(--font);font-size:12px;font-weight:500;cursor:pointer}
+.notif-action:hover{text-decoration:underline}
+.notif-action:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+/* Says plainly what this does not cover yet, rather than implying silence
+   means nothing happened. */
+.notif-foot{margin:var(--space-4) 0 0;padding-top:var(--space-3);border-top:1px solid var(--border);color:var(--text3);font-size:11px;line-height:1.5}
+
+@media(max-width:560px){
+  .notif-panel{right:-8px;width:min(320px,calc(100vw - 20px))}
+}
+.notif-anchor{position:relative;display:inline-flex}

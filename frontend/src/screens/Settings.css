@@ -57,3 +57,16 @@
 #s-settings .settings-account-line .account-link{margin-top:0}
 #s-profile .account-link:hover,#s-settings .account-link:hover{text-decoration:underline}
 #s-profile .account-link:focus-visible,#s-settings .account-link:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+/* ---- an actual setting -------------------------------------------------- */
+#s-settings .setting-block{max-width:78ch;margin-top:var(--space-10)}
+#s-settings .setting-choices{display:grid;gap:var(--space-2);margin-top:var(--space-4)}
+#s-settings .setting-choice{display:grid;grid-template-columns:20px minmax(0,1fr);gap:var(--space-3);align-items:start;padding:var(--space-4);border:1px solid var(--border);border-radius:2px;background:var(--surface);font-family:var(--font);text-align:left;cursor:pointer;transition:border-color var(--fast) var(--ease)}
+#s-settings .setting-choice:hover{border-color:var(--border2)}
+#s-settings .setting-choice.is-on{border-color:var(--text)}
+#s-settings .setting-choice:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+#s-settings .setting-choice-mark{width:16px;height:16px;margin-top:2px;border:1px solid var(--border2);border-radius:50%;background:var(--surface)}
+#s-settings .setting-choice.is-on .setting-choice-mark{border-color:var(--text);box-shadow:inset 0 0 0 4px var(--surface),inset 0 0 0 16px var(--text)}
+#s-settings .setting-choice-title{display:block;color:var(--text);font-size:13.5px;font-weight:600}
+#s-settings .setting-choice-body{display:block;margin-top:3px;color:var(--text3);font-size:12.5px;line-height:1.55}
+#s-settings .setting-note{margin:var(--space-3) 0 0;color:var(--text3);font-size:12px;line-height:1.55}

@@ -1,3 +1,4 @@
+import { getToken, clearToken } from './session';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001';
 
 export const BACKEND_CONNECTION_ERROR = 'Cannot connect to backend. Start FastAPI and confirm VITE_API_BASE_URL matches the running backend. Try http://127.0.0.1:8001/docs.';
@@ -5,11 +6,11 @@ export const BACKEND_CONNECTION_ERROR = 'Cannot connect to backend. Start FastAP
 type RequestBody = Record<string, unknown> | unknown[];
 
 export function getAuthToken() {
-  return localStorage.getItem('token');
+  return getToken();
 }
 
 export function clearAuthToken() {
-  localStorage.removeItem('token');
+  clearToken();
 }
 
 async function readErrorMessage(response: Response, fallback: string) {
