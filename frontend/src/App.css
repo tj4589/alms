@@ -1730,7 +1730,7 @@
 .auth-back { position: static; justify-self: start; display: inline-flex; align-items: center; gap: 9px; border: 0; padding: 10px 0; color: var(--auth-ink); background: transparent; border-radius: 999px; font-size: 13px; cursor: pointer; transition: color .18s ease, transform .18s ease; }
 .auth-back:hover { border-color: transparent; color: var(--auth-orange); transform: translateX(-2px); }
 .auth-top-brand { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; color: var(--auth-ink); background: transparent; font-size: 25px; font-weight: 620; letter-spacing: -.04em; cursor: pointer; }
-.auth-top-brand > span:last-child > span { color: var(--auth-orange); }
+.auth-top-brand > span:last-child > span { color: var(--brand-word); }
 .auth-top-brand-mark { display: grid; place-items: center; height: 34px; }
 .auth-top-note { justify-self: end; color: var(--auth-muted); font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
 .auth-shell { width: min(1150px, 100%); max-width: none; margin: clamp(42px, 8vh, 92px) auto 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 430px); align-items: center; gap: clamp(54px, 9vw, 142px); position: relative; z-index: 1; }

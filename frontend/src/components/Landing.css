@@ -40,7 +40,7 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .lp-header.is-scrolled .lp-nav { width: min(1100px, calc(100% - 64px)); height: 72px; padding-inline: 23px; transform: translateY(12px); border-radius: 999px; border-bottom-color: transparent; background: #f8f5eef5; backdrop-filter: blur(14px); box-shadow: 0 12px 38px #15191524; }
 .lp-brand { display: inline-flex; align-items: center; gap: 6px; font-size: 25px; letter-spacing: -.04em; font-weight: 620; white-space: nowrap; }
 .lp-brand-mark { display: grid; place-items: center; height: 34px; }
-.lp-brand-dot { color: var(--lp-orange); }
+.lp-brand-dot { color: var(--brand-word); }
 .lp-nav-links, .lp-nav-actions { display: flex; align-items: center; gap: 33px; }
 .lp-nav-links a, .lp-login { font-size: 14px; font-weight: 450; }
 .lp-nav-links a { position: relative; display: grid; min-height: 44px; place-items: center; padding-inline: 10px; isolation: isolate; }
@@ -252,7 +252,7 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .lp-footer { background: #151915; color: #f8f5ee; padding-block: 0 28px; }
 .lp-footer, .lp-final { width: 100%; overflow: clip; }
 .lp-footer-top { border-top: 1px solid #394030; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; padding-block: 47px; align-items: start; }
-.lp-footer .lp-brand-dot { color: #dce5b5; }
+.lp-footer .lp-brand-dot { color: var(--brand-word); }
 .lp-footer-top > p { color: #b8c0ae; font-size: 14px; }
 .lp-footer-top > div { display: grid; gap: 13px; justify-self: end; font-size: 13px; }
 .lp-footer button { background: none; color: inherit; border: 0; display: flex; align-items: center; gap: 10px; padding: 0; }

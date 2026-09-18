@@ -4,6 +4,9 @@
      screens can opt into a dark palette via [data-theme="dark"] on <html>;
      see the block below and the workspace overrides in Navigation.css. */
   --em-paper:#f3f4ef;--em-paper-2:#e7e9e2;--em-ink:#090a0a;--em-accent:#e9a13a;
+  /* The wordmark's accent. One value everywhere, light or dark, so the
+     lockup never changes colour as you move around the app. */
+  --brand-word:#e9a03a;
 
   --desk:var(--em-paper);--desk-panel:var(--em-paper-2);--desk-inset:#ffffff;--desk-raised:#ffffff;
   --paper-ink:var(--em-ink);--paper-ink-soft:rgba(9,10,10,0.68);--pencil:rgba(9,10,10,0.5);

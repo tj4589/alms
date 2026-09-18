@@ -7,7 +7,7 @@
 .workspace-shell .logo::after{content:none}
 .workspace-shell .logo-mark{display:grid;place-items:center;width:26px;height:30px;background:none;border:0;box-shadow:none;color:#ac401e}
 .workspace-shell .logo-name{position:static;display:block;font:600 23px/1 var(--font);letter-spacing:-1px;color:#252b24;opacity:1}
-.workspace-shell .logo-name span{color:#ac401e}
+.workspace-shell .logo-name span{color:var(--brand-word)}
 .workspace-shell .nav{padding:8px 14px;flex:1;display:flex;flex-direction:column;gap:26px;overflow:visible}
 .workspace-shell .nav-group{display:flex;flex-direction:column;gap:4px}
 .workspace-shell .nav-section{padding:0 12px 7px;color:#74776b;font:500 12px/1.4 var(--font);letter-spacing:0;text-transform:none}
@@ -71,7 +71,7 @@
 :root[data-theme="dark"] .workspace-shell .ico-btn:hover{background:#24282b}
 :root[data-theme="dark"] .workspace-shell :is(.ava,.topbar-avatar){background:#3a2f22;color:#f0d9b4}
 :root[data-theme="dark"] .workspace-shell .logo-mark,
-:root[data-theme="dark"] .workspace-shell .logo-name span{color:#e2703f}
+:root[data-theme="dark"] .workspace-shell .logo-name span{color:var(--brand-word)}
 :root[data-theme="dark"] .workspace-shell .mob-nav{background:#1b1e21;border-top-color:#2b2f33}
 :root[data-theme="dark"] .workspace-shell .mob-tab{color:#8d9287}
 :root[data-theme="dark"] .workspace-shell .mob-tab.on{color:#e2703f}
