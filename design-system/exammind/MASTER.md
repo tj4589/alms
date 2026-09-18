@@ -67,6 +67,43 @@ Aliases (`--bg`, `--text`, `--gold`, `--teal`, `--coral`, `--border`, `--desk`, 
 - Segmented metric strip: one panel divided by hairlines, not four equal cards.
 - Inline CSS/SVG readiness and activity bars. No chart dependency and no invented values.
 
+## Authenticated screen patterns
+
+The landing owns the editorial/3D vocabulary. Authenticated screens use a quieter
+subset of it, established on Upload and Practice and reused from there.
+
+- **Workspace token scope** — `.workspace-shell` in `Navigation.css` re-scopes the
+  authenticated palette: `--highlighter` and `--gold` become `#ac401e` (clay, not the
+  landing's amber), `--border` becomes `#dedfd4`, `--text*` resolve to the desk inks and
+  the UI face is Outfit. App screens must therefore style from the aliases
+  (`--text`, `--text2`, `--text3`, `--border`, `--border2`, `--highlighter`,
+  `--surface`, `--correction`) rather than the raw `--em-*` values, or they will pin the
+  landing's amber onto a screen the rest of the app renders in clay.
+- **The sheet** — a work surface is a sheet of paper: `--surface` white on the cream
+  page, a 2px cut edge rather than a card radius, a single hairline border, and a very
+  low, wide shadow. Used for the Upload drop target and the Practice setup panel.
+- **Crop marks** — four corner brackets inset from a sheet's edge, each growing its two
+  arms out from the corner on load. The self-drawing idea of the construction-line
+  reveal, in CSS rather than SVG: a `pathLength` dash on a non-uniformly scaled rect
+  distorts and renders as broken partial lines. They take `--highlighter` when a sheet
+  is an active drop target.
+- **Marginalia** — a secondary column held by a single `border-left` rule instead of a
+  stack of cards, carrying mono uppercase section labels, hairline-separated rows and a
+  quiet `--correction` text action for anything destructive. Replaces the nested-card
+  sidebar on Upload and Practice.
+- **Hairline-segmented list** — one strip divided by `border-top` rules, a mono tabular
+  rank or index, a name, an optional bar and a right-aligned figure. `Progress.css`'s
+  `progress-topic-list` is the reference; the practice-frequency list is the same rule
+  with a wider value column for counts and units.
+- **Field on a rule** — form controls are underlined rather than boxed: no fill, no
+  radius, a `--border2` bottom rule, 44px minimum height, mono uppercase label above.
+- **Discrete choice over a slider** — a small fixed set of values (question count) is a
+  row of 44px toggles, not a range input. A slider is a fine control for a coarse
+  decision and cannot be hit accurately on touch.
+- **Stated gates** — a disabled primary action always says what unblocks it
+  ("1 still to mark before you can submit"), and never shows a number that means
+  something different from the number beside it.
+
 ## State and accessibility rules
 
 Loading uses restrained shimmer rows matched to their real height. Empty states explain what a student must do next. Errors use plain language and a retry action; provider details never appear in copy. Every interactive element has a visible ink focus ring and a 40px minimum hit area (44px on mobile). Charts expose a title/label, and zero activity is shown as a baseline stub.
@@ -84,5 +121,15 @@ Do not change API contracts or replace real data with demo data. Do not reintrod
 Do not use image assets that are not properly licensed. Ambient photography comes from Unsplash/Pexels-type sources or is owned outright, recorded in `src/assets/ambient/README.md`; never scraped.
 
 ## Verification
+
+### Maxe ambient presence and walking lane
+
+Maxe is the existing paper-and-ink SVG study companion with a highlighter accent. The authenticated shell's accessible edge trigger opens the existing conversation workspace; it is separate from decorative animation. Keep its assistant actions and session state intact.
+
+`WalkingBot` adds a dedicated, transparent lane below the dashboard priority panel. Reserve its responsive height, use `--margin-rule` for the ground rule and `--highlighter` for its short accent. Confine travel to the measured container; never overlay study content or navigation. No typography, dashboard content or API logic belongs in the component.
+
+The current lane uses an explicitly temporary articulated SVG fallback. It does not have the missing reference character's backpack, wires or arms. The production contract is a ten-cell transparent sheet: eight gait frames, neutral, turn. Preserve source scale, baseline and padding; never bake in a shadow. Full asset requirements live in `frontend/src/assets/walking-bot/README.md`.
+
+Use native browser animation, whole gait cycles per crossing, a 500ms planted pause and a 340ms turn. Pause outside the viewport and in hidden tabs. Reduced motion is stationary. Decorative lanes ignore pointer input and are hidden from assistive technology. Obtain visual approval before committing the walking-lane implementation.
 
 Review landing and authenticated dashboard at 390px, 768px, 1024px and 1440px. Require no horizontal overflow, visible focus states, semantic landmarks, honest loading/empty/error states, and clean `npm run build` and `npm run lint`.

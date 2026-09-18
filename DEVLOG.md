@@ -1,5 +1,38 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Exam Analytics folded into Progress
+
+`Analytics.tsx` and `Progress.tsx` were two implementations of one feature. Both
+called `apiGet('/analytics/student/{id}')` and both derived per-topic readiness,
+per-attempt scores and questions answered. Progress was the fuller pass -- weakest-topic
+recommendation, untruncated readiness list, real history table, and honest
+loading/empty/error states -- so it keeps the screen.
+
+Ported across: practice frequency per topic (group attempts by topic label, count,
+sort descending). Rebuilt on Progress's own `progress-section` / `progress-topic-list`
+markup and `Progress.css` rather than Analytics's inline-styled divs, and placed
+between topic readiness and history because it explains the history below it. The
+values are counts rather than percentages, so the shared list rule gets a modifier
+with a wider value column and a unit ("3 tries").
+
+Fixed while comparing the two: `attempt.score` is the number answered correctly, and
+Progress rendered `clampScore(attempt.score)` with a percent sign, so 4 out of 10
+displayed as "4%". Analytics had the correct `scorePercent` helper; it came across with
+the section. Verified against fixtures -- 4/10, 9/10 and 12/12 now read 40%, 90%, 100%.
+
+Retired: the nav item, the `App.tsx` import and render branch, the now-unused
+`ChartLineUpIcon` import, the `'analytics'` key in `ScreenType`, and the screen file.
+Re-grepped first -- nothing deep-linked to it, which is why it was the safe one to drop.
+`activeScreen` is in-memory `useState('dashboard')`, so no persisted key can go stale.
+The remaining Insights item is labelled "Progress", matching the screen's own h1.
+
+No endpoint, response shape or API call changed.
+
+Verified in the browser, not from the CSS: Insights lists one item with a visible focus
+ring; Dashboard's "Progress" button and Practice's "View full progress" CTA both land on
+`#s-progress` with the breadcrumb reading Progress; loading, empty, error and loaded all
+hold at 390/768/1024/1440 with no horizontal overflow.
+
 ## 2026-09-07 — Post-launch refinement pass (§7)
 
 Punch list from reviewing the running build. All eleven items applied.
@@ -471,3 +504,14 @@ The script is idempotent: `ALTER TABLE users ADD COLUMN IF NOT EXISTS username V
 **10s polling instead of WebSocket**: Keeps things simple for now. Heartbeat sent on every poll tick. WebSocket upgrade is a future sprint.
 
 **username nullable on existing users**: PostgreSQL allows multiple NULLs in a unique column — existing rows don't conflict.
+# 2026-09-17 — Reusable walking mascot preview
+
+Added `WalkingBot.tsx`, scoped handwritten CSS and an isolated `WalkingBotFallback.tsx`. Mounted once beneath the dashboard priority panel. The component owns only movement/artwork, with typed size, timing, direction, accessibility and optional sprite props. No dependency, API or assistant-state changes.
+
+Inspected package configuration, global/app/dashboard styles, dashboard/landing code and all available image assets. `hero.png` is unrelated decorative artwork. Current Maxe is a React SVG with front/profile poses, not a sprite sheet. The attachment contains text only; no backpack/wire character reference was available. The existing source is retained and the fallback does not invent missing anatomy. The README specifies the final eight gait frames plus neutral/turn cells. Approximate fallback contact compensation is not a claim of finished production articulation.
+
+Container measurements determine travel and gait timing. Each crossing completes whole cycles, pauses for 500ms and turns for 340ms. CSS animates separate legs, subtle bounce, antenna and a separate shadow; native Web Animations handles travel/turn timing. IntersectionObserver, document visibility and reduced-motion preference stop unnecessary work. The lane reserves height and confines overflow locally.
+
+Validation: frontend lint and production build passed (existing Vite chunk-size warning). Browser checks passed at 375/768/1024/1440px for containment, alternating legs, turn and return, offscreen pause and stationary reduced motion. Desktop/mobile screenshots were inspected. Production artwork still requires the original reference and visually approved frames. Changes are deliberately uncommitted pending the user's visual approval.
+
+The earlier Maxe peek/reveal/walk work is now represented by the existing committed `MaxeTrigger`/`MaxeMark` implementation. This addition leaves that source and its conversation behavior intact. Referenced `claude/` design files were absent; current repository tokens and rendered dashboard supplied the visual authority. The Impeccable scanner was unavailable because its Windows engine binary is missing.
