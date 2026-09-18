@@ -98,7 +98,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
           Back to overview
         </button>
         <button className="auth-top-brand" onClick={onBackToLanding} type="button" aria-label="Return to ExamMind home">
-          <span className="auth-top-brand-mark" aria-hidden="true"><Logo size={19} /></span>
+          <span className="auth-top-brand-mark" aria-hidden="true"><Logo size={24} /></span>
           <span>Exam<span>Mind.</span></span>
         </button>
         <span className="auth-top-note">Student workspace</span>

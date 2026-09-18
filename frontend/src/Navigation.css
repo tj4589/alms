@@ -3,9 +3,9 @@
 .workspace-shell button,.workspace-shell input{font-family:inherit}
 .workspace-shell .sidebar,.workspace-shell .sidebar:hover{width:220px;top:0;bottom:0;left:0;height:100dvh;max-height:none;background:#f0eee6;border:0;border-right:1px solid #dedfd4;border-radius:0;box-shadow:none;overflow:auto;transform:none}
 .workspace-shell .main{min-width:0;margin-left:220px;background:#faf8f3}
-.workspace-shell .logo{height:88px;min-height:88px;padding:0 24px;gap:6px;border:0;display:flex;align-items:center}
+.workspace-shell .logo{height:88px;min-height:88px;padding:0 24px;gap:3px;border:0;display:flex;align-items:center}
 .workspace-shell .logo::after{content:none}
-.workspace-shell .logo-mark{display:grid;place-items:center;width:26px;height:30px;background:none;border:0;box-shadow:none;color:#ac401e}
+.workspace-shell .logo-mark{display:grid;place-items:center;background:none;border:0;box-shadow:none}
 .workspace-shell .logo-name{position:static;display:block;font:600 23px/1 var(--font);letter-spacing:-1px;color:#252b24;opacity:1}
 .workspace-shell .logo-name span{color:var(--brand-word)}
 .workspace-shell .nav{padding:8px 14px;flex:1;display:flex;flex-direction:column;gap:26px;overflow:visible}
