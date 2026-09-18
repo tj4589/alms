@@ -1,5 +1,40 @@
 # ExamMind — Engineering Devlog
 
+# 2026-09-18 - Study Groups: a list you enter, not cards you expand
+
+Groups were `.qd` cards with a "Members (12) v" toggle that expanded a member list
+in place. You could never actually be *in* a group -- there was no such route. Now
+there is: list, enter, and the group's reading rooms inside it.
+
+The list is a messenger list. Each group is a row with a tinted initials disc, the
+name, then `course - members - topic`, with time and a teal JOINED marker on the
+right. Groups you have joined sort first, the way a messenger lists your own chats,
+and the bar says "3 groups - you are in 1". Whole row is a button, so it is keyboard
+reachable with a focus ring; the old `<div onClick>` was not.
+
+Opening a group gives it a real page: serif name, course and member count, join or
+leave, "Start a reading room", the description, members as chips, and that group's
+reading rooms as rows with a coral LIVE marker for active sessions.
+
+Avatar tints are four flat paper colours rotated by id, not gradients.
+
+Tabs, both the outer Groups/Rooms pair and the room's own Board/Discussion/People,
+now share one `.gs-tab` underline style instead of two sets of inline-styled pills,
+and carry `aria-current`.
+
+Fixed while testing: `sessions` only loaded when the rooms tab was active, so the
+new group detail always showed an empty reading-rooms section. It now loads when a
+group is opened too.
+
+`myGroups` was computed for the old "My Groups" card and would have been dead after
+the rewrite. It drives the count in the bar and the sort order instead.
+
+No endpoint or payload changed -- joinGroup, leaveGroup, createGroup,
+toggleGroupDetail and the room view are untouched.
+
+Verified against fixtures at 390/768/1440: three rows with the joined group first,
+four members and two rooms inside the group, zero `.card` nodes, no overflow.
+
 # 2026-09-18 - Discussions rebuilt as a feed
 
 Discussions was a card containing a list, beside two more cards. It now reads the

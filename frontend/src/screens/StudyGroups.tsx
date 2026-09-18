@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScreenType, SearchActionContext, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
+import './StudyGroups.css';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -9,6 +10,14 @@ type Course = {
   code: string;
   name: string;
 };
+
+function groupInitials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+}
+
+function tintClass(id: number): string {
+  return `t${id % 4}`;
+}
 
 type StudyGroup = {
   id: number;
@@ -110,18 +119,6 @@ const IS: React.CSSProperties = {
 
 const SS: React.CSSProperties = { ...IS, cursor: 'pointer' };
 
-const tabBtn = (active: boolean): React.CSSProperties => ({
-  padding: '7px 18px',
-  fontSize: 13,
-  fontWeight: active ? 600 : 400,
-  background: active ? 'var(--bg3)' : 'transparent',
-  border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
-  borderRadius: 8,
-  color: active ? 'var(--text)' : 'var(--text3)',
-  cursor: 'pointer',
-  fontFamily: 'var(--font)',
-  transition: 'all .15s',
-});
 
 // ── Room Detail ───────────────────────────────────────────────────────────────
 
@@ -588,14 +585,14 @@ function RoomDetail({
       {roomHeader}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-        <button style={tabBtn(roomTab === 'board')} onClick={() => setRoomTab('board')}>
+      <div className="gs-tabs">
+        <button className={`gs-tab${roomTab === 'board' ? ' is-on' : ''}`} aria-current={roomTab === 'board' ? 'page' : undefined} onClick={() => setRoomTab('board')}>
           AI Study Board {board.length > 0 ? `(${board.length})` : ''}
         </button>
-        <button style={tabBtn(roomTab === 'chat')} onClick={() => setRoomTab('chat')}>
+        <button className={`gs-tab${roomTab === 'chat' ? ' is-on' : ''}`} aria-current={roomTab === 'chat' ? 'page' : undefined} onClick={() => setRoomTab('chat')}>
           Discussion {msgs.filter(m => m.message_type === 'chat').length > 0 ? `(${msgs.filter(m => m.message_type === 'chat').length})` : ''}
         </button>
-        <button style={tabBtn(roomTab === 'people')} onClick={() => setRoomTab('people')}>
+        <button className={`gs-tab${roomTab === 'people' ? ' is-on' : ''}`} aria-current={roomTab === 'people' ? 'page' : undefined} onClick={() => setRoomTab('people')}>
           People ({detail.participant_count})
         </button>
       </div>
@@ -672,6 +669,7 @@ export default function StudyGroups({
   const courseMap = new Map(courses.map((c) => [c.id, c]));
   const [groupActionPending, setGroupActionPending] = useState<number | null>(null);
   const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
+  const [openGroup, setOpenGroup] = useState<StudyGroup | null>(null);
   const [groupMembers, setGroupMembers] = useState<Record<number, GroupMember[]>>({});
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [formName, setFormName] = useState('');
@@ -729,8 +727,10 @@ export default function StudyGroups({
   }, [loadGroups]);
 
   useEffect(() => {
-    if (mainTab === 'rooms') void loadSessions();
-  }, [mainTab, loadSessions]);
+    // Also needed when a group is opened: its detail lists that group's rooms,
+    // so waiting for the rooms tab would show an empty section.
+    if (mainTab === 'rooms' || openGroup) void loadSessions();
+  }, [mainTab, openGroup, loadSessions]);
 
   useEffect(() => {
     if (!initialContext) return;
@@ -863,177 +863,224 @@ export default function StudyGroups({
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 22 }}>
-        <button style={tabBtn(mainTab === 'groups')} onClick={() => setMainTab('groups')}>
+      <div className="gs-tabs">
+        
+        <button
+          className={`gs-tab${mainTab === 'groups' ? ' is-on' : ''}`}
+          aria-current={mainTab === 'groups' ? 'page' : undefined}
+          onClick={() => { setMainTab('groups'); setOpenGroup(null); }}
+        >
           Study Groups {groups.length > 0 ? `(${groups.length})` : ''}
         </button>
-        <button style={tabBtn(mainTab === 'rooms')} onClick={() => setMainTab('rooms')}>
+        <button
+          className={`gs-tab${mainTab === 'rooms' ? ' is-on' : ''}`}
+          aria-current={mainTab === 'rooms' ? 'page' : undefined}
+          onClick={() => setMainTab('rooms')}
+        >
           Reading Rooms {sessions.filter(s => s.status === 'active').length > 0 ? `(${sessions.filter(s => s.status === 'active').length} live)` : ''}
         </button>
       </div>
 
       {/* ── Study Groups panel ─────────────────────────────── */}
-      {mainTab === 'groups' && (
-        <div className="two-col">
-          <div className="card">
-            <div className="card-hd">
-              <div className="card-ttl">
-                Study Groups
-                {groups.length > 0 && <span className="ni-badge" style={{ marginLeft: 7 }}>{groups.length}</span>}
-              </div>
-              <button
-                className="cta"
-                style={{ marginTop: 0, padding: '6px 14px', fontSize: 12, minHeight: 40 }}
-                onClick={() => { setShowGroupForm((v) => !v); setGroupFormError(''); }}
-              >
-                {showGroupForm ? 'Cancel' : '+ Create Group'}
+      {mainTab === 'groups' && !openGroup && (
+        <div className="gs-layout">
+          <div>
+            <div className="gs-bar">
+              <p className="gs-bar-label">
+                {groups.length === 0
+                  ? 'Study groups'
+                  : myGroups.length > 0
+                    ? `${groups.length} groups - you are in ${myGroups.length}`
+                    : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
+              </p>
+              <button className="gs-primary" onClick={() => { setShowGroupForm((v) => !v); setGroupFormError(''); }}>
+                {showGroupForm ? 'Cancel' : 'New group'}
               </button>
             </div>
 
             {showGroupForm && (
-              <div style={{ marginBottom: 18, padding: 14, background: 'var(--bg3)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 10 }}>New study group</div>
-                {groupFormError && <div className="upload-alert" style={{ marginBottom: 8 }}>{groupFormError}</div>}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input style={IS} type="text" placeholder="Group name (e.g. CSC 301 Finals Squad)" value={formName} onChange={(e) => setFormName(e.target.value)} autoFocus />
-                  <input style={IS} type="text" placeholder="Topic focus (optional)" value={formTopic} onChange={(e) => setFormTopic(e.target.value)} />
-                  <select style={SS} value={formCourseId} onChange={(e) => setFormCourseId(e.target.value ? Number(e.target.value) : '')}>
+              <div className="gs-form">
+                <p className="gs-form-title">New study group</p>
+                {groupFormError && <div className="upload-alert">{groupFormError}</div>}
+                <div className="gs-field">
+                  <label htmlFor="group-name">Name</label>
+                  <input id="group-name" type="text" placeholder="CSC 301 Finals Squad" value={formName} onChange={(e) => setFormName(e.target.value)} autoFocus />
+                </div>
+                <div className="gs-field">
+                  <label htmlFor="group-course">Course</label>
+                  <select id="group-course" value={formCourseId} onChange={(e) => setFormCourseId(e.target.value ? Number(e.target.value) : '')}>
                     <option value="">No specific course</option>
-                    {courses.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+                    {courses.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
                   </select>
-                  <input style={IS} type="text" placeholder="Description (optional)" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void createGroup(); }} />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="cta" style={{ marginTop: 0, fontSize: 12 }} onClick={() => void createGroup()} disabled={creatingGroup || !formName.trim()}>
-                      {creatingGroup ? 'Creating…' : 'Create Group'}
-                    </button>
-                    <button className="cta cta-ghost" style={{ marginTop: 0, fontSize: 12 }} onClick={() => { setShowGroupForm(false); setGroupFormError(''); }}>Cancel</button>
-                  </div>
+                </div>
+                <div className="gs-field">
+                  <label htmlFor="group-topic">Topic focus (optional)</label>
+                  <input id="group-topic" type="text" placeholder="Dynamic programming" value={formTopic} onChange={(e) => setFormTopic(e.target.value)} />
+                </div>
+                <div className="gs-field">
+                  <label htmlFor="group-desc">Description (optional)</label>
+                  <input id="group-desc" type="text" placeholder="What this group is for" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void createGroup(); }} />
+                </div>
+                <div className="gs-form-actions">
+                  <button className="gs-primary" onClick={() => void createGroup()} disabled={creatingGroup || !formName.trim()}>
+                    {creatingGroup ? 'Creating...' : 'Create group'}
+                  </button>
+                  <button className="gs-ghost" onClick={() => { setShowGroupForm(false); setGroupFormError(''); }}>Cancel</button>
                 </div>
               </div>
             )}
 
-            {groupsLoading && <div style={{ fontSize: 13, color: 'var(--text3)', padding: '12px 0' }}>Loading groups…</div>}
+            {groupsLoading && <p className="gs-state">Loading groups...</p>}
             {groupsError && <div className="upload-alert">{groupsError}</div>}
-
             {!groupsLoading && !groupsError && groups.length === 0 && (
-              <div className="empty-state" style={{ padding: '20px 0' }}>
-                <div className="empty-title">No study groups yet</div>
-                <div className="empty-body">Create a long-term group for a real course or topic from uploaded ExamMind materials.</div>
-              </div>
+              <p className="gs-state">No study groups yet. Create one for a course and your coursemates can join it.</p>
             )}
 
-            {!groupsLoading && groups.map((group) => {
-              const course = group.course_id ? courseMap.get(group.course_id) : null;
-              const pending = groupActionPending === group.id;
-              const expanded = expandedGroupId === group.id;
-              const members = groupMembers[group.id];
-              return (
-                <div className="qd" style={{ cursor: 'default' }} key={group.id}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>{group.name}</div>
-                    <button
-                      onClick={() => void toggleGroupDetail(group.id)}
-                      style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 11, padding: '2px 6px', flexShrink: 0, fontFamily: 'var(--font)' }}
-                    >
-                      {expanded ? 'Hide ▲' : `Members (${group.member_count}) ▼`}
-                    </button>
-                  </div>
-                  {group.description && (
-                    <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 6, lineHeight: 1.55 }}>{group.description}</div>
-                  )}
-                  <div className="qd-meta">
-                    {course && <span className="qi-course">{course.code}</span>}
-                    {group.topic && <span className="tag tag-m">{group.topic}</span>}
-                    <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 'auto' }}>
-                      {timeAgo(group.created_at)}
-                    </span>
-                    {group.created_by_username && (
-                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>by @{group.created_by_username}</span>
-                    )}
-                    {group.is_member ? (
-                      <button className="cta cta-ghost" style={{ marginTop: 0, fontSize: 11, padding: '3px 10px', color: 'var(--text3)' }} onClick={() => void leaveGroup(group.id)} disabled={pending}>
-                        {pending ? '…' : 'Leave'}
-                      </button>
-                    ) : (
-                      <button className="cta" style={{ marginTop: 0, fontSize: 11, padding: '3px 12px' }} onClick={() => void joinGroup(group.id)} disabled={pending}>
-                        {pending ? '…' : 'Join'}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Expandable member list + actions */}
-                  {expanded && (
-                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                      {!members && <div style={{ fontSize: 12, color: 'var(--text3)' }}>Loading members…</div>}
-                      {members?.length === 0 && <div style={{ fontSize: 12, color: 'var(--text3)' }}>No members yet.</div>}
-                      {members && members.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-                          {members.map(m => (
-                            <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 20, padding: '3px 10px 3px 4px' }}>
-                              <div className="ava" style={{ width: 20, height: 20, fontSize: 9 }}>
-                                {(m.username || m.name || '?')[0].toUpperCase()}
-                              </div>
-                              <span style={{ fontSize: 12 }}>@{m.username ?? m.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button
-                          className="cta cta-ghost"
-                          style={{ marginTop: 0, fontSize: 11, padding: '4px 11px' }}
-                          onClick={() => { setMainTab('rooms'); setShowRoomForm(true); setRoomTitle(`${group.name} — Study Session`); }}
-                        >
-                          Start a Reading Room
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Right: My Groups + info */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="card">
-              <div className="card-hd">
-                <div className="card-ttl">My Groups</div>
-                {myGroups.length > 0 && <span className="ni-badge">{myGroups.length}</span>}
-              </div>
-              {groupsLoading && <div style={{ fontSize: 13, color: 'var(--text3)', padding: '8px 0' }}>Loading…</div>}
-              {!groupsLoading && myGroups.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text3)', padding: '4px 0' }}>
-                  You have not joined any groups yet. Browse and hit Join.
-                </div>
-              )}
-              {!groupsLoading && myGroups.map((group) => {
+            <ul className="gs-list">
+              {!groupsLoading && [...groups].sort((a, b) => Number(b.is_member) - Number(a.is_member)).map((group) => {
                 const course = group.course_id ? courseMap.get(group.course_id) : null;
                 return (
-                  <div className="collab-item" key={group.id} style={{ cursor: 'default' }}>
-                    <div className="collab-top">
-                      <div className="collab-name">{group.name}</div>
-                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>{group.member_count} members</span>
-                    </div>
-                    <div className="collab-msg" style={{ fontSize: 11, color: 'var(--text3)' }}>
-                      {course ? course.code : (group.topic || 'General')}
-                    </div>
-                  </div>
+                  <li key={group.id}>
+                    <button type="button" className="gs-row" onClick={() => { setOpenGroup(group); void toggleGroupDetail(group.id); }}>
+                      <span className={`gs-avatar ${tintClass(group.id)}`} aria-hidden="true">{groupInitials(group.name)}</span>
+                      <span>
+                        <span className="gs-name">{group.name}</span>
+                        <span className="gs-sub">
+                          {course ? `${course.code} - ` : ''}
+                          {group.member_count} member{group.member_count === 1 ? '' : 's'}
+                          {group.topic ? ` - ${group.topic}` : ''}
+                        </span>
+                      </span>
+                      <span className="gs-right">
+                        <span className="gs-when">{timeAgo(group.created_at)}</span>
+                        {group.is_member && <span className="gs-in">Joined</span>}
+                      </span>
+                    </button>
+                  </li>
                 );
               })}
-            </div>
-            <div className="card" style={{ background: 'linear-gradient(135deg, var(--bg2), rgba(232,162,58,0.03))', borderColor: 'rgba(232,162,58,0.18)' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--gold)', marginBottom: 8 }}>How it works</div>
-              <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 6 }}>Study together, learn faster</div>
-              <div style={{ fontSize: 12.5, color: 'var(--text2)', lineHeight: 1.65 }}>
-                Create a group for your course or topic. Use the <strong>Reading Rooms</strong> tab to start live study sessions with AI-powered study cards that everyone in the room can see.
-              </div>
-            </div>
+            </ul>
           </div>
+
+          <aside className="gs-margin">
+            <section className="margin-block">
+              <p className="margin-label">How it works</p>
+              <h2 className="margin-title">Groups last, rooms do not</h2>
+              <p className="margin-note">
+                A study group is the standing community for a course. A reading room is one
+                live session inside it, for tonight.
+              </p>
+            </section>
+            <section className="margin-block margin-block--end">
+              <p className="margin-label">Inside a group</p>
+              <p className="margin-note">
+                Open a group to see who is in it and start or join its reading rooms.
+              </p>
+            </section>
+          </aside>
         </div>
       )}
 
-      {/* ── Reading Rooms panel ────────────────────────────── */}
+      {mainTab === 'groups' && openGroup && (
+        <div className="gs-layout">
+          <div>
+            <button className="gs-back" onClick={() => setOpenGroup(null)}>&larr; All groups</button>
+
+            <header className="gs-detail-head">
+              <span className={`gs-avatar ${tintClass(openGroup.id)}`} aria-hidden="true">{groupInitials(openGroup.name)}</span>
+              <div>
+                <h1>{openGroup.name}</h1>
+                <p>
+                  {openGroup.course_id && courseMap.get(openGroup.course_id) ? `${courseMap.get(openGroup.course_id)!.code} - ` : ''}
+                  {openGroup.member_count} member{openGroup.member_count === 1 ? '' : 's'}
+                  {openGroup.created_by_username ? ` - started by @${openGroup.created_by_username}` : ''}
+                </p>
+              </div>
+            </header>
+
+            <div className="gs-detail-actions">
+              {openGroup.is_member ? (
+                <button className="gs-ghost" onClick={() => void leaveGroup(openGroup.id)} disabled={groupActionPending === openGroup.id}>
+                  {groupActionPending === openGroup.id ? '...' : 'Leave group'}
+                </button>
+              ) : (
+                <button className="gs-primary" onClick={() => void joinGroup(openGroup.id)} disabled={groupActionPending === openGroup.id}>
+                  {groupActionPending === openGroup.id ? '...' : 'Join group'}
+                </button>
+              )}
+              <button className="gs-ghost" onClick={() => setMainTab('rooms')}>Start a reading room</button>
+            </div>
+
+            {openGroup.description && (
+              <section className="gs-section">
+                <p className="gs-section-label">About</p>
+                <p className="margin-note">{openGroup.description}</p>
+              </section>
+            )}
+
+            <section className="gs-section">
+              <p className="gs-section-label">Members</p>
+              {groupMembers[openGroup.id] === undefined ? (
+                <p className="margin-note">Loading members...</p>
+              ) : groupMembers[openGroup.id].length === 0 ? (
+                <p className="margin-note">No members listed yet.</p>
+              ) : (
+                <ul className="gs-members">
+                  {groupMembers[openGroup.id].map((member) => (
+                    <li className="gs-member" key={member.user_id}>
+                      <span className={`gs-avatar ${tintClass(member.user_id)}`} aria-hidden="true">
+                        {(member.username || '?').slice(0, 2).toUpperCase()}
+                      </span>
+                      {member.username ? `@${member.username}` : 'Student'}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="gs-section">
+              <p className="gs-section-label">Reading rooms</p>
+              {sessions.filter((room) => room.group_id === openGroup.id).length === 0 ? (
+                <p className="margin-note">No reading rooms in this group yet. Start one to revise live with the group.</p>
+              ) : (
+                <ul className="gs-list">
+                  {sessions.filter((room) => room.group_id === openGroup.id).map((room) => (
+                    <li key={room.id}>
+                      <button type="button" className="gs-row" onClick={() => setSelectedSession(room)}>
+                        <span className={`gs-avatar ${tintClass(room.id)}`} aria-hidden="true">{groupInitials(room.title)}</span>
+                        <span>
+                          <span className="gs-name">{room.title}</span>
+                          <span className="gs-sub">
+                            {room.participant_count} in the room
+                            {room.topic ? ` - ${room.topic}` : ''}
+                          </span>
+                        </span>
+                        <span className="gs-right">
+                          {room.status === 'active'
+                            ? <span className="gs-live">Live</span>
+                            : <span className="gs-when">{room.status}</span>}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+
+          <aside className="gs-margin">
+            <section className="margin-block margin-block--end">
+              <p className="margin-label">Reading rooms</p>
+              <h2 className="margin-title">One session, not a channel</h2>
+              <p className="margin-note">
+                A room is a single live revision session with a shared AI board. It ends when
+                the group stops studying; the group itself stays.
+              </p>
+            </section>
+          </aside>
+        </div>
+      )}
+
       {mainTab === 'rooms' && (
         <div className="two-col">
           <div className="card">
