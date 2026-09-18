@@ -104,3 +104,9 @@
 @media(prefers-reduced-motion:reduce){
   #s-collab :is(.thread-row,.btn-post,.btn-quiet,.composer-input){transition:none}
 }
+
+/* A name in a thread opens that student's profile. Styled as text, not a
+   button: it sits inside a sentence and should read as one. */
+#s-collab .handle-link{padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border2);text-underline-offset:2px}
+#s-collab .handle-link:hover{text-decoration-color:currentColor}
+#s-collab .handle-link:focus-visible{outline:2px solid var(--text);outline-offset:2px;border-radius:2px}

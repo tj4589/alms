@@ -75,7 +75,12 @@
 #s-groups .gs-section{padding:var(--space-6) 0 0}
 #s-groups .gs-section-label{margin:0 0 var(--space-3);font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
 #s-groups .gs-members{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:0;padding:0;list-style:none}
-#s-groups .gs-member{display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border:1px solid var(--border);border-radius:20px;background:var(--surface);font-size:12.5px;color:var(--text)}
+#s-groups .gs-member{display:inline-flex;border:1px solid var(--border);border-radius:20px;background:var(--surface);font-size:12.5px;color:var(--text)}
+/* The pill is the hit area: tapping a member opens their profile. */
+#s-groups .gs-member-open{display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border:0;border-radius:20px;background:none;color:inherit;font:inherit;text-align:left}
+#s-groups button.gs-member-open{cursor:pointer;transition:background-color var(--fast) var(--ease)}
+#s-groups button.gs-member-open:hover{background:var(--bg2)}
+#s-groups button.gs-member-open:focus-visible{outline:2px solid var(--text);outline-offset:2px}
 #s-groups .gs-member .gs-avatar{width:26px;height:26px;font-size:10px}
 
 /* ---- marginalia -------------------------------------------------------- */

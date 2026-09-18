@@ -85,3 +85,7 @@
 :root[data-theme="dark"] .workspace-shell .rail-button.on{color:#eaf2e2}
 :root[data-theme="dark"] .workspace-shell .rail-button.on .rail-item-label{color:#eaf2e2}
 :root[data-theme="dark"] .workspace-shell .rail-button.on svg{color:#eaf2e2}
+
+/* The breadcrumb's current page is set in ink for the light shell, so on dark
+   it read dimmer than the muted text beside it -- backwards. */
+:root[data-theme="dark"] .workspace-shell .workspace-location strong{color:var(--text)}

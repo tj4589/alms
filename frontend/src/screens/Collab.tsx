@@ -59,7 +59,7 @@ export default function Collab({
   notifyUnavailable,
   initialContext = null,
 }: {
-  go: (s: ScreenType) => void;
+  go: (s: ScreenType, username?: string | null) => void;
   user: User | null;
   notifyUnavailable: (feature: string) => void;
   initialContext?: (SearchActionContext & { action?: 'discussion' }) | null;
@@ -244,7 +244,11 @@ export default function Collab({
                 {questionMap.get(selectedThread.past_question_id ?? -1) && (
                   <><span className="anchor-question">{questionMap.get(selectedThread.past_question_id ?? -1)}</span>{' '}</>
                 )}
-                Started by {selectedThread.created_by_username ? `@${selectedThread.created_by_username}` : 'someone'}
+                Started by {selectedThread.created_by_username ? (
+                  <button type="button" className="handle-link" onClick={() => go('profile', selectedThread.created_by_username)}>
+                    @{selectedThread.created_by_username}
+                  </button>
+                ) : 'someone'}
                 {' '}&middot; {timeAgo(selectedThread.created_at)}
               </p>
             </div>
@@ -265,7 +269,11 @@ export default function Collab({
                     <span className="message-avatar" aria-hidden="true">{avatar}</span>
                     <div>
                       <p className="message-head">
-                        <span className="message-who">{who}</span>
+                        {!isAI && !isMe && msg.user_username ? (
+                          <button type="button" className="message-who handle-link" onClick={() => go('profile', msg.user_username)}>{who}</button>
+                        ) : (
+                          <span className="message-who">{who}</span>
+                        )}
                         <span className="message-when">{timeAgo(msg.created_at)}</span>
                       </p>
                       <p className="message-body">{msg.content}</p>

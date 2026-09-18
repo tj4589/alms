@@ -119,7 +119,7 @@ function RoomDetail({
   session: StudySession;
   user: User | null;
   onBack: () => void;
-  go: (s: ScreenType) => void;
+  go: (s: ScreenType, username?: string | null) => void;
 }) {
   const [roomTab, setRoomTab] = useState<'board' | 'chat' | 'people'>('board');
   const [detail, setDetail] = useState<StudySession>(session);
@@ -640,7 +640,7 @@ export default function StudyGroups({
   user,
   initialContext = null,
 }: {
-  go: (s: ScreenType) => void;
+  go: (s: ScreenType, username?: string | null) => void;
   notifyUnavailable: (feature: string) => void;
   user: User | null;
   initialContext?: (SearchActionContext & { action?: 'study_group' | 'reading_room' }) | null;
@@ -1017,10 +1017,19 @@ export default function StudyGroups({
                 <ul className="gs-members">
                   {groupMembers[openGroup.id].map((member) => (
                     <li className="gs-member" key={member.user_id}>
-                      <span className={`gs-avatar ${tintClass(member.user_id)}`} aria-hidden="true">
-                        {(member.username || '?').slice(0, 2).toUpperCase()}
-                      </span>
-                      {member.username ? `@${member.username}` : 'Student'}
+                      {member.username ? (
+                        <button type="button" className="gs-member-open" onClick={() => go('profile', member.username)}>
+                          <span className={`gs-avatar ${tintClass(member.user_id)}`} aria-hidden="true">
+                            {member.username.slice(0, 2).toUpperCase()}
+                          </span>
+                          @{member.username}
+                        </button>
+                      ) : (
+                        <span className="gs-member-open">
+                          <span className={`gs-avatar ${tintClass(member.user_id)}`} aria-hidden="true">?</span>
+                          Student
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
