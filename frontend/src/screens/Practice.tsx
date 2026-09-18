@@ -144,7 +144,7 @@ export default function Practice({
         setNotice(data.warning);
       }
       if (!data.questions || data.questions.length === 0) {
-        setError('No past questions matched this practice setup yet. Upload and index past questions, then generate again.');
+        setError('Nothing in the archive matched this setup yet. Add past questions or materials, then set the paper again.');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not generate practice test.');
@@ -196,7 +196,7 @@ export default function Practice({
     <div className="page" id="s-practice">
       <div className="pg-head">
         <div className="pg-title">Practice <em>Tests</em></div>
-        <div className="pg-sub">Generated from uploaded past questions · self-marked · readiness updated after submission</div>
+        <div className="pg-sub">Built from past questions and materials in the shared archive · self-marked · readiness updated after submission</div>
       </div>
 
       {notice && <div className="upload-alert" style={{ borderColor: result ? 'rgba(62,207,178,0.35)' : 'rgba(232,162,58,0.35)', color: 'var(--text2)' }}>{notice}</div>}
@@ -210,15 +210,15 @@ export default function Practice({
             <div className="setup-blocked">
               <h2 className="setup-heading">Nothing to practise from yet</h2>
               <p className="setup-blocked-body">
-                Practice tests are built from past questions you have uploaded and indexed.
-                Add a past paper and ExamMind will set the questions for you.
+                Practice tests are built from past questions and materials in the shared archive.
+                Add some, or wait for a coursemate to, and ExamMind will set the questions.
               </p>
-              <button className="practice-primary" onClick={() => go('upload')}>Add past questions</button>
+              <button className="practice-primary" onClick={() => go('upload')}>Add materials</button>
             </div>
           ) : (
             <>
               <h2 className="setup-heading">Set a paper</h2>
-              <p className="setup-lede">Choose what to be tested on. Questions come from your own archive.</p>
+              <p className="setup-lede">Choose what to be tested on. Questions come from the shared archive.</p>
 
               <div className="setup-field">
                 <label className="setup-label" htmlFor="practice-course">Course</label>
@@ -307,7 +307,7 @@ export default function Practice({
                     <p className="question-prompt">{question.prompt}</p>
                     <p className="question-tags">
                       <span>{question.difficulty || 'Mixed'}</span>
-                      <span>{question.source_type === 'generated_from_notes' ? 'From your notes' : 'From past questions'}</span>
+                      <span>{question.source_type === 'generated_from_notes' ? 'From lecture notes' : 'From past questions'}</span>
                       <span>{question.year || 'Year unknown'}</span>
                       {(question.topic_tags || []).map(tag => <span key={`${question.id}-${tag}`}>{tag}</span>)}
                     </p>
