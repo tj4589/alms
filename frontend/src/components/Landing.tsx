@@ -25,7 +25,7 @@ const scenarios = [
 const navLinks = [{ href: '#capabilities', label: 'Why ExamMind' }, { href: '#workflow', label: 'How it works' }, { href: '#integrity', label: 'Your sources' }];
 
 function Brand() {
-  return <><span className="lp-brand-mark" aria-hidden="true"><Logo size={24} /></span><span>Exam<span className="lp-brand-dot">Mind.</span></span></>;
+  return <><span className="lp-brand-mark" aria-hidden="true"><Logo size={21} /></span><span>Exam<span className="lp-brand-dot">Mind.</span></span></>;
 }
 
 export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
