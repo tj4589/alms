@@ -33,6 +33,23 @@ def _normalise(url: str) -> str:
 
 DATABASE_URL = _normalise(DATABASE_URL)
 
+def _connect_args() -> dict:
+    args: dict = {
+        # Without this a missing database makes startup hang on the TCP connect
+        # instead of failing, and uvicorn never binds its port.
+        "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "10")),
+    }
+    # Neon's pooled endpoint is pgbouncer in transaction mode, which hands a
+    # different backend to each transaction. psycopg starts issuing prepared
+    # statements after a few repeats of a query, and those live on one backend,
+    # so the next transaction fails with "prepared statement already exists".
+    # Turning preparation off costs a little planning time and removes a class
+    # of failure that only shows up under load, once queries get hot.
+    if "-pooler." in DATABASE_URL or os.getenv("DB_DISABLE_PREPARE", "").lower() == "true":
+        args["prepare_threshold"] = None
+    return args
+
+
 # Managed Postgres drops idle connections; pre-ping swaps a dead one rather
 # than surfacing it as a 500 on the first request after a quiet spell.
 engine = create_engine(
@@ -41,7 +58,7 @@ engine = create_engine(
     pool_pre_ping=True,
     # Without this a missing database makes startup hang on the TCP connect
     # instead of failing, and uvicorn never binds its port.
-    connect_args={"connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "10"))},
+    connect_args=_connect_args(),
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

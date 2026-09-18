@@ -3,7 +3,7 @@ import json
 import re
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import Text, func, or_
 from sqlalchemy.orm import Session
@@ -363,6 +363,12 @@ def serialize_past_question(row: models.PastQuestion) -> dict:
         "difficulty": row.difficulty,
         "content_text": row.content_text,
         "file_url": row.file_url,
+        "file_name": row.file_name,
+        "file_size": row.file_size,
+        # Uploads from before files were kept have no bytes to serve, so the
+        # UI hides the download rather than offering one that cannot work.
+        "has_file": bool(row.file_size),
+        "has_text": bool(row.content_text),
         "created_at": row.created_at,
         "metadata_json": row.metadata_json or {},
     }
@@ -465,6 +471,121 @@ def list_lecture_notes(
         query = query.filter(models.LectureNote.uploaded_by == uploaded_by)
     rows = query.order_by(models.LectureNote.created_at.desc()).limit(100).all()
     return [serialize_lecture_note(row) for row in rows]
+
+
+@router.get("/materials/lecture-notes/{note_id}")
+def read_lecture_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """A note opened for reading, as ordered sections.
+
+    The archive is shared, so any signed-in student can read any note -- the
+    same rule the search and the assistant already follow. Sections come from
+    lecture_note_sections, which is cut for eyes; the retrieval chunks are not
+    exposed here because they overlap and break mid-word.
+    """
+    note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="That material does not exist.")
+
+    sections = (
+        db.query(models.LectureNoteSection)
+        .filter(models.LectureNoteSection.lecture_note_id == note.id)
+        .order_by(models.LectureNoteSection.section_index)
+        .all()
+    )
+
+    uploader = db.query(models.User).filter(models.User.id == note.uploaded_by).first()
+    course = db.query(models.Course).filter(models.Course.id == note.course_id).first()
+
+    payload = serialize_lecture_note(note)
+    payload.update({
+        "course_code": course.code if course else None,
+        "course_name": course.name if course else None,
+        "uploaded_by_username": uploader.username if uploader else None,
+        "sections": [
+            {
+                "id": section.id,
+                "index": section.section_index,
+                "heading": section.heading,
+                "body": section.body,
+                "page_from": section.page_from,
+                "page_to": section.page_to,
+                "cut_by": section.cut_by,
+            }
+            for section in sections
+        ],
+    })
+    # Notes uploaded before sections existed still have their text, so the
+    # reader shows the whole thing rather than an empty page.
+    if not sections:
+        payload["content_text"] = note.content_text
+    return payload
+
+
+@router.get("/materials/lecture-notes/{note_id}/download")
+def download_lecture_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="That material does not exist.")
+    if not note.file_data:
+        raise HTTPException(
+            status_code=404,
+            detail="This material was uploaded before files were kept, so the original is not stored.",
+        )
+    return _file_response(note.file_data, note.file_name, note.file_mime, note.title)
+
+
+@router.get("/materials/past-questions/{question_id}/download")
+def download_past_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    row = db.query(models.PastQuestion).filter(models.PastQuestion.id == question_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="That past question does not exist.")
+    # A past-question upload writes one row per chunk and keeps the file on the
+    # first of them, so a later chunk points back at its own document's file.
+    if not row.file_data:
+        source = (row.metadata_json or {}).get("source_file")
+        sibling = None
+        if source:
+            sibling = (
+                db.query(models.PastQuestion)
+                .filter(models.PastQuestion.uploaded_by == row.uploaded_by)
+                .filter(models.PastQuestion.file_url == source)
+                .filter(models.PastQuestion.file_data.isnot(None))
+                .first()
+            )
+        if not sibling:
+            raise HTTPException(
+                status_code=404,
+                detail="This material was uploaded before files were kept, so the original is not stored.",
+            )
+        row = sibling
+    return _file_response(row.file_data, row.file_name, row.file_mime, "past-question")
+
+
+def _file_response(data: bytes, name: str | None, mime: str | None, fallback: str) -> Response:
+    filename = name or f"{fallback}.pdf"
+    # A quote would close the header value early and a control character
+    # would split the header outright, so the name is reduced to printable
+    # non-quote characters.
+    safe = "".join(char for char in filename if char.isprintable() and char != '"')
+    if not safe:
+        safe = f"{fallback}.pdf"
+    return Response(
+        content=data,
+        media_type=mime or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe}"'},
+    )
 
 
 @router.get("/analytics/cohort")

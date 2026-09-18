@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, ForeignKey, JSON
+from sqlalchemy import Boolean, Column, DateTime, Integer, LargeBinary, String, Text, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from database import Base
@@ -45,6 +45,14 @@ class PastQuestion(Base):
     content_text = Column(Text)
     embedding = Column(Vector(384)) # OpenAI small text embedding dimension
     file_url = Column(String, nullable=True)
+    # The uploaded file itself. Ingest used to parse the bytes and drop them,
+    # which left nothing for a student to download. Kept here rather than in
+    # object storage so there is no second service to run; move to a bucket
+    # by swapping these for a key when the archive outgrows the database.
+    file_data = Column(LargeBinary, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_mime = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
@@ -68,9 +76,40 @@ class LectureNote(Base):
     title = Column(String)
     year = Column(Integer, nullable=True)
     semester = Column(String, nullable=True, index=True)
+    # The whole cleaned text, for reading. Chunks below are cut for retrieval
+    # -- fixed width with overlap -- so they repeat text and break mid-word.
+    # Reconstructing a readable note from them is not possible, hence this.
+    content_text = Column(Text, nullable=True)
     file_url = Column(String, nullable=True)
+    file_data = Column(LargeBinary, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_mime = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
+
+class LectureNoteSection(Base):
+    """A note cut for reading, not for retrieval.
+
+    Sections follow the document's own headings where it has them and fall
+    back to page boundaries where it does not, so a section is something a
+    student recognises -- and something specific enough to ask Maxe about.
+    Separate from LectureNoteChunk on purpose: that table serves embeddings
+    and is tuned for recall, this one serves eyes.
+    """
+
+    __tablename__ = "lecture_note_sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    lecture_note_id = Column(Integer, ForeignKey("lecture_notes.id"), index=True)
+    section_index = Column(Integer)
+    heading = Column(String, nullable=True)
+    body = Column(Text)
+    page_from = Column(Integer, nullable=True)
+    page_to = Column(Integer, nullable=True)
+    # "heading" or "page" or "length" -- how this cut was decided, so the
+    # reader can be honest about sections it invented from nothing.
+    cut_by = Column(String, nullable=True)
 
 class LectureNoteChunk(Base):
     __tablename__ = "lecture_note_chunks"

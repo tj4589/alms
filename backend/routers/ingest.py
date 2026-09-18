@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import re
 from io import BytesIO
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import models
+from sectioniser import split_into_sections
 from database import get_db
 
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response
@@ -796,15 +798,46 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
 
     warnings: list[str] = []
     if extension == ".pdf":
-        return _extract_pdf_content(content, warnings)
-    if extension == ".docx":
-        return _extract_docx_text(content, warnings)
-    if extension == ".pptx":
-        return _extract_pptx_text(content, warnings)
-    if extension in IMAGE_UPLOAD_EXTENSIONS:
-        return _extract_image_text(content, warnings)
+        result = _extract_pdf_content(content, warnings)
+    elif extension == ".docx":
+        result = _extract_docx_text(content, warnings)
+    elif extension == ".pptx":
+        result = _extract_pptx_text(content, warnings)
+    elif extension in IMAGE_UPLOAD_EXTENSIONS:
+        result = _extract_image_text(content, warnings)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported file type.")
 
-    raise HTTPException(status_code=400, detail="Unsupported file type.")
+    # The bytes used to stop here: they were parsed and dropped, which left
+    # a student nothing to download. They ride along now so the caller can
+    # store the file the student actually uploaded.
+    result["file_bytes"] = content
+    result["file_name"] = filename or "upload"
+    result["file_mime"] = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    result["page_texts"] = _page_texts(content) if extension == ".pdf" else None
+    return result
+
+
+def _page_texts(content: bytes) -> list[str] | None:
+    """Per-page text, for sectioning a document that has no headings.
+
+    Extraction joins the pages into one string before we see it, so the page
+    boundaries are read back from the file here rather than threaded through
+    every extractor. Best effort: a failure just means sections fall back to
+    length instead of pages.
+    """
+    if not fitz:
+        return None
+    try:
+        doc = fitz.open(stream=content, filetype="pdf")
+    except Exception:
+        return None
+    try:
+        return [page.get_text() or "" for page in doc]
+    except Exception:
+        return None
+    finally:
+        doc.close()
 
 
 def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
@@ -1873,6 +1906,11 @@ def upload_document(
         note = models.LectureNote(
             course_id=course.id if course else None,
             uploaded_by=current_user.id,
+            content_text=operational_text or None,
+            file_data=extraction.get("file_bytes"),
+            file_name=extraction.get("file_name"),
+            file_mime=extraction.get("file_mime"),
+            file_size=len(extraction.get("file_bytes") or b"") or None,
             topic=", ".join(metadata.get("topics_covered", [])[:3]) or None,
             title=metadata.get("document_title") or metadata.get("course_title") or metadata.get("source_file") or "Lecture note",
             year=metadata.get("year"),
@@ -1894,6 +1932,21 @@ def upload_document(
                     metadata_json=metadata,
                 )
             )
+        # Reading sections, cut from the document's own structure rather than
+        # from the retrieval chunks above. Separate pass, separate table: the
+        # chunks stay tuned for recall and these stay readable.
+        for section in split_into_sections(operational_text, extraction.get("page_texts")):
+            db.add(
+                models.LectureNoteSection(
+                    lecture_note_id=note.id,
+                    section_index=section.index,
+                    heading=section.heading,
+                    body=section.body,
+                    page_from=section.page_from,
+                    page_to=section.page_to,
+                    cut_by=section.cut_by,
+                )
+            )
         document_id = note.id
     else:
         document_id = None
@@ -1908,6 +1961,10 @@ def upload_document(
                 content_text=chunk,
                 embedding=embed_or_fail(chunk) if chunk.strip() else None,
                 file_url=file.filename,
+                file_data=extraction.get("file_bytes") if index == 0 else None,
+                file_name=extraction.get("file_name") if index == 0 else None,
+                file_mime=extraction.get("file_mime") if index == 0 else None,
+                file_size=(len(extraction.get("file_bytes") or b"") or None) if index == 0 else None,
                 metadata_json={**metadata, "chunk_index": index, "indexed": bool(chunk.strip())},
             )
             db.add(pq)
