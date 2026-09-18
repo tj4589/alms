@@ -532,11 +532,76 @@ def public_profile(
         .scalar()
     ) or 0
 
+    # Per-course standing. Each course a student has actually worked in gets a
+    # row: what they filed for it, and how many of its rooms they sat in. These
+    # are absolute counts, never a ranking against other students -- the badge
+    # derived from them is earned at a fixed threshold, so nobody loses one
+    # because someone else filed more.
+    #
+    # Uploads with no course are counted in the totals above but cannot appear
+    # here, because there is no course to attribute them to.
+    course_rows: dict[int, dict[str, Any]] = {}
+
+    def _bucket(course_id: int) -> dict[str, Any]:
+        return course_rows.setdefault(
+            course_id,
+            {"course_id": course_id, "code": None, "name": None,
+             "past_questions": 0, "lecture_notes": 0, "materials": 0, "rooms": 0},
+        )
+
+    pq_by_course = (
+        db.query(models.PastQuestion.course_id, func.count(models.PastQuestion.id))
+        .filter(models.PastQuestion.uploaded_by == user.id)
+        .filter(models.PastQuestion.course_id.isnot(None))
+        .group_by(models.PastQuestion.course_id)
+        .all()
+    )
+    for course_id, count in pq_by_course:
+        _bucket(course_id)["past_questions"] = count
+
+    ln_by_course = (
+        db.query(models.LectureNote.course_id, func.count(models.LectureNote.id))
+        .filter(models.LectureNote.uploaded_by == user.id)
+        .filter(models.LectureNote.course_id.isnot(None))
+        .group_by(models.LectureNote.course_id)
+        .all()
+    )
+    for course_id, count in ln_by_course:
+        _bucket(course_id)["lecture_notes"] = count
+
+    rooms_by_course = (
+        db.query(
+            models.StudySession.course_id,
+            func.count(func.distinct(models.StudySessionParticipant.session_id)),
+        )
+        .join(models.StudySession, models.StudySession.id == models.StudySessionParticipant.session_id)
+        .filter(models.StudySessionParticipant.user_id == user.id)
+        .filter(models.StudySession.course_id.isnot(None))
+        .group_by(models.StudySession.course_id)
+        .all()
+    )
+    for course_id, count in rooms_by_course:
+        _bucket(course_id)["rooms"] = count
+
+    if course_rows:
+        for course in db.query(models.Course).filter(models.Course.id.in_(course_rows.keys())).all():
+            row = course_rows[course.id]
+            row["code"] = course.code
+            row["name"] = course.name
+        for row in course_rows.values():
+            row["materials"] = row["past_questions"] + row["lecture_notes"]
+
+    courses = sorted(
+        course_rows.values(),
+        key=lambda row: (-row["materials"], -row["rooms"], row["code"] or ""),
+    )
+
     payload: dict[str, Any] = {
         "id": user.id,
         "username": user.username,
         "name": user.name,
         "is_self": is_self,
+        "courses": courses,
         "joined_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
         "past_questions_uploaded": past_questions,
         "lecture_notes_uploaded": lecture_notes,

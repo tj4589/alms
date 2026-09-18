@@ -20,9 +20,44 @@ type PublicProfile = {
   groups_joined: number;
   rooms_joined: number;
   practice_attempts?: number;
+  courses?: CourseRow[];
+};
+
+type CourseRow = {
+  course_id: number;
+  code: string | null;
+  name: string | null;
+  past_questions: number;
+  lecture_notes: number;
+  materials: number;
+  rooms: number;
 };
 
 type Badge = { key: string; label: string; earned: boolean; detail: string };
+
+// A course mark is earned at a fixed count, not by beating anyone. Two students
+// who each file five things for a course both hold Regular, and neither loses
+// it when the other files a sixth. That is the whole point of doing it this way
+// rather than ranking the course.
+const COURSE_TIERS = [
+  { at: 1, label: 'Contributor' },
+  { at: 5, label: 'Regular' },
+  { at: 15, label: 'Archivist' },
+] as const;
+
+function courseTier(materials: number) {
+  let earned: (typeof COURSE_TIERS)[number] | null = null;
+  let next: (typeof COURSE_TIERS)[number] | null = null;
+  for (const tier of COURSE_TIERS) {
+    if (materials >= tier.at) earned = tier;
+    else if (!next) next = tier;
+  }
+  return { earned, next };
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
 
 function initialsOf(name: string | null | undefined, fallback = 'Student'): string {
   return (name || fallback)
@@ -157,6 +192,45 @@ export default function Profile({ go, user, username }: ProfileProps) {
               </p>
             )}
           </section>
+
+          {(profile.courses ?? []).length > 0 && (
+            <section className="pf-section" aria-labelledby="pf-courses">
+              <p className="pf-label">Courses</p>
+              <h2 className="pf-section-title" id="pf-courses">
+                {isSelf ? 'Where you work' : `Where @${displayHandle} works`}
+              </h2>
+              <ul className="pf-courses">
+                {(profile.courses ?? []).map((course) => {
+                  const { earned, next } = courseTier(course.materials);
+                  return (
+                    <li className="pf-course" key={course.course_id}>
+                      <div className="pf-course-id">
+                        <span className="pf-course-code">{course.code || 'Course'}</span>
+                        {course.name && <span className="pf-course-name">{course.name}</span>}
+                      </div>
+                      <div className="pf-course-right">
+                        {earned
+                          ? <span className="pf-tier">{earned.label}</span>
+                          : <span className="pf-tier is-none">In the rooms</span>}
+                        <span className="pf-course-counts">
+                          {plural(course.materials, 'material')} &middot; {plural(course.rooms, 'room')}
+                        </span>
+                        {isSelf && next && (
+                          <span className="pf-course-next">
+                            {next.at - course.materials} more to {next.label}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="pf-note">
+                A course mark is earned at a fixed number, so it is never taken away by
+                what anyone else files.
+              </p>
+            </section>
+          )}
 
           <section className="pf-section" aria-labelledby="pf-badges">
             <p className="pf-label">Badges</p>

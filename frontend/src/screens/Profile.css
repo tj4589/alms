@@ -61,3 +61,20 @@
 @media(prefers-reduced-motion:reduce){
   #s-profile .pf-btn{transition:none}
 }
+
+/* Course standing. Hairline-segmented rows, the way a ledger lists entries --
+   no cards, because these are lines in a record, not objects. */
+#s-profile .pf-courses{margin:0;padding:0;list-style:none;border-top:1px solid var(--border)}
+#s-profile .pf-course{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-4);align-items:baseline;padding:14px 0;border-bottom:1px solid var(--border)}
+#s-profile .pf-course-code{display:block;font-family:var(--mono);font-size:13px;letter-spacing:.04em;color:var(--text)}
+#s-profile .pf-course-name{display:block;margin-top:2px;color:var(--text3);font-size:12.5px}
+#s-profile .pf-course-right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right}
+/* The mark reads as a stamp on the line, not a pill floating over it. */
+#s-profile .pf-tier{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);border-bottom:1px solid var(--teal);padding-bottom:2px}
+#s-profile .pf-tier.is-none{color:var(--text3);border-bottom-color:var(--border2);font-weight:500}
+#s-profile .pf-course-counts{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text2)}
+#s-profile .pf-course-next{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--text3)}
+@media(max-width:700px){
+  #s-profile .pf-course{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}
+  #s-profile .pf-course-right{align-items:flex-start;text-align:left}
+}
