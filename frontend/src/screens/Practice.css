@@ -1,0 +1,110 @@
+/* Practice is the other half of the intake bench: Upload files a paper in,
+   this one sets a paper to sit. Same vocabulary -- white sheet on cream with
+   a cut edge, crop marks, mono labels, hairline-segmented marginalia -- and
+   every value from the tokens in index.css. Teal is source-verified, coral is
+   the correction, per MASTER.md's accent semantics. */
+
+#s-practice .pg-head{max-width:66ch;margin-bottom:var(--space-10)}
+#s-practice .pg-sub{color:var(--text2);line-height:1.6}
+
+#s-practice .practice-layout{display:grid;grid-template-columns:minmax(0,1fr) 292px;align-items:start}
+#s-practice .practice-margin{margin-left:var(--space-8);padding-left:var(--space-8);border-left:1px solid var(--border)}
+
+/* ---- the setup sheet -------------------------------------------------- */
+#s-practice .paper-setup{position:relative;padding:var(--space-10) var(--space-10) var(--space-12);border:1px solid var(--border);border-radius:2px;background:var(--surface);box-shadow:0 18px 44px -34px rgba(9,10,10,.55)}
+#s-practice .paper-marks{position:absolute;inset:13px;pointer-events:none}
+#s-practice .paper-marks i{position:absolute;width:22px;height:22px;border:0 solid var(--border2)}
+#s-practice .paper-marks i:nth-child(1){top:0;left:0;border-top-width:1px;border-left-width:1px}
+#s-practice .paper-marks i:nth-child(2){top:0;right:0;border-top-width:1px;border-right-width:1px}
+#s-practice .paper-marks i:nth-child(3){bottom:0;left:0;border-bottom-width:1px;border-left-width:1px}
+#s-practice .paper-marks i:nth-child(4){bottom:0;right:0;border-bottom-width:1px;border-right-width:1px}
+
+#s-practice .setup-heading{margin:0;font-family:var(--serif);font-size:30px;font-weight:400;line-height:1.14;letter-spacing:-.01em;color:var(--text)}
+#s-practice .setup-lede{margin:var(--space-3) 0 var(--space-8);max-width:52ch;font-size:14px;line-height:1.6;color:var(--text2)}
+
+#s-practice .setup-field{margin-bottom:var(--space-6)}
+#s-practice .setup-label{display:block;margin-bottom:var(--space-2);font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+#s-practice .setup-hint{margin:var(--space-2) 0 0;font-size:12px;color:var(--text3)}
+
+/* Fields sit on a rule rather than in a box -- a form on paper. */
+#s-practice .setup-select{width:100%;min-height:44px;padding:0 26px 0 0;border:0;border-bottom:1px solid var(--border2);border-radius:0;background:transparent;color:var(--text);font-family:var(--font);font-size:16px;line-height:1.4;cursor:pointer;appearance:none;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 11px) calc(50% + 1px),calc(100% - 6px) calc(50% + 1px);background-size:5px 5px,5px 5px;background-repeat:no-repeat;transition:border-color var(--fast) var(--ease)}
+#s-practice .setup-select:hover{border-bottom-color:var(--text3)}
+#s-practice .setup-select:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+/* A count you tap, not a slider you aim at. */
+#s-practice .count-choice{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+#s-practice .count-option{min-width:52px;min-height:44px;padding:0 var(--space-4);border:1px solid var(--border2);border-radius:2px;background:var(--surface);color:var(--text2);font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;cursor:pointer;transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease),color var(--fast) var(--ease)}
+#s-practice .count-option:hover{border-color:var(--text3);color:var(--text)}
+#s-practice .count-option.is-on{border-color:var(--text);background:var(--text);color:var(--surface)}
+#s-practice .count-option:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+#s-practice .practice-primary{display:inline-flex;align-items:center;justify-content:center;min-height:48px;margin-top:var(--space-4);padding:0 var(--space-8);border:1px solid var(--highlighter);border-radius:2px;background:var(--highlighter);color:var(--surface);font-family:var(--font);font-size:14px;font-weight:500;cursor:pointer;transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+#s-practice .practice-primary:hover:not(:disabled){background:var(--text);border-color:var(--text)}
+#s-practice .practice-primary:disabled{border-color:var(--border2);background:transparent;color:var(--text3);cursor:not-allowed}
+#s-practice .practice-primary:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+/* Nothing indexed yet: say what to do, don't just grey the button out. */
+#s-practice .setup-blocked{max-width:52ch}
+#s-practice .setup-blocked-body{margin:var(--space-3) 0 var(--space-6);font-size:14px;line-height:1.65;color:var(--text2)}
+
+/* ---- marginalia -------------------------------------------------------- */
+#s-practice .margin-block{padding-bottom:var(--space-6);margin-bottom:var(--space-6);border-bottom:1px solid var(--border)}
+#s-practice .margin-block--end{padding-bottom:0;margin-bottom:0;border-bottom:0}
+#s-practice .margin-label{margin:0 0 var(--space-4);font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+#s-practice .margin-lede{margin:0 0 var(--space-3);font-family:var(--serif);font-size:21px;line-height:1.2;color:var(--text)}
+#s-practice .margin-lede em{font-style:italic;color:var(--highlighter)}
+#s-practice .margin-note{margin:0;font-size:12px;line-height:1.55;color:var(--text3)}
+
+#s-practice .margin-facts{margin:0}
+#s-practice .margin-facts>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-3);align-items:baseline;padding:10px 0;border-top:1px solid var(--border)}
+#s-practice .margin-facts>div:first-child{border-top:0;padding-top:0}
+#s-practice .margin-facts dt{font-size:12px;color:var(--text3)}
+#s-practice .margin-facts dd{margin:0;font-size:13px;color:var(--text);text-align:right}
+#s-practice .margin-facts dd.is-num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---- the paper you sit ------------------------------------------------- */
+#s-practice .paper{margin-top:var(--space-8);border:1px solid var(--border);border-radius:2px;background:var(--surface)}
+#s-practice .paper-head{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:baseline;justify-content:space-between;padding:var(--space-8) var(--space-8) var(--space-6);border-bottom:1px solid var(--border2)}
+#s-practice .paper-title{margin:0;font-family:var(--serif);font-size:25px;font-weight:400;line-height:1.2;color:var(--text)}
+#s-practice .paper-meta{margin:var(--space-2) 0 0;font-size:12.5px;color:var(--text3)}
+#s-practice .paper-progress{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+#s-practice .paper-progress .is-num{font-variant-numeric:tabular-nums;color:var(--text)}
+
+#s-practice .paper-questions{list-style:none;margin:0;padding:0}
+#s-practice .question{display:grid;grid-template-columns:52px minmax(0,1fr);gap:var(--space-4);padding:var(--space-6) var(--space-8);border-bottom:1px solid var(--border);border-left:2px solid transparent;transition:background-color var(--fast) var(--ease),border-left-color var(--fast) var(--ease)}
+#s-practice .question:last-child{border-bottom:0}
+#s-practice .question.is-correct{border-left-color:var(--teal);background:var(--teal2)}
+#s-practice .question.is-incorrect{border-left-color:var(--coral);background:var(--coral2)}
+#s-practice .question-no{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--text3);padding-top:2px}
+#s-practice .question-prompt{margin:0;max-width:68ch;font-size:15px;line-height:1.6;color:var(--text)}
+#s-practice .question-tags{display:flex;flex-wrap:wrap;gap:var(--space-3);margin:var(--space-3) 0 0;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+#s-practice .question-tags span::after{content:'·';margin-left:var(--space-3);color:var(--border2)}
+#s-practice .question-tags span:last-child::after{content:none}
+
+#s-practice .mark-row{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-5)}
+#s-practice .mark{min-height:40px;padding:0 var(--space-5);border:1px solid var(--border2);border-radius:2px;background:var(--surface);color:var(--text2);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease),color var(--fast) var(--ease)}
+#s-practice .mark:hover{border-color:var(--text3);color:var(--text)}
+#s-practice .mark:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+#s-practice .mark-correct.is-on{border-color:var(--teal);background:var(--teal);color:var(--surface)}
+#s-practice .mark-incorrect.is-on{border-color:var(--coral);background:var(--coral);color:var(--surface)}
+
+#s-practice .paper-foot{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:center;padding:var(--space-8);border-top:1px solid var(--border2);background:var(--bg)}
+#s-practice .paper-foot .practice-primary{margin-top:0}
+#s-practice .paper-foot-note{margin:0;flex:1;min-width:220px;font-size:12.5px;color:var(--text3)}
+
+@media(max-width:1024px){
+  #s-practice .practice-layout{grid-template-columns:minmax(0,1fr)}
+  #s-practice .practice-margin{margin:var(--space-8) 0 0;padding:var(--space-8) 0 0;border-left:0;border-top:1px solid var(--border)}
+  #s-practice .paper-setup{padding:var(--space-8) var(--space-6) var(--space-10)}
+  #s-practice .setup-heading{font-size:26px}
+}
+@media(max-width:560px){
+  #s-practice .paper-setup{padding:var(--space-6) var(--space-5) var(--space-8)}
+  #s-practice .setup-heading{font-size:23px}
+  #s-practice .question{grid-template-columns:34px minmax(0,1fr);gap:var(--space-3);padding:var(--space-5) var(--space-5)}
+  #s-practice .paper-head,#s-practice .paper-foot{padding:var(--space-5)}
+  #s-practice .practice-primary,#s-practice .mark{width:100%}
+}
+@media(prefers-reduced-motion:reduce){
+  #s-practice .setup-select,#s-practice .count-option,#s-practice .practice-primary,#s-practice .mark,#s-practice .question{transition:none}
+}

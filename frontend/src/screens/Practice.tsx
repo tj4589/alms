@@ -3,6 +3,10 @@ import type { ScreenType, SearchActionContext } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 import { queuePracticeAttempt } from '../offline';
 
+import './Practice.css';
+
+const QUESTION_COUNTS = [5, 10, 15, 20, 30];
+
 type Course = {
   id: number;
   code: string;
@@ -42,17 +46,6 @@ const BASE_TOPICS = [
   'earned value management',
 ];
 
-const selectStyle = {
-  width: '100%',
-  background: 'var(--bg3)',
-  border: '1px solid var(--border)',
-  borderRadius: 7,
-  padding: '8px 12px',
-  color: 'var(--text)',
-  fontFamily: 'var(--font)',
-  fontSize: 13,
-  outline: 'none',
-};
 
 export default function Practice({
   go,
@@ -120,6 +113,10 @@ export default function Practice({
 
   const score = useMemo(() => {
     return Object.values(answers).filter(Boolean).length;
+  }, [answers]);
+
+  const markedCount = useMemo(() => {
+    return Object.values(answers).filter((value) => value !== null && value !== undefined).length;
   }, [answers]);
 
   const selectedCourse = courses.find((course) => course.id === selectedCourseId);
@@ -205,137 +202,150 @@ export default function Practice({
       {notice && <div className="upload-alert" style={{ borderColor: result ? 'rgba(62,207,178,0.35)' : 'rgba(232,162,58,0.35)', color: 'var(--text2)' }}>{notice}</div>}
       {error && <div className="upload-alert">{error}</div>}
 
-      <div className="two-col">
-        <div className="card">
-          <div className="card-hd"><div className="card-ttl">Generate a practice test</div></div>
-          <div style={{display: 'flex', flexDirection: 'column', gap: 14}}>
-            <div>
-              <div style={{fontSize: 11, color: 'var(--text3)', marginBottom: 5, fontWeight: 500}}>Course</div>
-              <select style={selectStyle} value={selectedCourseId} onChange={(event) => setSelectedCourseId(Number(event.target.value) || '')}>
-                {courses.length === 0 && <option value="">No courses loaded</option>}
-                {courses.map((course) => (
-                  <option value={course.id} key={course.id}>{course.code} - {course.name}</option>
-                ))}
-              </select>
+      <div className="practice-layout">
+        <div className="paper-setup">
+          <span className="paper-marks" aria-hidden="true"><i /><i /><i /><i /></span>
+
+          {courses.length === 0 ? (
+            <div className="setup-blocked">
+              <h2 className="setup-heading">Nothing to practise from yet</h2>
+              <p className="setup-blocked-body">
+                Practice tests are built from past questions you have uploaded and indexed.
+                Add a past paper and ExamMind will set the questions for you.
+              </p>
+              <button className="practice-primary" onClick={() => go('upload')}>Add past questions</button>
             </div>
+          ) : (
+            <>
+              <h2 className="setup-heading">Set a paper</h2>
+              <p className="setup-lede">Choose what to be tested on. Questions come from your own archive.</p>
 
-            <div>
-              <div style={{fontSize: 11, color: 'var(--text3)', marginBottom: 5, fontWeight: 500}}>Topic focus</div>
-              <select style={selectStyle} value={selectedTopic} onChange={(event) => setSelectedTopic(event.target.value)}>
-                {topics.map((topic) => <option value={topic} key={topic}>{topic}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <div style={{fontSize: 11, color: 'var(--text3)', marginBottom: 6, fontWeight: 500}}>Number of questions: <span id="q-count">{qCount}</span></div>
-              <input type="range" min="5" max="30" value={qCount} step="1" style={{width: '100%', accentColor: 'var(--gold)'}} onChange={(e) => setQCount(parseInt(e.target.value, 10))} />
-            </div>
-
-            <button 
-              className="cta" 
-              style={{width: '100%', justifyContent: 'center', padding: 12, fontSize: 13.5}}
-              onClick={generateTest}
-              disabled={loading || !selectedCourseId}
-            >
-              {loading ? 'Generating questions...' : 'Generate test →'}
-            </button>
-          </div>
-        </div>
-
-        <div style={{display: 'flex', flexDirection: 'column', gap: 14}}>
-          <div className="card">
-            <div className="card-hd"><div className="card-ttl">Attempt summary</div></div>
-            <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
-              <div style={{display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--bg3)', borderRadius: 7, border: '1px solid var(--border)'}}>
-                <div style={{flex: 1}}>
-                  <div style={{fontSize: 13, fontWeight: 500}}>{selectedCourse ? `${selectedCourse.code} practice` : 'No course selected'}</div>
-                  <div style={{fontSize: 11, color: 'var(--text3)'}}>{selectedTopic} · {generatedQuestions.length} questions generated</div>
-                </div>
-                <div style={{fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 600, color: 'var(--gold)'}}>{score}/{generatedQuestions.length || 0}</div>
+              <div className="setup-field">
+                <label className="setup-label" htmlFor="practice-course">Course</label>
+                <select id="practice-course" className="setup-select" value={selectedCourseId} onChange={(event) => setSelectedCourseId(Number(event.target.value) || '')}>
+                  {courses.map((course) => (
+                    <option value={course.id} key={course.id}>{course.code} - {course.name}</option>
+                  ))}
+                </select>
               </div>
-            </div>
-          </div>
 
-          {generatedQuestions.length === 0 && !result && (
-            <div className="pred-card">
-              <div className="pred-lbl">How it works</div>
-              <div className="pred-title">Build from <em style={{color: 'var(--gold)'}}>past questions</em></div>
-              <div className="pred-body">Pick a course and topic, generate a test, attempt each question, then self-mark honestly. ExamMind updates your readiness score after every submission.</div>
-            </div>
+              <div className="setup-field">
+                <label className="setup-label" htmlFor="practice-topic">Topic focus</label>
+                <select id="practice-topic" className="setup-select" value={selectedTopic} onChange={(event) => setSelectedTopic(event.target.value)}>
+                  {topics.map((topic) => <option value={topic} key={topic}>{topic}</option>)}
+                </select>
+              </div>
+
+              <div className="setup-field">
+                <span className="setup-label" id="practice-count-label">Questions</span>
+                <div className="count-choice" role="group" aria-labelledby="practice-count-label">
+                  {QUESTION_COUNTS.map((count) => (
+                    <button
+                      type="button"
+                      key={count}
+                      className={`count-option${qCount === count ? ' is-on' : ''}`}
+                      aria-pressed={qCount === count}
+                      onClick={() => setQCount(count)}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+                <p className="setup-hint">About {Math.max(1, Math.round(qCount * 1.5))} minutes at a steady pace.</p>
+              </div>
+
+              <button className="practice-primary" onClick={generateTest} disabled={loading || !selectedCourseId}>
+                {loading ? 'Setting your paper...' : 'Set the paper'}
+              </button>
+            </>
           )}
         </div>
+
+        <aside className="practice-margin">
+          <section className="margin-block">
+            <h2 className="margin-label">This attempt</h2>
+            <dl className="margin-facts">
+              <div><dt>Course</dt><dd>{selectedCourse ? selectedCourse.code : 'Not chosen'}</dd></div>
+              <div><dt>Topic</dt><dd>{selectedTopic}</dd></div>
+              <div><dt>Questions</dt><dd className="is-num">{generatedQuestions.length || qCount}</dd></div>
+              {generatedQuestions.length > 0 && (
+                <div><dt>Marked</dt><dd className="is-num">{markedCount}/{generatedQuestions.length}</dd></div>
+              )}
+            </dl>
+          </section>
+
+          {generatedQuestions.length === 0 && !result && (
+            <section className="margin-block margin-block--end">
+              <h2 className="margin-label">How it works</h2>
+              <p className="margin-lede">Build from <em>past questions</em></p>
+              <p className="margin-note">Pick a course and topic, sit the paper, then mark yourself honestly. Your readiness score updates after every submission.</p>
+            </section>
+          )}
+        </aside>
       </div>
 
       {generatedQuestions.length > 0 && (
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-ttl">Generated questions</div>
-            <div style={{fontSize: 12, color: 'var(--text3)'}}>Mark after attempting</div>
-          </div>
-
-          {generatedQuestions.map((question, index) => (
-            <div
-              className="qd"
-              style={{
-                cursor: 'default',
-                borderColor: answers[question.id] === true ? 'rgba(62,207,178,0.45)' : answers[question.id] === false ? 'rgba(255,111,97,0.45)' : undefined,
-                background: answers[question.id] !== null && answers[question.id] !== undefined ? 'rgba(255,255,255,0.025)' : undefined,
-              }}
-              key={question.id}
-            >
-              <div style={{display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start'}}>
-                <div className="qd-text">{index + 1}. {question.prompt}</div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: answers[question.id] === true ? 'var(--teal)' : answers[question.id] === false ? 'var(--coral)' : 'var(--text3)',
-                    whiteSpace: 'nowrap',
-                    fontWeight: 700,
-                  }}
-                >
-                  {answers[question.id] === true ? 'Marked correct' : answers[question.id] === false ? 'Marked incorrect' : 'Not marked'}
-                </div>
-              </div>
-              <div className="qd-meta" style={{alignItems: 'center', flexWrap: 'wrap'}}>
-                <span className="tag tag-m">{question.difficulty || 'Mixed'}</span>
-                <span className="tag">
-                  {question.source_type === 'generated_from_notes' ? 'Generated from your notes' : 'From past questions'}
-                </span>
-                <span className="qi-yr">{question.year || 'Year unknown'}</span>
-                {question.source && <span className="tag">{question.source}</span>}
-                {(question.topic_tags || []).map(tag => <span className="tag" key={`${question.id}-${tag}`}>{tag}</span>)}
-                <button
-                  className={`cta cta-ghost ${answers[question.id] === true ? 'on' : ''}`}
-                  style={{
-                    marginTop: 0,
-                    borderColor: answers[question.id] === true ? 'rgba(62,207,178,0.55)' : undefined,
-                    color: answers[question.id] === true ? 'var(--teal)' : undefined,
-                    background: answers[question.id] === true ? 'rgba(62,207,178,0.12)' : undefined,
-                  }}
-                  onClick={() => markQuestion(question.id, true)}
-                >
-                  Correct
-                </button>
-                <button
-                  className={`cta cta-ghost ${answers[question.id] === false ? 'on' : ''}`}
-                  style={{
-                    marginTop: 0,
-                    borderColor: answers[question.id] === false ? 'rgba(255,111,97,0.55)' : undefined,
-                    color: answers[question.id] === false ? 'var(--coral)' : undefined,
-                    background: answers[question.id] === false ? 'rgba(255,111,97,0.12)' : undefined,
-                  }}
-                  onClick={() => markQuestion(question.id, false)}
-                >
-                  Incorrect
-                </button>
-              </div>
+        <section className="paper" aria-label="Your practice paper">
+          <header className="paper-head">
+            <div>
+              <h2 className="paper-title">{selectedCourse ? selectedCourse.code : 'Practice'} paper</h2>
+              <p className="paper-meta">{selectedTopic} · {generatedQuestions.length} questions · attempt each one, then mark yourself</p>
             </div>
-          ))}
+            <span className="paper-progress" aria-live="polite">
+              <span className="is-num">{markedCount}</span> of <span className="is-num">{generatedQuestions.length}</span> marked
+            </span>
+          </header>
 
-          <button className="cta" onClick={submitPractice} disabled={submitting || !allMarked}>
-            {submitting ? 'Submitting score...' : `Submit score (${score}/${generatedQuestions.length})`}
-          </button>
-        </div>
+          <ol className="paper-questions">
+            {generatedQuestions.map((question, index) => {
+              const mark = answers[question.id];
+              const state = mark === true ? ' is-correct' : mark === false ? ' is-incorrect' : '';
+              return (
+                <li className={`question${state}`} key={question.id}>
+                  <span className="question-no">{String(index + 1).padStart(2, '0')}</span>
+                  <div className="question-body">
+                    <p className="question-prompt">{question.prompt}</p>
+                    <p className="question-tags">
+                      <span>{question.difficulty || 'Mixed'}</span>
+                      <span>{question.source_type === 'generated_from_notes' ? 'From your notes' : 'From past questions'}</span>
+                      <span>{question.year || 'Year unknown'}</span>
+                      {(question.topic_tags || []).map(tag => <span key={`${question.id}-${tag}`}>{tag}</span>)}
+                    </p>
+                    <div className="mark-row" role="group" aria-label={`Mark question ${index + 1}`}>
+                      <button
+                        type="button"
+                        className={`mark mark-correct${mark === true ? ' is-on' : ''}`}
+                        aria-pressed={mark === true}
+                        onClick={() => markQuestion(question.id, true)}
+                      >
+                        I got it right
+                      </button>
+                      <button
+                        type="button"
+                        className={`mark mark-incorrect${mark === false ? ' is-on' : ''}`}
+                        aria-pressed={mark === false}
+                        onClick={() => markQuestion(question.id, false)}
+                      >
+                        I got it wrong
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+
+          <footer className="paper-foot">
+            <button className="practice-primary" onClick={submitPractice} disabled={submitting || !allMarked}>
+              {submitting ? 'Submitting...' : allMarked ? `Submit ${score}/${generatedQuestions.length}` : 'Submit'}
+            </button>
+            <p className="paper-foot-note">
+              {allMarked
+                ? 'Every question is marked. Submitting updates your readiness score.'
+                : `${generatedQuestions.length - markedCount} still to mark before you can submit.`}
+            </p>
+          </footer>
+        </section>
       )}
 
       {result && (
