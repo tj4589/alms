@@ -9,7 +9,12 @@
 #s-offline .pg-sub{color:var(--text2);line-height:1.6}
 
 #s-offline .shelf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}
-#s-offline .shelf+.shelf{margin-left:var(--space-8);padding-left:var(--space-8);border-left:1px solid var(--border)}
+/* The rule divides the two columns, so it belongs on the shelf in the right
+   column -- not after every shelf. With only two shelves those were the same
+   thing; with five, "+ .shelf" drew a rule down the middle of the left column
+   and indented every shelf below the first row. */
+#s-offline .shelf:nth-child(even){margin-left:var(--space-8);padding-left:var(--space-8);border-left:1px solid var(--border)}
+#s-offline .shelf:nth-child(n+3){margin-top:var(--space-8);padding-top:var(--space-8);border-top:1px solid var(--border)}
 
 #s-offline .shelf-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4);min-height:40px;margin-bottom:var(--space-4)}
 #s-offline .shelf-label{margin:0;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
@@ -55,7 +60,7 @@
 
 @media(max-width:900px){
   #s-offline .shelf-grid{grid-template-columns:minmax(0,1fr)}
-  #s-offline .shelf+.shelf{margin:var(--space-8) 0 0;padding:var(--space-8) 0 0;border-left:0;border-top:1px solid var(--border)}
+  #s-offline .shelf:not(:first-child){margin:var(--space-8) 0 0;padding:var(--space-8) 0 0;border-left:0;border-top:1px solid var(--border)}
 }
 @media(max-width:560px){
   #s-empty .empty-sheet{padding:var(--space-8) var(--space-5)}
@@ -65,4 +70,29 @@
 }
 @media(prefers-reduced-motion:reduce){
   #s-offline .shelf-action,#s-empty .empty-buttons button{transition:none}
+}
+
+/* Materials: every row does something now, so rows carry actions rather than
+   a status pill alone. Tokens only -- the shelf follows the paper palette. */
+#s-offline .shelf-item-body{min-width:0}
+#s-offline .shelf-item-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);width:100%}
+#s-offline .shelf-list li.is-stacked{display:block}
+#s-offline .shelf-row-actions{display:flex;flex:0 0 auto;align-items:center;gap:var(--space-2)}
+#s-offline .shelf-row-btn{min-height:32px;padding:0 12px;border:1px solid var(--border2);border-radius:16px;background:transparent;color:var(--text);font-family:var(--font);font-size:11.5px;font-weight:500;cursor:pointer;transition:border-color var(--fast) var(--ease),color var(--fast) var(--ease)}
+#s-offline .shelf-row-btn:hover{border-color:var(--text)}
+#s-offline .shelf-row-btn.is-quiet{border-color:transparent;color:var(--text3)}
+#s-offline .shelf-row-btn.is-quiet:hover{color:var(--correction)}
+#s-offline .shelf-row-btn:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+
+/* Stated, not implied: only rows that really hold content say "offline". */
+#s-offline .shelf-offline-tag{margin-left:8px;padding:1px 7px;border:1px solid var(--teal);border-radius:9px;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}
+
+#s-offline .shelf-pack{margin:var(--space-3) 0 0;padding:0 0 0 var(--space-4);border-left:1px solid var(--border);list-style:none}
+#s-offline .shelf-pack li{display:block;padding:var(--space-3) 0;border-bottom:1px solid var(--border)}
+#s-offline .shelf-pack li:last-child{border-bottom:0}
+#s-offline .shelf-pack-q{margin:0;color:var(--text);font-size:12.5px;line-height:1.55}
+#s-offline .shelf-pack-meta{margin:3px 0 0;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;color:var(--text3)}
+
+@media(prefers-reduced-motion:reduce){
+  #s-offline .shelf-row-btn{transition:none}
 }

@@ -69,7 +69,7 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
     items: [
       { label: 'My desk', screen: 'dashboard', icon: SquaresFourIcon },
       { label: 'Add material', screen: 'upload', icon: UploadSimpleIcon },
-      { label: 'Offline Library', screen: 'offline', icon: BooksIcon },
+      { label: 'My Materials', screen: 'offline', icon: BooksIcon },
       { label: 'Practice', screen: 'practice', icon: ExamIcon },
     ],
   },
@@ -718,7 +718,12 @@ export default function App() {
         {activeScreen === 'questions' && <Questions go={go} onAskQuestion={askQuestion} user={user} onGoToPractice={handleGoToPractice} />}
         {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} user={user} />}
         {activeScreen === 'upload' && <Upload go={go} user={user} />}
-        {activeScreen === 'offline' && <Offline go={go} />}
+        {activeScreen === 'offline' && (
+          <Offline
+            go={go}
+            onOpenConversation={(saved) => { setChatMessages(saved); setMaxeOpen(true); }}
+          />
+        )}
         {activeScreen === 'collab' && <Collab go={go} user={user} notifyUnavailable={notifyUnavailable} initialContext={discussionContext} />}
         {activeScreen === 'practice' && <Practice go={go} initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
