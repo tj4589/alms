@@ -1,65 +1,103 @@
-/* Upload speaks the desk's paper language: flat tinted surfaces, sage
-   hairlines, warm ink. Palette is shared with Dashboard.css on purpose --
-   paper #f1f0e7 / #f5f4ec / #fffdf7, rules #e1e2d5 / #d4d6c8 / #cdd0c1,
-   ink #252b24 with #687062 muted, and the two accents #303e2b and #775234. */
+/* Upload is the intake bench: a sheet laid on the desk, read, and entered in
+   a ledger. Everything here comes from the tokens in index.css -- no local
+   hexes -- and follows MASTER.md: white raised surface on cream, rules and
+   spacing doing the work, one amber accent, mono for codes and counts, and a
+   segmented hairline strip instead of a stack of cards. */
 
-#s-upload .pg-head{max-width:760px}
-#s-upload .pg-sub{color:#687062;line-height:1.6}
+#s-upload .pg-head{max-width:66ch;margin-bottom:var(--space-10)}
+#s-upload .pg-sub{color:var(--text2);line-height:1.6}
 
-#s-upload .upload-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.85fr);gap:26px;align-items:start}
+/* The marginalia column is held by a rule, not a border-box. */
+#s-upload .upload-grid{display:grid;grid-template-columns:minmax(0,1fr) 292px;align-items:start}
+#s-upload .upload-margin{margin-left:var(--space-8);padding-left:var(--space-8);border-left:1px solid var(--border)}
 
-/* Drop zone -- the desk's dashed empty state, scaled up to be the subject. */
-#s-upload .drop-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:430px;padding:44px 34px;border:1px dashed #cdd0c1;border-radius:18px;background:#f5f4ec;box-shadow:none;text-align:center;transition:background-color 160ms ease-out,border-color 160ms ease-out}
-#s-upload .drop-zone:hover{background:#f0efe4;border-color:#b9bda6}
-#s-upload .drop-zone.drag-active{background:#e9eddf;border-color:#8d9a6d;border-style:solid}
+/* ---- the sheet ------------------------------------------------------- */
+/* Paper has square corners. The 2px radius is a cut edge, not a card. */
+#s-upload .drop-zone{position:relative;display:flex;align-items:center;justify-content:center;min-height:452px;padding:var(--space-12) var(--space-10) var(--space-12) 128px;border:1px solid var(--border);border-radius:2px;background:var(--surface);box-shadow:0 18px 44px -34px rgba(9,10,10,.55);transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease)}
 #s-upload .drop-zone input{display:none}
-#s-upload .drop-icon{display:grid;place-items:center;width:62px;height:62px;border-radius:18px;background:#eee5d6;color:#775234;font-size:27px;font-weight:400;line-height:1}
-#s-upload .drop-zone.drag-active .drop-icon{background:#dce5b5;color:#3f5030}
-#s-upload .drop-title{font-family:var(--serif);font-size:27px;font-weight:400;letter-spacing:-.2px;color:#252b24}
-#s-upload .drop-sub{max-width:430px;color:#687062;font-size:13px;line-height:1.65}
 
-/* Side column */
-#s-upload .upload-side{display:flex;flex-direction:column;gap:18px;min-width:0}
-#s-upload .upload-side .card{padding:20px;border:1px solid #e1e2d5;border-radius:14px;background:#f1f0e7;box-shadow:none}
-#s-upload .upload-side .card-hd{margin-bottom:14px}
-#s-upload .upload-side .card-ttl{font-size:14px;font-weight:600;color:#252b24}
+/* Ruled margin with punched binding holes, echoing the landing centrepiece. */
+#s-upload .sheet-margin{position:absolute;left:0;top:0;bottom:0;width:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:64px;border-right:1px solid var(--border2)}
+#s-upload .sheet-margin i{width:11px;height:11px;border-radius:50%;background:var(--bg);box-shadow:inset 0 0 0 1px var(--border2)}
 
-#s-upload .upload-read{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid #e2e2d8;color:#252b24}
-#s-upload .upload-read:last-child{border-bottom:0;padding-bottom:0}
-#s-upload .upload-read>span:first-child{display:grid;place-items:center;width:20px;height:20px;flex-shrink:0;margin-top:1px;border:1px solid #cdd0c1;border-radius:50%;background:#fffdf7;color:#775234;font-size:11px;line-height:1}
-#s-upload .upload-history.empty{padding:14px 0;color:#8a9083;font-size:12.5px}
-#s-upload .recent-type-pill{display:inline-block;margin-left:8px;padding:3px 9px;border-radius:20px;background:#e9eddf;color:#4c5e3e;font-size:10.5px;font-weight:500;letter-spacing:.2px}
+/* Crop marks, drawn on like the landing's construction lines: each corner
+   grows its two arms out from the corner instead of a box appearing. */
+#s-upload .sheet-frame{position:absolute;inset:13px;pointer-events:none}
+#s-upload .sheet-frame i{position:absolute;width:0;height:0;border:0 solid var(--border2);animation:upload-mark var(--slow) var(--ease) forwards;transition:border-color var(--fast) var(--ease)}
+#s-upload .sheet-frame i:nth-child(1){top:0;left:0;border-top-width:1px;border-left-width:1px}
+#s-upload .sheet-frame i:nth-child(2){top:0;right:0;border-top-width:1px;border-right-width:1px}
+#s-upload .sheet-frame i:nth-child(3){bottom:0;left:0;border-bottom-width:1px;border-left-width:1px}
+#s-upload .sheet-frame i:nth-child(4){bottom:0;right:0;border-bottom-width:1px;border-right-width:1px}
+@keyframes upload-mark{to{width:22px;height:22px}}
 
-/* Clearing uploads is destructive, so it reads as clay rather than alarm red. */
-#s-upload .upload-side .card.danger-card{border:1px solid #e4d2c6;background:#f7efe8}
-#s-upload .upload-side .card.danger-card .card-ttl{color:#6c3e2e}
-#s-upload .cta.danger-btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:10px 16px;border:1px solid #d9bfae;border-radius:22px;background:#fffdf7;color:#6c3e2e;font-size:12px;font-weight:500;box-shadow:none}
-#s-upload .cta.danger-btn:hover{background:#f1e2d7;border-color:#c6a48e}
+#s-upload .sheet-body{display:flex;flex-direction:column;align-items:flex-start;text-align:left;max-width:46ch}
+#s-upload .sheet-glyph{width:60px;height:75px;margin-bottom:var(--space-6)}
+#s-upload .glyph-page,#s-upload .glyph-fold,#s-upload .glyph-rule{fill:none;stroke:var(--text);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#s-upload .glyph-rule{stroke:var(--text3)}
+#s-upload .glyph-mark{fill:var(--highlighter)}
 
-/* Buttons pick up the desk's pill shapes. */
-#s-upload .cta{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:44px;padding:12px 19px;border:0;border-radius:24px;background:#303e2b;color:#fffef7;font-size:13px;font-weight:500;box-shadow:none}
-#s-upload .cta:hover{background:#42543b}
-#s-upload .cta.cta-ghost{border:1px solid #d4d6c8;background:#fffdf7;color:#343d2d}
-#s-upload .cta.cta-ghost:hover{background:#e7ebdc}
+#s-upload .sheet-title{font-family:var(--serif);font-size:32px;line-height:1.12;letter-spacing:-.01em;color:var(--text)}
+#s-upload .sheet-sub{margin-top:var(--space-3);font-size:14px;line-height:1.6;color:var(--text2)}
+#s-upload .sheet-formats{margin-top:var(--space-6);font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3)}
 
-/* Processing / confirm / failure panels, off the same surfaces. */
+/* Amber is reserved for action, so it only appears once the drop is live. */
+#s-upload .drop-zone:hover{border-color:var(--border2)}
+#s-upload .drop-zone.drag-active{border-color:var(--highlighter);background:var(--surface)}
+#s-upload .drop-zone.drag-active .sheet-frame i{border-color:var(--highlighter)}
+#s-upload .drop-zone:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+/* ---- marginalia ------------------------------------------------------ */
+#s-upload .margin-block{padding-bottom:var(--space-6);margin-bottom:var(--space-6);border-bottom:1px solid var(--border)}
+#s-upload .margin-block--end{padding-bottom:0;margin-bottom:0;border-bottom:0}
+#s-upload .margin-label{margin:0 0 var(--space-4);font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+#s-upload .margin-note{margin:var(--space-4) 0 0;font-size:12px;line-height:1.55;color:var(--text3)}
+
+/* One strip divided by hairlines -- not five little cards. */
+#s-upload .margin-steps,#s-upload .margin-ledger{list-style:none;margin:0;padding:0}
+#s-upload .margin-steps li{display:grid;grid-template-columns:26px minmax(0,1fr);gap:var(--space-3);align-items:baseline;padding:10px 0;border-top:1px solid var(--border)}
+#s-upload .margin-ledger li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-3);align-items:baseline;padding:10px 0;border-top:1px solid var(--border)}
+#s-upload .margin-steps li:first-child,#s-upload .margin-ledger li:first-child{border-top:0;padding-top:0}
+#s-upload .step-no{font-family:var(--mono);font-size:10.5px;font-variant-numeric:tabular-nums;color:var(--highlighter)}
+#s-upload .step-name{font-size:13px;line-height:1.45;color:var(--text)}
+
+#s-upload .ledger-code{font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--text)}
+#s-upload .ledger-kind{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#s-upload .ledger-year{font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;color:var(--text3)}
+
+/* Destructive, so coral -- but as a marginal note, not a panel shouting. */
+#s-upload .margin-action{display:inline-flex;align-items:center;min-height:40px;padding:0;border:0;border-bottom:1px solid transparent;background:none;color:var(--correction);font-family:var(--font);font-size:12.5px;font-weight:500;cursor:pointer;transition:border-color var(--fast) var(--ease)}
+#s-upload .margin-action:hover{border-bottom-color:var(--correction)}
+#s-upload .margin-action:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+/* ---- the later states, on the same surfaces -------------------------- */
 #s-upload .upload-processing,
 #s-upload .upload-confirm-card,
 #s-upload .success-card,
 #s-upload .duplicate-card,
-#s-upload .failure-card{border:1px solid #e1e2d5;border-radius:16px;background:#f1f0e7;box-shadow:none;backdrop-filter:none}
+#s-upload .failure-card{border:1px solid var(--border);border-radius:2px;background:var(--surface);box-shadow:none;backdrop-filter:none}
 #s-upload .upload-confirm-card::before{display:none}
-#s-upload .upload-processing-panel{border:1px solid #e1e2d5;border-radius:14px;background:#f5f4ec}
-#s-upload .upload-processing-kicker{color:#775234}
-#s-upload .failure-card{border-color:#e4d2c6;background:#f7efe8}
-#s-upload .failure-title{color:#6c3e2e}
+#s-upload .upload-processing-panel{border:1px solid var(--border);border-radius:2px;background:var(--bg)}
+#s-upload .upload-processing-kicker{font-family:var(--mono);letter-spacing:.14em;color:var(--text3)}
+#s-upload .failure-card{border-color:var(--coral2)}
+#s-upload .failure-title{color:var(--correction)}
+#s-upload .meta-field label{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+#s-upload .meta-field input,#s-upload .meta-field select,#s-upload .meta-field textarea{border:1px solid var(--border2);border-radius:2px;background:var(--surface);color:var(--text)}
+#s-upload .meta-field input:focus-visible,#s-upload .meta-field select:focus-visible,#s-upload .meta-field textarea:focus-visible{outline:2px solid var(--text);outline-offset:2px}
 
-#s-upload .meta-field label,#s-upload .detected-row span:first-child{color:#687062}
-#s-upload .meta-field input,#s-upload .meta-field select,#s-upload .meta-field textarea{border:1px solid #d4d6c8;border-radius:10px;background:#fffdf7;color:#252b24}
-#s-upload .meta-field input:focus,#s-upload .meta-field select:focus,#s-upload .meta-field textarea:focus{outline:2px solid #8d9a6d;outline-offset:1px;border-color:#8d9a6d}
-
-@media(max-width:980px){
+@media(max-width:1024px){
   #s-upload .upload-grid{grid-template-columns:minmax(0,1fr)}
-  #s-upload .drop-zone{min-height:320px;padding:34px 22px}
-  #s-upload .drop-title{font-size:23px}
+  #s-upload .upload-margin{margin:var(--space-8) 0 0;padding:var(--space-8) 0 0;border-left:0;border-top:1px solid var(--border)}
+  #s-upload .drop-zone{min-height:360px;padding:var(--space-10) var(--space-6) var(--space-10) 96px}
+  #s-upload .sheet-margin{width:64px;gap:48px}
+  #s-upload .sheet-title{font-size:26px}
+}
+@media(max-width:560px){
+  #s-upload .drop-zone{min-height:300px;padding:var(--space-8) var(--space-5) var(--space-8) 72px}
+  #s-upload .sheet-margin{width:48px;gap:36px}
+  #s-upload .sheet-title{font-size:23px}
+  #s-upload .sheet-glyph{width:48px;height:60px}
+}
+@media(prefers-reduced-motion:reduce){
+  #s-upload .sheet-frame i{animation:none;width:22px;height:22px}
+  #s-upload .drop-zone,#s-upload .margin-action{transition:none}
 }

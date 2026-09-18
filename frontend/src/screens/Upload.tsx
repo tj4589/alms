@@ -729,48 +729,59 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
             style={{ cursor: 'pointer' }}
           >
             <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" multiple onChange={e => handleFiles(e.target.files)} />
-            <div className="drop-icon">+</div>
-            <div className="drop-title">Drop academic files here</div>
-            <div className="drop-sub">ExamMind detects the document type, course, session, semester, department, topics, and reading confidence automatically.</div>
+            <span className="sheet-margin" aria-hidden="true"><i /><i /><i /></span>
+            <span className="sheet-frame" aria-hidden="true"><i /><i /><i /><i /></span>
+            <span className="sheet-body">
+              <svg className="sheet-glyph" viewBox="0 0 64 80" aria-hidden="true">
+                <path className="glyph-page" d="M5 4h35l19 19v53H5z" />
+                <path className="glyph-fold" d="M40 4v19h19" />
+                <path className="glyph-rule" d="M16 36h22M16 43h28" />
+                <rect className="glyph-mark" x="16" y="52" width="32" height="7" rx="3.5" />
+              </svg>
+              <span className="sheet-title">Drop academic files here</span>
+              <span className="sheet-sub">ExamMind detects the document type, course, session, semester, department, topics, and reading confidence automatically.</span>
+              <span className="sheet-formats">PDF · DOCX · PPTX · PNG · JPG</span>
+            </span>
           </div>
 
-          <div className="upload-side">
-            <div className="card">
-              <div className="card-hd"><div className="card-ttl">Automated reading pipeline</div></div>
-              {STEP_LABELS.map(item => (
-                <div className="upload-read" key={item}>
-                  <span>+</span>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{item}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 1 }}>Handled before you confirm indexing.</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="card">
-              <div className="card-hd"><div className="card-ttl">Your recent uploads</div></div>
-              {recentUploads === null && <div className="upload-history empty">Loading...</div>}
-              {recentUploads?.length === 0 && <div className="upload-history empty">Nothing uploaded yet.</div>}
-              {recentUploads?.map(u => (
-                <div className="upload-read" key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <span style={{ fontSize: 13 }}>{u.metadata_json?.course_code ?? 'Unknown'}</span>
-                    <span className="recent-type-pill">{DOC_TYPE_LABEL[u.metadata_json?.document_type ?? ''] ?? 'Document'}</span>
-                  </div>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{u.year ?? '-'}</span>
-                </div>
-              ))}
-            </div>
-            <div className="card danger-card">
-              <div className="card-hd"><div className="card-ttl">Clear test uploads</div></div>
-              <div style={{ fontSize: 12.5, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 12 }}>
-                Remove old uploaded materials so you can re-upload them with the latest ExamMind indexing system.
-              </div>
-              <button className="cta cta-ghost danger-btn" onClick={() => setShowClearConfirm(true)}>
+          <aside className="upload-margin">
+            <section className="margin-block">
+              <h2 className="margin-label">Reading pipeline</h2>
+              <ol className="margin-steps">
+                {STEP_LABELS.map((item, index) => (
+                  <li key={item}>
+                    <span className="step-no">{String(index + 1).padStart(2, '0')}</span>
+                    <span className="step-name">{item}</span>
+                  </li>
+                ))}
+              </ol>
+              <p className="margin-note">Every step runs before you confirm indexing.</p>
+            </section>
+
+            <section className="margin-block">
+              <h2 className="margin-label">Recent intake</h2>
+              {recentUploads === null && <p className="margin-note">Reading the archive...</p>}
+              {recentUploads?.length === 0 && <p className="margin-note">Nothing filed yet.</p>}
+              {recentUploads && recentUploads.length > 0 && (
+                <ul className="margin-ledger">
+                  {recentUploads.map(u => (
+                    <li key={u.id}>
+                      <span className="ledger-code">{u.metadata_json?.course_code ?? 'Unknown'}</span>
+                      <span className="ledger-kind">{DOC_TYPE_LABEL[u.metadata_json?.document_type ?? ''] ?? 'Document'}</span>
+                      <span className="ledger-year">{u.year ?? '--'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="margin-block margin-block--end">
+              <button className="margin-action" onClick={() => setShowClearConfirm(true)}>
                 Clear uploaded materials
               </button>
-            </div>
-          </div>
+              <p className="margin-note">Removes old uploads so you can re-file them with the current indexer.</p>
+            </section>
+          </aside>
         </div>
       )}
 
