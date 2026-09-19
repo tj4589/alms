@@ -8,6 +8,7 @@ import './index.css'
 import App from './App.tsx'
 import { registerServiceWorker } from './offline.ts'
 import { initTheme } from './lib/theme'
+import { dismissSplashAfterPaint } from './lib/splash'
 
 initTheme()
 
@@ -18,3 +19,8 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+
+// The shell is on screen as soon as this commits -- App decides between the
+// landing page and the workspace from the stored token, with no fetch in
+// between -- so the splash has nothing left to cover.
+dismissSplashAfterPaint()

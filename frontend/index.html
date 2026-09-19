@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-js">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -8,12 +8,142 @@
     <link rel="apple-touch-icon" href="/icon-512.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#090a0a" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3f4ef" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#16181a" />
     <meta name="description" content="ExamMind turns uploaded lecture notes and past questions into searchable, source-grounded revision." />
     <title>ExamMind - Search, understand, and revise your course material</title>
+
+    <script>
+      // Stamp the saved theme before the first paint. initTheme() in main.tsx
+      // does the same thing, but only once the module bundle has downloaded --
+      // which is long enough for a dark-theme user to get a white flash, and
+      // would light up the splash below in the wrong colour.
+      (function () {
+        document.documentElement.classList.remove('no-js');
+        try {
+          if (localStorage.getItem('exammind-theme') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+          }
+        } catch (error) {
+          // Private mode or blocked storage: the light default is fine.
+        }
+      })();
+    </script>
+
+    <style>
+      /* The splash lives in the document rather than in React, because what it
+         covers is React arriving: the gap between the first byte and the
+         bundle being parsed. Everything it needs is inline for the same
+         reason -- an external stylesheet would be one more round trip before
+         anything appears. */
+      :root { --splash-bg: #f3f4ef; --splash-ink: #090a0a; }
+      :root[data-theme="dark"] { --splash-bg: #16181a; --splash-ink: #f2f3ef; }
+
+      html, body { margin: 0; background: var(--splash-bg); }
+
+      #em-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--splash-bg);
+        opacity: 1;
+        transition: opacity 260ms ease-out;
+      }
+      #em-splash.is-gone { opacity: 0; pointer-events: none; }
+      #em-splash { flex-direction: column; gap: 18px; }
+
+      .em-splash-slow {
+        margin: 0;
+        max-width: 30ch;
+        opacity: 0;
+        font-family: 'DM Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 12.5px;
+        line-height: 1.5;
+        text-align: center;
+        color: var(--splash-ink);
+        transition: opacity 400ms ease-out;
+      }
+      #em-splash.is-slow .em-splash-slow { opacity: .55; }
+
+      .em-splash-lockup {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        animation: em-splash-in 420ms ease-out both;
+      }
+      .em-splash-lockup svg { display: block; height: 34px; width: auto; }
+
+      .em-splash-word {
+        font-family: 'Outfit Variable', 'DM Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 31px;
+        font-weight: 600;
+        letter-spacing: -1px;
+        color: var(--splash-ink);
+      }
+      .em-splash-word span { color: #e9a03a; }
+
+      .em-splash-ink { fill: var(--splash-ink); }
+      .em-splash-line { fill: none; stroke: var(--splash-ink); }
+
+      @keyframes em-splash-in {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: none; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #em-splash { transition: none; }
+        .em-splash-lockup { animation: none; }
+      }
+
+      /* Without scripting the splash can never be dismissed, so it is not shown. */
+      .no-js #em-splash { display: none; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <div id="em-splash" role="status" aria-label="Loading ExamMind">
+      <div class="em-splash-lockup">
+        <svg viewBox="268 177 480 629" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+          <path class="em-splash-line" d="M 330,210 L 620,210 L 720,310 L 720,740 Q 720,790 670,790 L 330,790 Q 280,790 280,740 L 280,260 Q 280,210 330,210 Z" stroke-width="16" stroke-linejoin="round"/>
+          <path class="em-splash-ink" d="M 373.02,465.2 L 626.98,465.2 Q 649.6,465.2 649.6,487.82 Q 649.6,510.44 626.98,510.44 L 373.02,510.44 Q 350.4,510.44 350.4,487.82 Q 350.4,465.2 373.02,465.2 Z"/>
+          <g transform="translate(482.4,580.62) rotate(-3)"><path d="M -151.056,-52.026 L 151.056,-52.026 Q 178.2,-52.026 178.2,-24.882 L 178.2,24.882 Q 178.2,52.026 151.056,52.026 L -151.056,52.026 Q -178.2,52.026 -178.2,24.882 L -178.2,-24.882 Q -178.2,-52.026 -151.056,-52.026 Z" fill="#e9a03a"/></g>
+          <path class="em-splash-ink" d="M 373.02,558 L 591.78,558 Q 614.4,558 614.4,580.62 Q 614.4,603.24 591.78,603.24 L 373.02,603.24 Q 350.4,603.24 350.4,580.62 Q 350.4,558 373.02,558 Z"/>
+          <path class="em-splash-ink" d="M 373.02,650.8 L 547.78,650.8 Q 570.4,650.8 570.4,673.42 Q 570.4,696.04 547.78,696.04 L 373.02,696.04 Q 350.4,696.04 350.4,673.42 Q 350.4,650.8 373.02,650.8 Z"/>
+          <g transform="translate(648.06,189.19) rotate(9)"><path class="em-splash-line" d="M 0,0 L 88,0 L 88,88 Z" stroke-width="13.6" stroke-linejoin="round"/></g>
+        </svg>
+        <span class="em-splash-word">Exam<span>Mind.</span></span>
+      </div>
+      <p class="em-splash-slow">Still loading. This can take a moment on a slow connection.</p>
+    </div>
+
+    <script>
+      // Stamped here rather than server-side so the hold below is measured
+      // from when this markup actually reached the screen.
+      (function () {
+        var splash = document.getElementById('em-splash');
+        if (splash) splash.dataset.shownAt = String(Date.now());
+      })();
+
+      // A slow connection gets a word rather than a blank screen. Removing
+      // the splash on a timer was worse than leaving it: the app is not there
+      // yet, so all it uncovered was an empty page.
+      window.setTimeout(function () {
+        var splash = document.getElementById('em-splash');
+        if (splash) splash.classList.add('is-slow');
+      }, 6000);
+
+      // Last resort, well past any real load: if the bundle is never coming,
+      // stop covering the page so anything else on it can be seen.
+      window.setTimeout(function () {
+        var splash = document.getElementById('em-splash');
+        if (splash) splash.remove();
+      }, 30000);
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
