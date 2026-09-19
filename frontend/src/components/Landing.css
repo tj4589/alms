@@ -299,9 +299,16 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   .lp-menu-toggle { display: flex; }
   .lp-nav { padding-inline: 20px; }
   .lp-nav-actions { gap: 20px; }
-  .lp-mobile-nav { display: grid; pointer-events: auto; padding: 10px 32px 22px; border-bottom: 1px solid #d9d7cc; background: var(--lp-paper); }
-  .lp-header.is-scrolled .lp-mobile-nav { margin: 22px 32px 0; border-radius: 22px; box-shadow: 0 16px 30px #15191522; }
+  .lp-mobile-nav { display: grid; max-height: 0; overflow: hidden; pointer-events: none; visibility: hidden; opacity: 0; padding: 0 32px; border-bottom: 1px solid transparent; background: var(--lp-paper); transform: translateY(-10px) scale(.985); transform-origin: top center; transition: max-height 360ms var(--lp-ease), opacity 220ms ease, transform 360ms var(--lp-ease), padding 360ms var(--lp-ease), border-color 220ms ease, visibility 0s linear 360ms; }
+  .lp-mobile-nav.is-open { max-height: calc(100svh - 76px); pointer-events: auto; visibility: visible; opacity: 1; padding: 10px 32px 22px; border-bottom-color: #d9d7cc; transform: translateY(0) scale(1); transition-delay: 0s; }
+  .lp-header.is-scrolled .lp-mobile-nav { margin: 0; border-radius: 22px; box-shadow: none; }
+  .lp-header.is-scrolled .lp-mobile-nav.is-open { margin: 22px 32px 0; box-shadow: 0 16px 30px #15191522; }
   .lp-mobile-nav a { display: flex; justify-content: space-between; padding-block: 14px; }
+  .lp-mobile-nav.is-open > a, .lp-mobile-nav.is-open .lp-mobile-cta { animation: lp-mobile-menu-item-in 440ms var(--lp-ease) both; }
+  .lp-mobile-nav.is-open > a:nth-child(2) { animation-delay: 45ms; }
+  .lp-mobile-nav.is-open > a:nth-child(3) { animation-delay: 90ms; }
+  .lp-mobile-nav.is-open .lp-mobile-cta { animation-delay: 135ms; }
+  @keyframes lp-mobile-menu-item-in { from { opacity: 0; transform: translateY(-7px); } to { opacity: 1; transform: translateY(0); } }
 
   /* The bar's two actions, kept rather than dropped. Below this width the bar
      has room for the brand, "Log in" and the toggle and no more, so "Get
@@ -359,7 +366,7 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   .lp-nav { height: 76px; gap: 10px; padding-inline: 14px; }
   .lp-header { height: 76px; }
   .lp-header.is-scrolled .lp-nav { width: calc(100% - 24px); height: 60px; padding-inline: 14px; transform: translateY(8px); }
-  .lp-header.is-scrolled .lp-mobile-nav { margin: 17px 12px 0; }
+  .lp-header.is-scrolled .lp-mobile-nav.is-open { margin: 17px 12px 0; }
   .lp-brand { font-size: 22px; gap: 4px; }
   .lp-brand-mark { height: 30px; }
   .lp-nav-actions { gap: 8px; }
