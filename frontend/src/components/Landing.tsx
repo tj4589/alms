@@ -217,13 +217,18 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           gsap.to(card, { scale: 0.95, transformOrigin: 'center top', ease: 'none', scrollTrigger: { trigger: card, start: 'top 150px', end: 'bottom 140px', scrub: true } });
         });
       });
-      desktop.add('(hover: hover) and (pointer: fine)', () => {
-        const stage = page.querySelector<HTMLElement>('.lp-hero');
-        const depth = page.querySelector<HTMLElement>('.lp-hero-depth');
-        if (!stage || !depth) return;
+      // Do not gate this interaction on the hover/pointer media features. Some
+      // desktop browsers, especially on touch-capable Windows machines and
+      // hosted Chromium environments, report both as false while still
+      // dispatching mouse pointer events. Reduced-motion is already handled by
+      // the surrounding matchMedia scope; touch pointers are ignored below.
+      const stage = page.querySelector<HTMLElement>('.lp-hero');
+      const depth = page.querySelector<HTMLElement>('.lp-hero-depth');
+      if (stage && depth) {
         const rotateX = gsap.quickTo(depth, 'rotationX', { duration: 0.7, ease: 'power3.out' });
         const rotateY = gsap.quickTo(depth, 'rotationY', { duration: 0.7, ease: 'power3.out' });
         const move = (event: PointerEvent) => {
+          if (event.pointerType === 'touch') return;
           const bounds = stage.getBoundingClientRect();
           const px = (event.clientX - bounds.left) / bounds.width - 0.5;
           const py = (event.clientY - bounds.top) / bounds.height - 0.5;
@@ -237,7 +242,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
         stage.addEventListener('pointermove', move);
         stage.addEventListener('pointerleave', reset);
         return () => { stage.removeEventListener('pointermove', move); stage.removeEventListener('pointerleave', reset); };
-      });
+      }
       return () => {
         desktop.revert();
         journey?.classList.remove('is-animated');
