@@ -1,25 +1,27 @@
 # Deploying ExamMind
 
-Three providers, one each for the thing it is actually good at:
+Two providers:
 
 | Piece | Provider | Why |
 | --- | --- | --- |
 | Database | **Neon** | Postgres with pgvector, and a free tier that does not expire |
 | API | **Render** | Runs a normal persistent process, which this backend needs |
-| Frontend | **Vercel** | A Vite build producing static files |
+| Frontend | **Render** | Static site hosting for the Vite build output |
 
-They are joined by environment variables pointing at each other's URLs. Nothing
-in the application code is provider-specific.
+Backend and frontend are both Render **web services** of different `runtime`s
+(`docker` vs `static`), declared as two services in the same `render.yaml`, so
+one Blueprint deploy sets up both. They are joined by environment variables
+pointing at each other's URLs. Nothing in the application code is
+provider-specific.
 
 ---
 
-## Why the API is not on Vercel
+## Why the API uses a persistent service
 
-Vercel's Python support is serverless functions, and this backend is the wrong
-shape for that in two independent ways.
+This backend needs a normal persistent process for two independent reasons.
 
-**It is too big.** Vercel caps a function at 250MB unzipped. The installed
-dependency set measures **460MB**, with `cv2` alone at 112MB, `pymupdf` at 53MB
+**It is too big.** The installed dependency set measures **460MB**, with
+`cv2` alone at 112MB, `pymupdf` at 53MB
 and `onnxruntime` at 44MB — before the embedding model's weights are fetched at
 runtime. Swapping `opencv-python` for `opencv-python-headless` would save
 perhaps 50MB. It is not close.
@@ -30,9 +32,11 @@ are first used. A function that may spin up fresh per request reloads that
 model on every wake, which is the exact cost the current design exists to
 avoid.
 
-Render (or Railway, or Fly) runs a persistent process, so neither problem
-arises. If you would rather not use Vercel for the frontend either, Render's
-static site does the same job — see the note at the end of `render.yaml`.
+Render runs a persistent process, so neither problem arises. The frontend has
+none of these constraints — it's a static build —
+so it runs as a second, separate Render service (`runtime: static`) rather
+than sharing the API's service. Static sites don't run a process at all, so
+this doesn't cost anything extra or share the API's 512MB ceiling.
 
 ---
 
@@ -41,13 +45,19 @@ static site does the same job — see the note at the end of `render.yaml`.
 | | Free tier | What it means here |
 | --- | --- | --- |
 | Neon | 0.5GB storage | Uploaded files are stored **in the database**, so this is the real ceiling. Roughly 100–200 PDFs. |
-| Render | 512MB RAM, sleeps after 15 min idle | The API fits at 359MB peak. A sleeping service takes ~50s to answer the first request. |
-| Vercel | 100GB bandwidth | Not a constraint at this size. |
+| Render (API) | 512MB RAM, sleeps after 15 min idle | The API fits at 359MB peak. A sleeping service takes ~50s to answer the first request. |
+| Render (static site) | Always on, no sleep, generous bandwidth | Static sites don't sleep — only the API service does. Not a constraint at this size. |
 
-Two cold starts can stack. If Render has slept **and** Neon has autosuspended,
-the first request of the day can take over a minute before anything appears.
-That is the free tier working as designed, not a fault — but it is worth
-knowing before you show it to anyone.
+Two cold starts can stack. If the API has slept **and** Neon has
+autosuspended, the first request of the day can take over a minute before
+anything appears. That is the free tier working as designed, not a fault —
+but it is worth knowing before you show it to anyone. The frontend itself
+loads instantly either way, since it never sleeps; it's the first API call
+from it that eats the delay.
+
+If either sleeping API or the $0.35/GB-month Neon overage stops being
+acceptable, Render's cheapest always-on paid tier is $7/month for the API
+service — the static site stays free regardless.
 
 ---
 
@@ -81,76 +91,49 @@ schema is created from the models.
 
 ---
 
-## 2. Render — the API
+## 2. Render — the API and the frontend
 
-1. New > Blueprint, pointed at this repository. It reads `render.yaml` and
-   creates one web service.
-2. Fill in the three values marked `sync: false`, in the dashboard:
+`render.yaml` declares both services, so one Blueprint sets both up.
+
+1. New > Blueprint, pointed at this repository. Render reads `render.yaml`
+   and creates two web services: `exammind-api` (Docker) and `exammind-web`
+   (static).
+2. Fill in the values marked `sync: false`, in the dashboard, on
+   **exammind-api**:
    - `DATABASE_URL` — the Neon string from step 1.
-   - `DEEPSEEK_API_KEY` — or set `AI_PROVIDER` to something else and supply
-     that key instead.
-   - `CORS_ORIGINS` — leave it until step 3, when the frontend has a URL.
-3. Deploy. First build takes a few minutes; `fastembed` and `onnxruntime` are
-   large wheels.
-4. Check `https://<your-api>.onrender.com/docs` loads.
+   - `DEEPSEEK_API_KEY` — the configured primary provider key.
+   - `COHERE_API_KEY` — the optional fallback provider key.
+   - `CORS_ORIGINS` — leave it until step 4, when the frontend has a URL.
+3. Deploy `exammind-api` first. First build takes a few minutes; `fastembed`
+   and `onnxruntime` are large wheels. Check
+   `https://<your-api>.onrender.com/docs` loads.
+4. On **exammind-web**, fill in the one `sync: false` value:
+   - `VITE_API_BASE_URL` — `https://<your-api>.onrender.com` from step 3.
+     **Include `https://`.** `api.ts` builds requests as
+     `` `${API_BASE_URL}${path}` ``, so a bare hostname resolves as a
+     relative path against the frontend and every call quietly 404s against
+     the wrong origin.
 
-`PYTHON_VERSION` is pinned to 3.12.7 because the `fastembed` and `onnxruntime`
-wheels lag the newest Python.
-
-### OCR will not work until you deal with this
-
-`pytesseract` calls a **system `tesseract` binary**. Render's native Python
-runtime does not include one, and nothing in this repo installs it. The code
-degrades honestly rather than crashing — the upload comes back flagged
-`needs_clearer_file` and is not indexed — but every scanned or photographed
-past paper will land there, which for Nigerian past questions is a large share
-of real uploads.
-
-Two ways out:
-
-- **Switch the service to Render's Docker runtime** with a Dockerfile that runs
-  `apt-get install -y tesseract-ocr`. There is no Dockerfile in the repo yet;
-  ask and I will write one.
-- **Accept text-PDF-only for now.** Digitally generated PDFs extract fine
-  through PyMuPDF without Tesseract.
-
-Set `DISABLE_LOCAL_EMBEDDINGS=true` if you hit the 512MB ceiling. Search falls
-back to keyword ranking, which every caller already handles.
-
----
-
-## 3. Vercel — the frontend
-
-1. New Project, import this repository.
-2. Set **Root Directory** to `frontend`. Vercel detects Vite and fills in
-   `npm run build` and `dist` itself.
-3. Add one environment variable:
+     **This is inlined at build time**, not read at runtime. Vite substitutes
+     it into the bundle during `npm run build`, so changing it later means
+     redeploying the frontend, not just editing the variable.
+5. Deploy `exammind-web`, then go back to `exammind-api` and set
+   `CORS_ORIGINS` to its origin:
    ```
-   VITE_API_BASE_URL = https://<your-api>.onrender.com
+   https://exammind-web.onrender.com
    ```
-   **Include `https://`.** `api.ts` builds requests as
-   `` `${API_BASE_URL}${path}` ``, so a bare hostname resolves as a relative
-   path against the frontend and every call quietly 404s against the wrong
-   origin.
-
-   **This is inlined at build time**, not read at runtime. Vite substitutes it
-   into the bundle during `npm run build`, so changing it later means
-   redeploying the frontend, not just editing the variable.
-4. Deploy, then go back to Render and set `CORS_ORIGINS` to the Vercel origin:
-   ```
-   https://<your-project>.vercel.app
-   ```
+   (or whatever Render assigned it — check the service's dashboard page).
    Render will restart the API.
 
-No `vercel.json` is needed. The app has no client-side router — screens are
-component state — so there are no deep links requiring a rewrite to
-`index.html`.
+Because both services live on Render, there's no second dashboard, no
+separate billing relationship, and no cross-provider DNS to get right — just
+two env vars pointing at each other's `.onrender.com` URLs.
 
-### Preview deployments will fail CORS
-
-Every Vercel preview gets its own URL, and `CORS_ORIGINS` lists one origin.
-Previews will load and then fail every API call. Either add the preview domain
-alongside production, or treat previews as build checks only.
+Python is pinned to 3.12.7 on `exammind-api` because the `fastembed` and
+`onnxruntime` wheels lag the newest Python. The pin lives in
+`backend/Dockerfile`'s base image now, not in a `PYTHON_VERSION` variable —
+the service builds from that image rather than from Render's native Python
+runtime, so the dashboard has no Python version to set.
 
 ### After a redeploy, hard-reload once
 
@@ -158,17 +141,53 @@ alongside production, or treat previews as build checks only.
 previous build's assets until it updates. If a deploy looks like it did not
 take, that is usually why.
 
+### OCR: why this service runs on Docker
+
+`pytesseract` is a wrapper, not an OCR engine — it shells out to a **system
+`tesseract` binary**. Render's native Python runtime has no way to install one,
+and without it the code degrades honestly rather than crashing: the upload
+comes back flagged `needs_clearer_file` and is not indexed. Every scanned or
+photographed past paper lands there, which for Nigerian past questions is most
+of the real uploads.
+
+That is why `exammind-api` is `runtime: docker` and not `runtime: python`.
+`backend/Dockerfile` apt-installs `tesseract-ocr` and its English model, and
+`render.yaml` points at it with `dockerfilePath` and `dockerContext`, relative
+to the API service root (`backend`) because `rootDir` is set. Nothing to
+configure in the dashboard; Render builds the image and runs it.
+
+Two consequences worth knowing:
+
+- **The first build is slower** than a pip install on the native runtime,
+  because it builds an image. Later builds reuse the dependency layer as long
+  as `requirements.txt` has not changed.
+- **`opencv-python` became `opencv-python-headless`.** The full package needs
+  `libGL`, which a slim image does not carry; the ingest path only ever calls
+  OpenCV's image-processing functions, never a GUI or video one. On the native
+  runtime this was failing silently — `import cv2` is inside a `try`, so a
+  missing `libGL` quietly dropped the OCR pre-processing rather than
+  reporting it.
+
+To confirm OCR is live after deploying, the ingest router exposes a
+diagnostic that reports `pytesseract_imported`, `tesseract_cmd` and
+`tesseract_version`. A real version string there means the binary is found.
+
+Set `DISABLE_LOCAL_EMBEDDINGS=true` if you hit the 512MB ceiling. Search falls
+back to keyword ranking, which every caller already handles.
+
 ---
 
 ## What the code does on first boot
 
-- Enables the `vector` extension, then creates any missing tables. Safe to run
-  repeatedly; it never drops anything.
+- On startup, enables the `vector` extension, then creates any missing tables.
+  Safe to run repeatedly; it never drops anything. If Neon is temporarily
+  unavailable, the process still binds `/docs` and logs the database error;
+  database-backed requests remain unavailable until the connection is fixed.
 - Does **not** load the embedding model. That happens on first use, so the
   service starts at ~205MB and passes its health check before paying the cost.
-- Connects with a 10s timeout (`DB_CONNECT_TIMEOUT`). Without it a missing
-  database makes startup hang on the TCP connect and uvicorn never binds its
-  port, so the service looks dead rather than misconfigured.
+- Attempts the database connection with a 10s timeout (`DB_CONNECT_TIMEOUT`).
+  Without it a missing database could hold the startup hook indefinitely;
+  with it, the warning is logged and `/docs` binds after the timeout.
 
 ---
 

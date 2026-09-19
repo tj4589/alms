@@ -1,0 +1,20 @@
+# The local virtualenv is the big one: it is hundreds of MB of Windows-built
+# binaries that would bloat the build context and shadow the Linux wheels
+# installed inside the image.
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets. Gitignored, so Render's clone never sees them -- but a `docker
+# build` run by hand from this directory would otherwise bake them into a
+# layer.
+.env
+.env.*
+
+# Local-only: the dev database compose file, caches, scratch databases.
+docker-compose.yml
+.pytest_cache/
+*.sqlite
+*.db

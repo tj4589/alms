@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -45,7 +46,14 @@ def _connect_args() -> dict:
     # so the next transaction fails with "prepared statement already exists".
     # Turning preparation off costs a little planning time and removes a class
     # of failure that only shows up under load, once queries get hot.
-    if "-pooler." in DATABASE_URL or os.getenv("DB_DISABLE_PREPARE", "").lower() == "true":
+    # Inspect the parsed hostname rather than the complete URL. A password or
+    # query parameter can contain the same text without the endpoint being a
+    # Neon pooler, while Neon pooler hosts consistently contain `-pooler.`.
+    try:
+        database_host = (urlsplit(DATABASE_URL).hostname or "").lower()
+    except ValueError:
+        database_host = ""
+    if "-pooler." in database_host or os.getenv("DB_DISABLE_PREPARE", "").lower() == "true":
         args["prepare_threshold"] = None
     return args
 

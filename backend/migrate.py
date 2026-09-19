@@ -44,18 +44,22 @@ from database import engine, Base
 import models  # registers all ORM classes with Base.metadata
 
 
+with engine.begin() as conn:
+    # Neon supports pgvector, but a new project does not have the extension
+    # enabled until it is requested. This must precede any vector column DDL.
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    print("  OK  CREATE EXTENSION IF NOT EXISTS vector")
+
+
 # ── 1. Add new columns to existing tables ─────────────────────────────────────
 
 _ALTER_STATEMENTS = [
     # username column — added in Reading Rooms sprint; nullable so existing rows survive
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR UNIQUE;",
-    # Vector columns resized 1536 → 384 (switched from OpenAI embeddings to
-    # sentence-transformers all-MiniLM-L6-v2). Safe on empty tables.
-    "ALTER TABLE past_questions DROP COLUMN IF EXISTS embedding;",
+    # Vector columns are added only when absent, so repeated runs preserve
+    # existing embeddings on a live database.
     "ALTER TABLE past_questions ADD COLUMN IF NOT EXISTS embedding vector(384);",
-    "ALTER TABLE study_materials DROP COLUMN IF EXISTS embedding;",
     "ALTER TABLE study_materials ADD COLUMN IF NOT EXISTS embedding vector(384);",
-    "ALTER TABLE lecture_note_chunks DROP COLUMN IF EXISTS embedding;",
     "ALTER TABLE lecture_note_chunks ADD COLUMN IF NOT EXISTS embedding vector(384);",
 ]
 

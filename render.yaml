@@ -1,7 +1,5 @@
-# Render blueprint for the ExamMind API.
-#
-# This file provisions the backend only. The database is Neon and the frontend
-# is Vercel -- see DEPLOY.md, which walks all three in order.
+# Render blueprint for ExamMind: API + frontend, both on Render. The database
+# is Neon -- see DEPLOY.md, which walks both providers in order.
 #
 # Render's own Postgres used to be declared here. It was dropped for Neon
 # because Render's free database expires after 30 days, taking the data with
@@ -11,21 +9,26 @@
 # supports.
 #
 # Create it from the Render dashboard with New > Blueprint, pointed at this
-# repository. Read DEPLOY.md first -- three values have to be filled in by
-# hand, and there is one real constraint around the embedding model's memory.
+# repository. It provisions both services below in one pass. Read DEPLOY.md
+# first -- four API values and one frontend value have to be filled in by hand,
+# and there is one real constraint around the embedding model's memory.
 
 services:
   # ---- API -------------------------------------------------------------
   - type: web
     name: exammind-api
-    runtime: python
+    # Docker rather than the native Python runtime, for OCR: pytesseract shells
+    # out to a system `tesseract` binary that the native runtime has no way to
+    # install. backend/Dockerfile apt-installs it. Because rootDir is backend,
+    # both Docker paths below are relative to that directory. The image also
+    # carries the build and start commands, so neither is declared here.
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     rootDir: backend
     plan: free
     region: oregon
     healthCheckPath: /docs
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    # $PORT is assigned by Render; binding anything else fails the health check.
-    startCommand: python -m uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       # Neon's pooled connection string, pasted in the dashboard. Use the
       # pooled one: database.py disables psycopg's prepared statements when it
@@ -37,9 +40,10 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
-      # Pinned: fastembed and onnxruntime wheels lag the newest Python.
-      - key: PYTHON_VERSION
-        value: "3.12.7"
+      - key: BACKEND_HOST
+        value: "0.0.0.0"
+      - key: BACKEND_PORT
+        value: "8000"
       # Must list the deployed frontend origin. Fill in after the first deploy,
       # once exammind-web has its URL -- see DEPLOY.md step 4.
       - key: CORS_ORIGINS
@@ -59,8 +63,6 @@ services:
         sync: false
       - key: COHERE_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
-        sync: false
       - key: MAX_UPLOAD_BYTES
         value: "10485760"
       - key: MAX_INDEX_CHUNKS
@@ -69,13 +71,58 @@ services:
         value: "2000"
       - key: SQL_ECHO
         value: "false"
+      - key: DB_CONNECT_TIMEOUT
+        value: "10"
+      - key: DB_DISABLE_PREPARE
+        value: "false"
+      - key: EMBEDDING_MODEL
+        value: BAAI/bge-small-en-v1.5
+      - key: TESSERACT_CMD
+        value: /usr/bin/tesseract
+      - key: MIN_INDEXABLE_TEXT_CHARS
+        value: "80"
+      - key: MAX_OCR_PAGES
+        value: "20"
+      - key: OCR_RENDER_SCALE
+        value: "4"
+      - key: OCR_FALLBACK_RENDER_SCALE
+        value: "3"
+      - key: EXAMMIND_DEBUG_METADATA
+        value: "false"
+      - key: APP_ENV
+        value: production
+      - key: ENV
+        value: production
+      - key: HEARTBEAT_TIMEOUT_SECONDS
+        value: "120"
       # Set to "true" to never load the embedding model. Keeps the service at
       # ~205MB instead of ~359MB; search falls back to keyword ranking, which
       # every consumer already handles.
       - key: DISABLE_LOCAL_EMBEDDINGS
         value: "false"
 
-# The frontend is not declared here: it is deployed to Vercel, which builds the
-# same `npm run build` output. Render's static site is still a workable option
-# if you would rather keep everything on one provider -- DEPLOY.md says what to
-# add back.
+  # ---- Frontend ----------------------------------------------------------
+  - type: web
+    name: exammind-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      # Baked into the bundle at build time by Vite, not read at runtime.
+      # Fill in after exammind-api has deployed and you have its URL -- see
+      # DEPLOY.md step 3. Must include the scheme (https://) and no trailing
+      # slash.
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      # The app has no client-side router -- screens are component state --
+      # so there are no deep links today. This is a no-cost safety net if
+      # that ever changes: without it, refreshing on anything but `/` 404s.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable

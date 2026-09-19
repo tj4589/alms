@@ -18,6 +18,6 @@ python-docx
 python-pptx
 pytesseract
 Pillow
-opencv-python
+opencv-python-headless
 alembic
 fastembed

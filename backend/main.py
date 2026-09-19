@@ -28,7 +28,17 @@ def _prepare_database() -> None:
     Base.metadata.create_all(bind=engine)
 
 
-_prepare_database()
+@app.on_event("startup")
+def _prepare_database_on_startup() -> None:
+    """Prepare the schema without making the liveness endpoint DB-dependent."""
+    try:
+        _prepare_database()
+    except Exception as exc:
+        # Render checks /docs. Keep the process available so the health check
+        # can distinguish a live API from a temporarily unavailable database;
+        # database-backed requests will surface the underlying failure until
+        # the configured Neon connection is fixed.
+        print(f"Warning: database initialization failed: {exc}")
 
 default_cors_origins = "http://localhost:5173,http://127.0.0.1:5173"
 cors_origins = [
