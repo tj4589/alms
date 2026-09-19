@@ -386,7 +386,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
       </div>
 
       <section className="lp-final" id="start"><div className="lp-wrap lp-final-inner"><div><h2>Here’s to your<br />next <em>“I get it.”</em></h2><p>Start with your notes. See where they take you.</p></div><button className="lp-button lp-final-button" onClick={start}>Create your free account <ArrowUpRight size={24} /></button></div></section>
-      <footer className="lp-footer"><div className="lp-wrap"><div className="lp-footer-top"><a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a><p>A clearer way to study.<br />Built around your material.</p><div><a href="#capabilities">Why ExamMind</a><a href="#workflow">How it works</a><button onClick={signIn}>Student login <ArrowUpRight size={15} /></button></div></div><div className="lp-footer-bottom"><span>© {new Date().getFullYear()} ExamMind</span><span>Stay curious. Keep going.</span></div></div></footer>
+      <footer className="lp-footer"><div className="lp-wrap"><div className="lp-footer-top"><a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a><p>A clearer way to study.<br />Built around your material.</p><div><a href="#capabilities">Why ExamMind</a><a href="#workflow">How it works</a><button onClick={signIn}>Student login <ArrowUpRight size={15} /></button></div></div><div className="lp-footer-bottom"><span>© {new Date().getFullYear()} ExamMind</span><p className="lp-tag">mr ekp is <span>different</span></p><span>Stay curious. Keep going.</span></div></div></footer>
     </main>
   );
 }
