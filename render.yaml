@@ -1,19 +1,18 @@
-# Render blueprint for ExamMind.
+# Render blueprint for the ExamMind API.
+#
+# This file provisions the backend only. The database is Neon and the frontend
+# is Vercel -- see DEPLOY.md, which walks all three in order.
+#
+# Render's own Postgres used to be declared here. It was dropped for Neon
+# because Render's free database expires after 30 days, taking the data with
+# it, while Neon's free tier does not. Nothing in the code changed: database.py
+# already rewrites either provider's URL into the postgresql+psycopg:// form
+# SQLAlchemy needs, and main.py enables pgvector on first boot, which Neon
+# supports.
 #
 # Create it from the Render dashboard with New > Blueprint, pointed at this
-# repository. Render reads this file and provisions all three resources in one
-# go, wiring DATABASE_URL and the two service URLs between them automatically.
-#
-# Read DEPLOY.md before the first deploy -- there are two settings you have to
-# fill in by hand (the AI provider key, and the frontend URL in CORS_ORIGINS)
-# and one real constraint on the free plan around the embedding model's memory.
-
-databases:
-  - name: exammind-db
-    databaseName: alms_db
-    user: alms_user
-    plan: free
-    postgresMajorVersion: "16"
+# repository. Read DEPLOY.md first -- three values have to be filled in by
+# hand, and there is one real constraint around the embedding model's memory.
 
 services:
   # ---- API -------------------------------------------------------------
@@ -28,13 +27,14 @@ services:
     # $PORT is assigned by Render; binding anything else fails the health check.
     startCommand: python -m uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      # Render hands this out as postgres://... ; database.py rewrites it to
-      # postgresql+psycopg:// so SQLAlchemy uses psycopg 3, which is what
-      # requirements.txt installs.
+      # Neon's pooled connection string, pasted in the dashboard. Use the
+      # pooled one: database.py disables psycopg's prepared statements when it
+      # sees "-pooler." in the host, because Neon's pooler is pgbouncer in
+      # transaction mode and prepared statements break there once a query gets
+      # hot. database.py also rewrites postgres:// into postgresql+psycopg://,
+      # so either form Neon offers will work.
       - key: DATABASE_URL
-        fromDatabase:
-          name: exammind-db
-          property: connectionString
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       # Pinned: fastembed and onnxruntime wheels lag the newest Python.
@@ -75,28 +75,7 @@ services:
       - key: DISABLE_LOCAL_EMBEDDINGS
         value: "false"
 
-  # ---- frontend --------------------------------------------------------
-  - type: web
-    name: exammind-web
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm ci && npm run build
-    staticPublishPath: dist
-    envVars:
-      # Set by hand to the API's full origin, including https://.
-      # Deliberately not `fromService: property: host` -- that yields a bare
-      # hostname with no scheme, and api.ts concatenates it as
-      # `${API_BASE_URL}${path}`, so every request would resolve as a relative
-      # path against the frontend and quietly 404. See DEPLOY.md step 4.
-      - key: VITE_API_BASE_URL
-        sync: false
-    routes:
-      # Single-page app: every path has to fall through to index.html or a
-      # deep link returns Render's 404 instead of the app.
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /assets/*
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
+# The frontend is not declared here: it is deployed to Vercel, which builds the
+# same `npm run build` output. Render's static site is still a workable option
+# if you would rather keep everything on one provider -- DEPLOY.md says what to
+# add back.
