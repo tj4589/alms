@@ -12,6 +12,9 @@ import './Landing.css';
 gsap.registerPlugin(ScrollTrigger, useGSAP);
 
 type LandingProps = { onGetStarted: () => void; onSignIn: () => void };
+type DeviceOrientationWithPermission = typeof DeviceOrientationEvent & {
+  requestPermission?: () => Promise<'granted' | 'denied' | 'default'>;
+};
 const asset = (name: string) => `/images/landing/${name}.jpg`;
 const examples = [
   { label: 'Project management', question: 'What is the critical path method?', answer: 'The critical path is the longest sequence of dependent activities in a project. It determines the earliest possible finish date.', source: 'Project Management Notes', topic: 'Scheduling methods', excerpt: 'Activities on the critical path have zero total float. A delay to any of these activities delays the project completion date.' },
@@ -239,9 +242,48 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           rotateX(3);
           rotateY(-6);
         };
+        let orientationListening = false;
+        let baseBeta: number | null = null;
+        let baseGamma: number | null = null;
+        const tilt = (event: DeviceOrientationEvent) => {
+          if (event.beta === null || event.gamma === null) return;
+          if (baseBeta === null || baseGamma === null) {
+            baseBeta = event.beta;
+            baseGamma = event.gamma;
+            return;
+          }
+          const betaDelta = Math.max(-24, Math.min(24, event.beta - baseBeta));
+          const gammaDelta = Math.max(-24, Math.min(24, event.gamma - baseGamma));
+          rotateX(3 - betaDelta * 0.28);
+          rotateY(-6 + gammaDelta * 0.36);
+        };
+        const enableOrientation = async () => {
+          if (orientationListening || !('DeviceOrientationEvent' in window)) return;
+          const orientation = window.DeviceOrientationEvent as DeviceOrientationWithPermission;
+          if (typeof orientation.requestPermission === 'function') {
+            try {
+              const permission = await orientation.requestPermission();
+              if (permission !== 'granted') return;
+            } catch {
+              return;
+            }
+          }
+          window.addEventListener('deviceorientation', tilt, { passive: true });
+          orientationListening = true;
+        };
+        const touchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+        const orientation = window.DeviceOrientationEvent as DeviceOrientationWithPermission | undefined;
+        const needsGesture = touchDevice && typeof orientation?.requestPermission === 'function';
+        if (needsGesture) stage.addEventListener('pointerdown', enableOrientation, { passive: true });
+        else if (touchDevice) void enableOrientation();
         stage.addEventListener('pointermove', move);
         stage.addEventListener('pointerleave', reset);
-        return () => { stage.removeEventListener('pointermove', move); stage.removeEventListener('pointerleave', reset); };
+        return () => {
+          stage.removeEventListener('pointermove', move);
+          stage.removeEventListener('pointerleave', reset);
+          if (needsGesture) stage.removeEventListener('pointerdown', enableOrientation);
+          if (orientationListening) window.removeEventListener('deviceorientation', tilt);
+        };
       }
       return () => {
         desktop.revert();
