@@ -271,11 +271,10 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           window.addEventListener('deviceorientation', tilt, { passive: true });
           orientationListening = true;
         };
-        const touchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
         const orientation = window.DeviceOrientationEvent as DeviceOrientationWithPermission | undefined;
-        const needsGesture = touchDevice && typeof orientation?.requestPermission === 'function';
+        const needsGesture = typeof orientation?.requestPermission === 'function';
         if (needsGesture) stage.addEventListener('pointerdown', enableOrientation, { passive: true });
-        else if (touchDevice) void enableOrientation();
+        else void enableOrientation();
         stage.addEventListener('pointermove', move);
         stage.addEventListener('pointerleave', reset);
         return () => {
