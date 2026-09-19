@@ -36,7 +36,7 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .lp-skip { position: fixed; z-index: 100; top: 12px; left: 20px; background: var(--lp-ink); color: white !important; padding: 12px 22px; transform: translateY(-160%); }
 .lp-skip:focus { transform: translateY(0); }
 .lp-header { position: sticky; top: 0; z-index: 40; height: 94px; pointer-events: none; }
-.lp-nav { height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border-bottom: 1px solid #252b241f; background: var(--lp-paper); pointer-events: auto; border-radius: 0; transition: width 450ms var(--lp-ease), height 450ms var(--lp-ease), border-radius 450ms var(--lp-ease), padding 450ms var(--lp-ease), transform 450ms var(--lp-ease), box-shadow 450ms var(--lp-ease); }
+.lp-nav { height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border-bottom: 1px solid #252b241f; background: var(--lp-paper); pointer-events: auto; border-radius: 0; will-change: width, height, border-radius, padding, transform; transition: width 450ms var(--lp-ease), height 450ms var(--lp-ease), border-radius 450ms var(--lp-ease), padding 450ms var(--lp-ease), transform 450ms var(--lp-ease), background-color 450ms ease, border-color 450ms ease, box-shadow 450ms var(--lp-ease); }
 .lp-header.is-scrolled .lp-nav { width: min(1100px, calc(100% - 64px)); height: 72px; padding-inline: 23px; transform: translateY(12px); border-radius: 999px; border-bottom-color: transparent; background: #f8f5eef5; backdrop-filter: blur(14px); box-shadow: 0 12px 38px #15191524; }
 .lp-brand { display: inline-flex; align-items: center; gap: 6px; font-size: 25px; letter-spacing: -.04em; font-weight: 620; white-space: nowrap; }
 .lp-brand-mark { display: grid; place-items: center; height: 34px; }
@@ -68,8 +68,6 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .lp-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 26px; margin-top: 30px; }
 .lp-link { display: inline-flex; gap: 10px; align-items: center; font-size: 14px; min-height: 44px; }
 .lp-link:hover { text-decoration: underline; }
-.lp-motion-button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 9px 13px; border: 1px solid #252b2440; border-radius: 999px; background: transparent; color: #4e5549; font-size: 12px; }
-.lp-motion-button:hover { border-color: #252b2475; background: #252b2408; }
 .lp-hero-footnote { display: block; margin-top: 23px; font-size: 12px; color: #66685e; }
 .lp-water-field { position: absolute; z-index: 0; inset: 0 calc(50% - 50vw); overflow: hidden; pointer-events: none; transform-origin: 55% 45%; will-change: transform; background: radial-gradient(ellipse at 66% 48%, rgba(218,155,105,.07), transparent 42%), linear-gradient(180deg, rgba(248,245,238,0) 22%, rgba(230,211,189,.08) 78%, rgba(207,174,144,.06)); -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 84%, transparent 100%); mask-image: linear-gradient(to bottom, #000 0%, #000 84%, transparent 100%); }
 .lp-water-field canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .72; filter: blur(.15px); }
@@ -297,15 +295,11 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   .lp-scenario { gap: 45px; }
 }
 @media (max-width: 900px) {
-  .lp-header.is-menu-open { position: fixed; inset: 0; height: 100dvh; overflow-y: auto; background: var(--lp-paper); pointer-events: auto; }
   .lp-nav-links { display: none; }
   .lp-menu-toggle { display: flex; }
   .lp-nav-actions { gap: 20px; }
   .lp-mobile-nav { display: grid; pointer-events: auto; padding: 10px 32px 22px; border-bottom: 1px solid #d9d7cc; background: var(--lp-paper); }
-  .lp-header.is-menu-open .lp-mobile-nav { margin: 0; min-height: calc(100dvh - 76px); border-bottom: 0; border-radius: 0; }
   .lp-header.is-scrolled .lp-mobile-nav { margin: 22px 32px 0; border-radius: 22px; box-shadow: 0 16px 30px #15191522; }
-  .lp-header.is-menu-open.is-scrolled .lp-nav { width: 100%; height: 76px; padding-inline: 20px; transform: none; border-radius: 0; }
-  .lp-header.is-menu-open.is-scrolled .lp-mobile-nav { margin: 0; border-radius: 0; box-shadow: none; }
   .lp-mobile-nav a { display: flex; justify-content: space-between; padding-block: 14px; }
 
   /* The bar's two actions, kept rather than dropped. Below this width the bar
@@ -364,9 +358,7 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   .lp-nav { height: 76px; gap: 10px; }
   .lp-header { height: 76px; }
   .lp-header.is-scrolled .lp-nav { width: calc(100% - 24px); height: 60px; padding-inline: 14px; transform: translateY(8px); }
-  .lp-header.is-menu-open .lp-nav { width: 100%; height: 76px; padding-inline: 20px; transform: none; border-radius: 0; }
   .lp-header.is-scrolled .lp-mobile-nav { margin: 17px 12px 0; }
-  .lp-header.is-menu-open .lp-mobile-nav { margin: 0; }
   .lp-brand { font-size: 22px; gap: 4px; }
   .lp-brand-mark { height: 30px; }
   .lp-nav-actions { gap: 8px; }

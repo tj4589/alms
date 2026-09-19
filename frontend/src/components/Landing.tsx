@@ -36,8 +36,6 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   const root = useRef<HTMLElement>(null);
   const waterCanvas = useRef<HTMLCanvasElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [motionPermissionNeeded, setMotionPermissionNeeded] = useState(false);
-  const orientationEnabler = useRef<(() => Promise<void>) | null>(null);
   const [activeNav, setActiveNav] = useState<string | null>(null);
   const navPulseTimer = useRef<number | null>(null);
   const [exampleIndex, setExampleIndex] = useState(0);
@@ -45,18 +43,6 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   const [sourceOpen, setSourceOpen] = useState(false);
   const example = examples[exampleIndex];
   const scenario = scenarios[scenarioIndex];
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const previousDocumentOverflow = document.documentElement.style.overflow;
-    const previousBodyOverflow = document.body.style.overflow;
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.documentElement.style.overflow = previousDocumentOverflow;
-      document.body.style.overflow = previousBodyOverflow;
-    };
-  }, [menuOpen]);
 
   useEffect(() => {
     const canvas = waterCanvas.current;
@@ -191,9 +177,14 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
     documentRoot.classList.add('lp-active');
     paintPageEdge('#f8f5ee');
     const header = page.querySelector('.lp-header');
-    const updateNav = () => header?.classList.toggle('is-scrolled', window.scrollY > 48);
+    const updateNav = () => {
+      const isScrolled = window.scrollY > 48;
+      if (header?.classList.contains('is-scrolled') !== isScrolled) {
+        header?.classList.toggle('is-scrolled', isScrolled);
+      }
+    };
     updateNav();
-    ScrollTrigger.create({ start: 0, end: 'max', onUpdate: updateNav });
+    window.addEventListener('scroll', updateNav, { passive: true });
 
     media.add('(prefers-reduced-motion: no-preference)', () => {
       // One shared canvas avoids hard seams between chapters. The foreground
@@ -291,12 +282,9 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           window.addEventListener('deviceorientation', tilt, { passive: true });
           orientationListening = true;
           orientationRequestPending = false;
-          setMotionPermissionNeeded(false);
         };
         const orientation = window.DeviceOrientationEvent as DeviceOrientationWithPermission | undefined;
         const needsGesture = typeof orientation?.requestPermission === 'function';
-        orientationEnabler.current = enableOrientation;
-        if (needsGesture) setMotionPermissionNeeded(true);
         if (needsGesture) stage.addEventListener('pointerdown', enableOrientation, { passive: true });
         else void enableOrientation();
         stage.addEventListener('pointermove', move);
@@ -306,7 +294,6 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           stage.removeEventListener('pointerleave', reset);
           if (needsGesture) stage.removeEventListener('pointerdown', enableOrientation);
           if (orientationListening) window.removeEventListener('deviceorientation', tilt);
-          if (orientationEnabler.current === enableOrientation) orientationEnabler.current = null;
         };
       }
       return () => {
@@ -317,13 +304,13 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
     });
     return () => {
       media.revert();
+      window.removeEventListener('scroll', updateNav);
       if (!hadLandingClass) documentRoot.classList.remove('lp-active');
       documentRoot.style.backgroundColor = previousRootBackground;
       document.body.style.backgroundColor = previousBodyBackground;
     };
   }, { scope: root });
 
-  const enablePhoneMotion = () => { void orientationEnabler.current?.(); };
   const start = () => { window.scrollTo({ top: 0, behavior: 'instant' }); onGetStarted(); };
   const signIn = () => { window.scrollTo({ top: 0, behavior: 'instant' }); onSignIn(); };
   const navigateTo = (event: ReactMouseEvent<HTMLAnchorElement>, href: string) => {
@@ -383,7 +370,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
           <h1 id="hero-heading">Less cramming.<br /><em>More getting it.</em></h1>
           <p>Your notes have the answers.<br className="lp-desktop-break" /> Let’s help you find them.</p>
           <p className="lp-hero-description">Turn your notes into understanding. Find your study group, work through questions together, and make room for your next “aha” moment.</p>
-          <div className="lp-hero-actions"><button className="lp-button" onClick={start}>Start studying free <ArrowUpRight size={20} /></button><a className="lp-link" href="#capabilities">Take a look around <ArrowDown size={17} /></a>{motionPermissionNeeded && <button className="lp-motion-button" onClick={enablePhoneMotion}><Sparkles size={15} /> Enable 3D motion</button>}</div>
+          <div className="lp-hero-actions"><button className="lp-button" onClick={start}>Start studying free <ArrowUpRight size={20} /></button><a className="lp-link" href="#capabilities">Take a look around <ArrowDown size={17} /></a></div>
           <span className="lp-hero-footnote">Your material. Your pace. Your way forward.</span>
         </div>
         <div className="lp-hero-collage">
