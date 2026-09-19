@@ -36,6 +36,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   const root = useRef<HTMLElement>(null);
   const waterCanvas = useRef<HTMLCanvasElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
   const [activeNav, setActiveNav] = useState<string | null>(null);
   const navPulseTimer = useRef<number | null>(null);
   const [exampleIndex, setExampleIndex] = useState(0);
@@ -176,12 +177,8 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
     };
     documentRoot.classList.add('lp-active');
     paintPageEdge('#f8f5ee');
-    const header = page.querySelector('.lp-header');
     const updateNav = () => {
-      const isScrolled = window.scrollY > 48;
-      if (header?.classList.contains('is-scrolled') !== isScrolled) {
-        header?.classList.toggle('is-scrolled', isScrolled);
-      }
+      setIsScrolled(window.scrollY > 48);
     };
     updateNav();
     window.addEventListener('scroll', updateNav, { passive: true });
@@ -348,7 +345,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   return (
     <main className="lp" ref={root} id="home">
       <a href="#main-content" className="lp-skip">Skip to content</a>
-      <header className={`lp-header${menuOpen ? ' is-menu-open' : ''}`}>
+      <header className={`lp-header${isScrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-menu-open' : ''}`}>
         <nav className="lp-nav lp-wrap" aria-label="Public navigation">
           <a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a>
           <div className="lp-nav-links">{navLinks.map(link => <a key={link.href} href={link.href} className={activeNav === link.href ? 'is-active' : ''} onClick={event => navigateTo(event, link.href)}>{link.label}<svg className="lp-nav-ring" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><ellipse cx="50" cy="22" rx="48" ry="17.5" pathLength="100" strokeDasharray="100" strokeDashoffset="100" /></svg></a>)}</div>
