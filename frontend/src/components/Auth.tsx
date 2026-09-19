@@ -18,6 +18,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
   const [isLogin, setIsLogin] = useState(initialMode === 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [devPass, setDevPass] = useState('');
@@ -26,6 +27,11 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
   const [devError, setDevError] = useState('');
 
   const handleSubmit = async () => {
+    if (!isLogin && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setDevError('');
@@ -87,6 +93,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
     setError('');
     setDevError('');
     setDevPass('');
+    setConfirmPassword('');
   };
 
   return (
@@ -204,6 +211,21 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
               minLength={8}
             />
           </label>
+
+          {!isLogin && (
+            <label className="auth-field">
+              <span>Confirm Password</span>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter your password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+              />
+            </label>
+          )}
 
           <button
             type="submit"
