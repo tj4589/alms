@@ -14,6 +14,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from database import get_db
 import models
@@ -21,6 +22,14 @@ import models
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY is not configured. Set SECRET_KEY in the backend environment.")
+
+_DEV_AUTH_TOKEN = "exammind:local-development-session"
+_DEV_USER_EMAIL = "dev@example.com"
+_DEV_AUTH_ENABLED = (
+    os.getenv("DEV_AUTH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+    and os.getenv("APP_ENV", os.getenv("ENV", "development")).strip().lower()
+    not in {"prod", "production"}
+)
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 1 week
@@ -44,12 +53,42 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+
+def get_dev_user(db: Session):
+    """Return a local-only database user for the frontend developer bypass."""
+    user = db.query(models.User).filter(models.User.username == "dev_student").first()
+    if user:
+        if user.email != _DEV_USER_EMAIL:
+            user.email = _DEV_USER_EMAIL
+            db.commit()
+            db.refresh(user)
+        return user
+
+    user = models.User(
+        name="Dev Student",
+        username="dev_student",
+        email=_DEV_USER_EMAIL,
+        password_hash="dev-only-no-password",
+        role="student",
+    )
+    db.add(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        user = db.query(models.User).filter(models.User.username == "dev_student").first()
+    return user
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if _DEV_AUTH_ENABLED and token == _DEV_AUTH_TOKEN:
+        return get_dev_user(db)
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")

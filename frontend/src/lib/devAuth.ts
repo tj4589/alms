@@ -7,7 +7,7 @@ export const DEV_AUTH_USER: User = {
   id: -1,
   name: 'Dev Student',
   username: 'dev_student',
-  email: 'dev@localhost',
+  email: 'dev@example.com',
   role: 'student',
 };
 
