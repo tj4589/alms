@@ -261,12 +261,16 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .lp-footer-bottom > :last-child { justify-self: end; }
 
 /* A maker's tag, not a slogan, so it sits quietly in the middle of the footer
-   line rather than making a claim of its own.
-   Outfit is the geometric of the four fonts already self-hosted here -- the
-   circular bowls and flat-topped t of the original. Light weight to match its
-   thin monoline. */
-.lp-tag { margin: 0; justify-self: center; text-align: center; white-space: nowrap; font-family: 'Outfit Variable', 'Outfit', sans-serif; font-weight: 300; font-size: 11.5px; letter-spacing: .04em; color: #aeb6a4; }
-.lp-tag span { color: var(--brand-word); }
+   line rather than making a claim of its own. It draws in the row's own colour,
+   which is why the artwork's first half is currentColor.
+   Sized by x-height rather than by its box: the artwork is 0.45 x-height to
+   total height, so 1.16em of the row's 11px puts its x-height on the 11.5px
+   the text stand-in used -- a half-step above the line either side of it, the
+   way a signature sits. Dropped by a quarter of its height because that is
+   where the artwork's baseline is, so it shares a baseline with the row rather
+   than hanging below one. */
+.lp-tag { margin: 0; justify-self: center; color: #aeb6a4; }
+.lp-tag svg { height: 1.16em; width: auto; vertical-align: calc(1.16em * -0.25); }
 
 @media (min-width: 1600px) { .lp-hero { min-height: 790px; } }
 @media (max-width: 1100px) {
@@ -297,6 +301,21 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   .lp-mobile-nav { display: grid; pointer-events: auto; padding: 10px 32px 22px; border-bottom: 1px solid #d9d7cc; background: var(--lp-paper); }
   .lp-header.is-scrolled .lp-mobile-nav { margin: 22px 32px 0; border-radius: 22px; box-shadow: 0 16px 30px #15191522; }
   .lp-mobile-nav a { display: flex; justify-content: space-between; padding-block: 14px; }
+
+  /* The bar's two actions, kept rather than dropped. Below this width the bar
+     has room for the brand, "Log in" and the toggle and no more, so "Get
+     started" is hidden there -- and a phone was then left with no primary
+     action in the header at all until it reached the hero. The menu is where
+     the bar's actions go when the bar has no room for them, so it carries the
+     same two, in the same order, sized for a thumb rather than a cursor. */
+  /* With the panel open the bar is down to the brand and the close button:
+     "Log in" is in the panel below, and having it in both places puts the
+     same word twice on one screen. */
+  .lp-header.is-menu-open .lp-login { display: none; }
+  .lp-mobile-cta { display: grid; gap: 10px; margin-top: 12px; padding-top: 16px; border-top: 1px solid #d9d7cc; }
+  .lp-mobile-cta .lp-button { width: 100%; gap: 12px; }
+  .lp-mobile-login { width: 100%; min-height: 52px; border: 1px solid #252b2433; border-radius: 999px; background: none; color: var(--lp-ink); font-size: 15px; font-weight: 500; }
+  .lp-mobile-login:hover { border-color: #252b2466; background: #252b2408; }
   .lp-hero { grid-template-columns: 1fr 1fr; padding-block: 50px 68px; }
   .lp h1 { font-size: 5.7vw; }
   .lp-hero-copy > p:first-of-type { font-size: 19px; }
@@ -429,8 +448,27 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   .lp-footer-top > div { grid-column: auto; grid-row: auto; justify-self: start; font-size: 12px; }
   .lp-footer-bottom { grid-template-columns: minmax(0,1fr); justify-items: start; gap: 10px; font-size: 10px; }
   .lp-footer-bottom > :last-child { justify-self: start; }
-  .lp-tag { justify-self: start; text-align: left; }
+  .lp-tag { justify-self: start; }
   .lp-footer-bottom > span:nth-child(2) { margin-left: 0; }
+}
+
+/* An iPod touch is 320px, and a phone can go under that on browser zoom or in
+   a split view, so the last breakpoint before this one cannot be the last word.
+   Everything here was already fluid except the hero's collage: it is a
+   fixed-height box with its pieces positioned in px inside it, so the answer
+   card stays 275px wide on a screen that no longer has 275px to give and hangs
+   off the right edge. These hand the fixed numbers back to the viewport.
+   The nav is the other thing that gives, and it fails quietly: "Log in" wraps
+   to two lines, which grows the header pill rather than overflowing it, so it
+   reads as a design rather than a break. */
+@media (max-width: 400px) {
+  .lp-nav-actions { gap: 4px; }
+  .lp-login { white-space: nowrap; }
+  .lp-hero-collage { height: min(440px, 132vw); }
+  .lp-hero-answer { width: min(275px, 100%); left: 0; }
+  .lp-hero-answer > p { font-size: min(21px, 6.6vw); }
+  .lp-note-photo { width: min(100px, 31vw); height: auto; aspect-ratio: 25 / 32; }
+  .lp-hero-photo figcaption { left: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .lp *, .lp *::before, .lp *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

@@ -4,6 +4,7 @@ import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Logo from './Logo';
+import MakerTag from './MakerTag';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, FileText, GraduationCap, Layers, Menu, Search, ShieldCheck, Sparkles, Upload, X } from 'lucide-react';
 import '@fontsource-variable/outfit';
 import './Landing.css';
@@ -288,7 +289,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
   return (
     <main className="lp" ref={root} id="home">
       <a href="#main-content" className="lp-skip">Skip to content</a>
-      <header className="lp-header">
+      <header className={`lp-header${menuOpen ? ' is-menu-open' : ''}`}>
         <nav className="lp-nav lp-wrap" aria-label="Public navigation">
           <a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a>
           <div className="lp-nav-links">{navLinks.map(link => <a key={link.href} href={link.href} className={activeNav === link.href ? 'is-active' : ''} onClick={event => navigateTo(event, link.href)}>{link.label}<svg className="lp-nav-ring" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><ellipse cx="50" cy="22" rx="48" ry="17.5" pathLength="100" strokeDasharray="100" strokeDashoffset="100" /></svg></a>)}</div>
@@ -298,7 +299,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
             <button className="lp-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} aria-controls="landing-mobile-nav" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
           </div>
         </nav>
-        {menuOpen && <nav id="landing-mobile-nav" className="lp-mobile-nav" aria-label="Mobile navigation" onKeyDown={event => { if (event.key === 'Escape') { setMenuOpen(false); root.current?.querySelector<HTMLButtonElement>('.lp-menu-toggle')?.focus(); } }}>{navLinks.map(link => <a href={link.href} key={link.href} onClick={event => navigateTo(event, link.href)}>{link.label}<ArrowUpRight size={18} /></a>)}</nav>}
+        {menuOpen && <nav id="landing-mobile-nav" className="lp-mobile-nav" aria-label="Mobile navigation" onKeyDown={event => { if (event.key === 'Escape') { setMenuOpen(false); root.current?.querySelector<HTMLButtonElement>('.lp-menu-toggle')?.focus(); } }}>{navLinks.map(link => <a href={link.href} key={link.href} onClick={event => navigateTo(event, link.href)}>{link.label}<ArrowUpRight size={18} /></a>)}<div className="lp-mobile-cta"><button className="lp-button" onClick={() => { setMenuOpen(false); start(); }}>Get started <ArrowUpRight size={17} /></button><button className="lp-mobile-login" onClick={() => { setMenuOpen(false); signIn(); }}>Log in</button></div></nav>}
       </header>
 
       <section className="lp-hero lp-wrap" id="main-content" aria-labelledby="hero-heading">
@@ -386,7 +387,7 @@ export default function Landing({ onGetStarted, onSignIn }: LandingProps) {
       </div>
 
       <section className="lp-final" id="start"><div className="lp-wrap lp-final-inner"><div><h2>Here’s to your<br />next <em>“I get it.”</em></h2><p>Start with your notes. See where they take you.</p></div><button className="lp-button lp-final-button" onClick={start}>Create your free account <ArrowUpRight size={24} /></button></div></section>
-      <footer className="lp-footer"><div className="lp-wrap"><div className="lp-footer-top"><a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a><p>A clearer way to study.<br />Built around your material.</p><div><a href="#capabilities">Why ExamMind</a><a href="#workflow">How it works</a><button onClick={signIn}>Student login <ArrowUpRight size={15} /></button></div></div><div className="lp-footer-bottom"><span>© {new Date().getFullYear()} ExamMind</span><p className="lp-tag">mr ekp is <span>different</span></p><span>Stay curious. Keep going.</span></div></div></footer>
+      <footer className="lp-footer"><div className="lp-wrap"><div className="lp-footer-top"><a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a><p>A clearer way to study.<br />Built around your material.</p><div><a href="#capabilities">Why ExamMind</a><a href="#workflow">How it works</a><button onClick={signIn}>Student login <ArrowUpRight size={15} /></button></div></div><div className="lp-footer-bottom"><span>© {new Date().getFullYear()} ExamMind</span><p className="lp-tag"><MakerTag /></p><span>Stay curious. Keep going.</span></div></div></footer>
     </main>
   );
 }
