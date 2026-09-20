@@ -56,7 +56,8 @@ import { Auth } from './components/Auth';
 import Landing from './components/Landing';
 import Privacy from './components/Privacy';
 import { apiGet } from './lib/api';
-import { DEV_AUTH_USER, isDevAuthToken } from './lib/devAuth';
+import { firebaseAuth } from './lib/firebase';
+import { signOut as signOutFirebase } from 'firebase/auth';
 
 type NavigationItem = {
   label: string;
@@ -221,11 +222,6 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
 
-    if (isDevAuthToken(token)) {
-      setUser(DEV_AUTH_USER);
-      return;
-    }
-
     apiGet('/auth/me')
       .then((data) => setUser(data as User))
       .catch(() => {
@@ -239,12 +235,6 @@ export default function App() {
     storeToken(jwt);
     setToken(jwt);
 
-    if (isDevAuthToken(jwt)) {
-      setUser(DEV_AUTH_USER);
-      setActiveScreen('dashboard');
-      return;
-    }
-
     try {
       const data = await apiGet('/auth/me') as User;
       setUser(data);
@@ -255,6 +245,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    if (firebaseAuth) void signOutFirebase(firebaseAuth).catch(() => undefined);
     clearStoredToken();
     setToken(null);
     setUser(null);

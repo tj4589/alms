@@ -56,6 +56,9 @@ with engine.begin() as conn:
 _ALTER_STATEMENTS = [
     # username column — added in Reading Rooms sprint; nullable so existing rows survive
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR UNIQUE;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR;",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid ON users (firebase_uid) WHERE firebase_uid IS NOT NULL;",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_lower ON users (LOWER(email));",
     # Vector columns are added only when absent, so repeated runs preserve
     # existing embeddings on a live database.
     "ALTER TABLE past_questions ADD COLUMN IF NOT EXISTS embedding vector(384);",

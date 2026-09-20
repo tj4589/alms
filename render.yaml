@@ -50,6 +50,18 @@ services:
         sync: false
       - key: ALLOWED_SCHOOL_EMAIL_DOMAINS
         value: stu.cu.edu.ng,covenantuniversity.edu.ng
+      - key: FIREBASE_PROJECT_ID
+        value: exammind-509123
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: FIREBASE_CERTS_URL
+        value: https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com
+      - key: GOOGLE_CERTS_URL
+        value: https://www.googleapis.com/oauth2/v3/certs
+      - key: FIREBASE_CLOCK_SKEW_SECONDS
+        value: "60"
+      - key: FIREBASE_CERT_FETCH_TIMEOUT_SECONDS
+        value: "10"
       - key: AI_PROVIDER
         value: deepseek
       - key: AI_MODEL
@@ -115,6 +127,18 @@ services:
       # slash.
       - key: VITE_API_BASE_URL
         sync: false
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        value: exammind-509123.firebaseapp.com
+      - key: VITE_FIREBASE_PROJECT_ID
+        value: exammind-509123
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        value: exammind-509123.firebasestorage.app
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        value: "290862287209"
+      - key: VITE_FIREBASE_APP_ID
+        value: 1:290862287209:web:850bada52a1fc81ed495f8
     routes:
       # The app has no client-side router -- screens are component state --
       # so there are no deep links today. This is a no-cost safety net if

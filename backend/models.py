@@ -16,6 +16,9 @@ class User(Base):
     username = Column(String, unique=True, nullable=True, index=True)
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
+    # Firebase is the external identity source. Nullable keeps existing
+    # Neon users and their study data linkable by verified email on first sign-in.
+    firebase_uid = Column(String, unique=True, nullable=True, index=True)
 
 class Course(Base):
     __tablename__ = "courses"

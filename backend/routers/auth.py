@@ -1,22 +1,13 @@
-import os
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 import auth
+from firebase_tokens import FirebaseTokenError, verify_firebase_id_token, verify_google_provider_token
 import models
 import schemas
 from database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-_ALLOWED_DOMAINS_ENV = os.getenv("ALLOWED_SCHOOL_EMAIL_DOMAINS", "")
-_ALLOWED_DOMAINS: set[str] = (
-    {d.strip().lower() for d in _ALLOWED_DOMAINS_ENV.split(",") if d.strip()}
-    if _ALLOWED_DOMAINS_ENV
-    else set()
-)
 
 
 @router.get("/me", response_model=schemas.UserResponse)
@@ -24,49 +15,77 @@ def get_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
 
 
-@router.post("/register", response_model=schemas.UserResponse)
-def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    if _ALLOWED_DOMAINS:
-        domain = user.email.split("@")[-1].lower()
-        if domain not in _ALLOWED_DOMAINS:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "ExamMind is currently available for Covenant University students only. "
-                    "Please use your school email (e.g. @stu.cu.edu.ng)."
-                ),
+@router.post("/firebase/session", response_model=schemas.FirebaseSessionResponse)
+def firebase_session(
+    payload: schemas.FirebaseSessionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        claims = verify_firebase_id_token(payload.firebase_id_token)
+        firebase_claim = claims.get("firebase")
+        provider = (
+            firebase_claim.get("sign_in_provider")
+            if isinstance(firebase_claim, dict)
+            else None
+        )
+
+        if payload.provider == "google":
+            if provider != "google.com" or not payload.google_id_token:
+                raise FirebaseTokenError("Google provider verification is required.")
+            verify_google_provider_token(
+                payload.google_id_token,
+                expected_email=claims["email"],
             )
+        elif provider == "google.com":
+            raise FirebaseTokenError("Google provider verification is required.")
 
-    if db.query(models.User).filter(models.User.email == user.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered.")
-
-    if db.query(models.User).filter(models.User.username == user.username).first():
-        raise HTTPException(status_code=400, detail="Username already taken. Try another.")
-
-    new_user = models.User(
-        name=user.name,
-        username=user.username,
-        email=user.email,
-        password_hash=auth.get_password_hash(user.password),
-        role="student",
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
-
-
-@router.post("/login", response_model=schemas.Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
-    if not user or not auth.verify_password(form_data.password, user.password_hash):
+        user = auth.get_or_create_firebase_user(
+            db,
+            firebase_uid=claims["sub"],
+            email=claims["email"],
+            claims=claims,
+            name=payload.name,
+            username=payload.username,
+        )
+        access_token = auth.create_access_token(
+            data={"sub": user.email, "firebase_uid": claims["sub"]},
+            expires_delta=auth.timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES),
+        )
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": user,
+        }
+    except FirebaseTokenError as exc:
+        message = str(exc)
+        if "Email verification" in message:
+            detail = "Verify your email before entering ExamMind."
+        elif "Covenant" in message or "school email" in message:
+            detail = "Use a Covenant University school email to continue."
+        elif "Google" in message:
+            detail = "Google sign-in could not be verified. Try again with your Covenant University account."
+        else:
+            detail = "We could not verify that sign-in. Please try again."
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail=detail,
             headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = auth.timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = auth.create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/register", response_model=schemas.UserResponse, deprecated=True)
+def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Email/password registration is handled by Firebase Authentication.",
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/login", response_model=schemas.Token, deprecated=True)
+def login():
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Email/password sign-in is handled by Firebase Authentication.",
+    )

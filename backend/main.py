@@ -26,6 +26,16 @@ def _prepare_database() -> None:
     with engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(bind=engine)
+    # create_all does not add columns to a table that already exists. Keep the
+    # Firebase identity migration safe for an existing Neon deployment too.
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR"))
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid "
+                "ON users (firebase_uid) WHERE firebase_uid IS NOT NULL"
+            )
+        )
 
 
 @app.on_event("startup")

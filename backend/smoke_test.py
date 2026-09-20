@@ -92,10 +92,7 @@ print("Server is up.\n")
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
-TEST_EMAIL = "smoketest@stu.cu.edu.ng"
-TEST_USERNAME = "smoketest99"
-TEST_PASSWORD = "testpass123"
-token = None
+token = os.getenv("EXAMMIND_SMOKE_TOKEN")
 
 print("── Auth ──────────────────────────────────────────────────────")
 
@@ -103,29 +100,17 @@ print("── Auth ────────────────────�
 s, b = req("GET", "/")
 check("GET /  (health)", s, b, check_fn=lambda b: b.get("status") == "ok")
 
-# Register
-s, b = req("POST", "/auth/register", {
-    "name": "Smoke Test",
-    "username": TEST_USERNAME,
-    "email": TEST_EMAIL,
-    "password": TEST_PASSWORD,
-    "role": "student",
-})
-# 200 = created, 400 = already exists (both acceptable)
-check("POST /auth/register", s, b, expect_status=s if s in (200, 400) else 200,
-      check_fn=lambda b: "id" in b or "already" in str(b).lower())
-
-# Login
-s, b = req("POST", "/auth/login",
-           {"username": TEST_EMAIL, "password": TEST_PASSWORD}, form=True)
-r = check("POST /auth/login", s, b, check_fn=lambda b: "access_token" in b)
-if r:
-    token = r["access_token"]
-
-# /auth/me
+# Firebase sign-in happens in the frontend and is covered by the offline token
+# tests. Supply an already-issued application JWT to exercise protected HTTP
+# routes without bypassing email verification in a smoke script.
 if token:
     s, b = req("GET", "/auth/me", token=token)
-    check("GET /auth/me", s, b, check_fn=lambda b: b.get("email") == TEST_EMAIL)
+    check("GET /auth/me", s, b, check_fn=lambda b: "email" in b)
+else:
+    print("Skipping protected-route checks: set EXAMMIND_SMOKE_TOKEN to a verified app JWT.")
+    if proc:
+        proc.terminate()
+    sys.exit(0)
 
 print("\n── Courses & past questions ──────────────────────────────────")
 

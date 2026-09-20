@@ -104,10 +104,28 @@ schema is created from the models.
    - `DEEPSEEK_API_KEY` — the configured primary provider key.
    - `COHERE_API_KEY` — the optional fallback provider key.
    - `CORS_ORIGINS` — leave it until step 4, when the frontend has a URL.
+   - `GOOGLE_OAUTH_CLIENT_ID` â€” the OAuth 2.0 Web client ID shown in the
+     Firebase project's Authentication/Google provider configuration. The API
+     uses it as the expected audience for the Google provider ID token.
+
+   The API also needs these Firebase verification values (the Blueprint fills
+   the fixed values automatically):
+
+   ```text
+   FIREBASE_PROJECT_ID=exammind-509123
+   FIREBASE_CERTS_URL=https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com
+   GOOGLE_CERTS_URL=https://www.googleapis.com/oauth2/v3/certs
+   FIREBASE_CLOCK_SKEW_SECONDS=60
+   FIREBASE_CERT_FETCH_TIMEOUT_SECONDS=10
+   ```
+
+   The API verifies Firebase ID tokens with Google's published certificates.
+   No Firebase service-account JSON file or private key belongs in Render or
+   this repository.
 3. Deploy `exammind-api` first. First build takes a few minutes; `fastembed`
    and `onnxruntime` are large wheels. Check
    `https://<your-api>.onrender.com/docs` loads.
-4. On **exammind-web**, fill in the one `sync: false` value:
+4. On **exammind-web**, fill in the `sync: false` values:
    - `VITE_API_BASE_URL` — `https://<your-api>.onrender.com` from step 3.
      **Include `https://`.** `api.ts` builds requests as
      `` `${API_BASE_URL}${path}` ``, so a bare hostname resolves as a
@@ -117,6 +135,23 @@ schema is created from the models.
      **This is inlined at build time**, not read at runtime. Vite substitutes
      it into the bundle during `npm run build`, so changing it later means
      redeploying the frontend, not just editing the variable.
+   Set the Firebase Web configuration variables as well. These values are
+   public client configuration, but they still belong in the Render build
+   environment rather than in application source:
+
+   ```text
+   VITE_FIREBASE_API_KEY=<Firebase Web API key>
+   VITE_FIREBASE_AUTH_DOMAIN=exammind-509123.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=exammind-509123
+   VITE_FIREBASE_STORAGE_BUCKET=exammind-509123.firebasestorage.app
+   VITE_FIREBASE_MESSAGING_SENDER_ID=290862287209
+   VITE_FIREBASE_APP_ID=1:290862287209:web:850bada52a1fc81ed495f8
+   ```
+
+   In Firebase Console, enable Email/Password and Google sign-in, add
+   `localhost` and `exammind-web.onrender.com` to Authentication > Settings >
+   Authorized domains. The backend still performs the authoritative
+   hosted-domain check, so a browser-side domain check is never sufficient.
 5. Deploy `exammind-web`, then go back to `exammind-api` and set
    `CORS_ORIGINS` to its origin:
    ```
