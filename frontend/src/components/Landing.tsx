@@ -27,6 +27,7 @@ const scenarios = [
   { title: 'For a little more “I’ve got this.”', body: 'Turn your past questions into focused practice. See which topics need another look before the real exam arrives.', image: 'focused-study', alt: 'University student taking notes in a bright shared study space', link: 'Make room for practice' },
 ];
 const navLinks = [{ href: '#capabilities', label: 'Why ExamMind' }, { href: '#workflow', label: 'How it works' }, { href: '#integrity', label: 'Your sources' }];
+const feedbackNavLink = { href: '/feedback', label: 'Feedback' };
 
 function Brand() {
   return <><span className="lp-brand-mark" aria-hidden="true"><Logo size={26} /></span><span>Exam<span className="lp-brand-dot">Mind.</span></span></>;
@@ -310,6 +311,7 @@ export default function Landing({ onGetStarted, onSignIn, onPrivacy, onFeedback 
 
   const start = () => { window.scrollTo({ top: 0, behavior: 'instant' }); onGetStarted(); };
   const signIn = () => { window.scrollTo({ top: 0, behavior: 'instant' }); onSignIn(); };
+  const openFeedback = () => { setMenuOpen(false); onFeedback(); };
   const navigateTo = (event: ReactMouseEvent<HTMLAnchorElement>, href: string) => {
     event.preventDefault();
     const target = document.querySelector<HTMLElement>(href);
@@ -348,14 +350,14 @@ export default function Landing({ onGetStarted, onSignIn, onPrivacy, onFeedback 
       <header className={`lp-header${isScrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-menu-open' : ''}`}>
         <nav className="lp-nav lp-wrap" aria-label="Public navigation">
           <a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a>
-          <div className="lp-nav-links">{navLinks.map(link => <a key={link.href} href={link.href} className={activeNav === link.href ? 'is-active' : ''} onClick={event => navigateTo(event, link.href)}>{link.label}<svg className="lp-nav-ring" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><ellipse cx="50" cy="22" rx="48" ry="17.5" pathLength="100" strokeDasharray="100" strokeDashoffset="100" /></svg></a>)}</div>
+          <div className="lp-nav-links">{navLinks.map(link => <a key={link.href} href={link.href} className={activeNav === link.href ? 'is-active' : ''} onClick={event => navigateTo(event, link.href)}>{link.label}<svg className="lp-nav-ring" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><ellipse cx="50" cy="22" rx="48" ry="17.5" pathLength="100" strokeDasharray="100" strokeDashoffset="100" /></svg></a>)}<a href={feedbackNavLink.href} onClick={event => { event.preventDefault(); openFeedback(); }}>{feedbackNavLink.label}<svg className="lp-nav-ring" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><ellipse cx="50" cy="22" rx="48" ry="17.5" pathLength="100" strokeDasharray="100" strokeDashoffset="100" /></svg></a></div>
           <div className="lp-nav-actions">
             <button className="lp-login" onClick={signIn}>Log in</button>
             <button className="lp-button lp-button-small" onClick={start}>Get started <ArrowUpRight size={17} /></button>
             <button className="lp-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} aria-controls="landing-mobile-nav" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
           </div>
         </nav>
-        <nav id="landing-mobile-nav" className={`lp-mobile-nav${menuOpen ? ' is-open' : ''}`} aria-label="Mobile navigation" aria-hidden={!menuOpen} onKeyDown={event => { if (event.key === 'Escape') { setMenuOpen(false); root.current?.querySelector<HTMLButtonElement>('.lp-menu-toggle')?.focus(); } }}>{navLinks.map(link => <a href={link.href} key={link.href} onClick={event => navigateTo(event, link.href)}>{link.label}<ArrowUpRight size={18} /></a>)}<div className="lp-mobile-cta"><button className="lp-button" onClick={() => { setMenuOpen(false); start(); }}>Get started <ArrowUpRight size={17} /></button><button className="lp-mobile-login" onClick={() => { setMenuOpen(false); signIn(); }}>Log in</button></div></nav>
+        <nav id="landing-mobile-nav" className={`lp-mobile-nav${menuOpen ? ' is-open' : ''}`} aria-label="Mobile navigation" aria-hidden={!menuOpen} onKeyDown={event => { if (event.key === 'Escape') { setMenuOpen(false); root.current?.querySelector<HTMLButtonElement>('.lp-menu-toggle')?.focus(); } }}>{navLinks.map(link => <a href={link.href} key={link.href} onClick={event => navigateTo(event, link.href)}>{link.label}<ArrowUpRight size={18} /></a>)}<a href={feedbackNavLink.href} onClick={event => { event.preventDefault(); openFeedback(); }}>{feedbackNavLink.label}<ArrowUpRight size={18} /></a><div className="lp-mobile-cta"><button className="lp-button" onClick={() => { setMenuOpen(false); start(); }}>Get started <ArrowUpRight size={17} /></button><button className="lp-mobile-login" onClick={() => { setMenuOpen(false); signIn(); }}>Log in</button></div></nav>
       </header>
 
       <section className="lp-hero lp-wrap" id="main-content" aria-labelledby="hero-heading">
