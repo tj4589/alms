@@ -1,4 +1,11 @@
-export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader';
+export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding';
+
+export type Course = {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+};
 
 export type User = {
   id: number;
@@ -91,6 +98,8 @@ export type SearchThread = {
   created_by_username?: string | null;
   course_id?: number | null;
   created_at?: string | null;
+  category?: string | null;
+  mood?: string | null;
 };
 
 export type StudyGroupResult = {
@@ -103,6 +112,9 @@ export type StudyGroupResult = {
   created_at?: string | null;
   member_count?: number;
   is_member?: boolean;
+  visibility?: 'public' | 'private';
+  status?: string;
+  welcome_message?: string | null;
 };
 
 export type StudySessionResult = {

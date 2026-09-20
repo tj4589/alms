@@ -30,6 +30,7 @@ import { forgotPasswordErrorMessage, PASSWORD_RESET_GENERIC_MESSAGE } from '../l
 type AuthProps = {
   onLogin: (token: string) => void | Promise<void>;
   onBackToLanding?: () => void;
+  onPublicFeedback?: () => void;
   initialMode?: 'login' | 'register';
 };
 
@@ -170,7 +171,7 @@ function pruneVerificationCooldowns(): void {
   }
 }
 
-export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: AuthProps) => {
+export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode = 'register' }: AuthProps) => {
   const [isLogin, setIsLogin] = useState(initialMode === 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -499,6 +500,7 @@ export const Auth = ({ onLogin, onBackToLanding, initialMode = 'register' }: Aut
               <div className="auth-footnote">{isLogin ? "Don't have an account? " : 'Already have an account? '}<button type="button" onClick={switchMode}>{isLogin ? 'Sign up' : 'Sign in'}</button></div>
             </>
           )}
+          {onPublicFeedback && <button type="button" className="auth-feedback-link" onClick={onPublicFeedback}>Having trouble signing in? <span>Send feedback</span></button>}
         </div>
       </section>
     </div>

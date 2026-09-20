@@ -7,12 +7,14 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import Text, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import auth
 import models
 from ai_clients import AIProviderError, generate_ai_response
 from database import get_db
+from community_rules import classify_discussion
 from routers.rag import run_rag_query
 from routers.search import _document_key
 
@@ -424,14 +426,19 @@ def serialize_thread(row: models.DiscussionThread) -> dict:
         "course_id": row.course_id,
         "past_question_id": row.past_question_id,
         "created_by": row.created_by,
+        "category": row.category,
+        "mood": row.mood,
+        "group_id": row.group_id,
         "created_at": row.created_at,
     }
 
 
 class ThreadCreateRequest(BaseModel):
-    title: str
+    title: str = ""
+    content: Optional[str] = None
     course_id: Optional[int] = None
     past_question_id: Optional[int] = None
+    group_id: Optional[int] = None
 
 
 class ThreadMessageRequest(BaseModel):
@@ -443,6 +450,8 @@ class StudyGroupCreateRequest(BaseModel):
     description: Optional[str] = None
     course_id: Optional[int] = None
     topic: Optional[str] = None
+    visibility: str = "public"
+    welcome_message: Optional[str] = None
 
 
 @router.get("/courses")
@@ -939,6 +948,9 @@ def list_threads(
             "created_by_username": user_usernames.get(t.created_by) if t.created_by else None,
             "course_id": t.course_id,
             "past_question_id": t.past_question_id,
+            "category": t.category,
+            "mood": t.mood,
+            "group_id": t.group_id,
             "created_at": t.created_at,
         }
         for t in threads
@@ -951,10 +963,18 @@ def create_thread(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
+    title = (req.title or req.content or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Write something to start the discussion.")
+    title = title.splitlines()[0][:180]
+    category, mood = classify_discussion(req.content or req.title)
     thread = models.DiscussionThread(
-        title=req.title,
+        title=title,
         course_id=req.course_id,
         past_question_id=req.past_question_id,
+        group_id=req.group_id,
+        category=category,
+        mood=mood,
         created_by=current_user.id,
     )
     db.add(thread)
@@ -1074,6 +1094,9 @@ def _serialize_group(g: models.StudyGroup, member_count: int, is_member: bool, c
         "created_at": g.created_at,
         "member_count": member_count,
         "is_member": is_member,
+        "visibility": g.visibility,
+        "status": g.status,
+        "welcome_message": g.welcome_message,
     }
 
 
@@ -1085,7 +1108,7 @@ def list_study_groups(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    query = db.query(models.StudyGroup)
+    query = db.query(models.StudyGroup).filter(models.StudyGroup.status == "active")
     if q:
         query = query.filter(
             or_(
@@ -1146,11 +1169,13 @@ def create_study_group(
         description=req.description,
         course_id=req.course_id,
         topic=req.topic,
+        visibility=req.visibility if req.visibility in {"public", "private"} else "public",
+        welcome_message=req.welcome_message,
         created_by=current_user.id,
     )
     db.add(group)
     db.flush()
-    db.add(models.StudyGroupMember(group_id=group.id, user_id=current_user.id))
+    db.add(models.StudyGroupMember(group_id=group.id, user_id=current_user.id, role="owner"))
     db.commit()
     db.refresh(group)
     return _serialize_group(group, 1, True, current_user.username)
@@ -1165,15 +1190,24 @@ def join_study_group(
     group = db.query(models.StudyGroup).filter(models.StudyGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Study group not found.")
+    if group.status != "active":
+        raise HTTPException(status_code=409, detail="This study group is archived.")
     already = db.query(models.StudyGroupMember).filter(
         models.StudyGroupMember.group_id == group_id,
         models.StudyGroupMember.user_id == current_user.id,
     ).first()
     if not already:
-        db.add(models.StudyGroupMember(group_id=group_id, user_id=current_user.id))
-        db.commit()
+        db.add(models.StudyGroupMember(group_id=group_id, user_id=current_user.id, role="member"))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            already = db.query(models.StudyGroupMember).filter(
+                models.StudyGroupMember.group_id == group_id,
+                models.StudyGroupMember.user_id == current_user.id,
+            ).first()
     count = db.query(models.StudyGroupMember).filter(models.StudyGroupMember.group_id == group_id).count()
-    return {"status": "joined", "member_count": count}
+    return {"status": "joined", "member_count": count, "role": already.role if already else "member"}
 
 
 @router.get("/study-groups/{group_id}/members")
@@ -1193,7 +1227,7 @@ def list_group_members(
         .all()
     )
     return [
-        {"user_id": u.id, "username": u.username, "name": u.name, "joined_at": m.joined_at}
+        {"user_id": u.id, "username": u.username, "name": u.name, "role": m.role, "joined_at": m.joined_at}
         for m, u in members
     ]
 
@@ -1208,6 +1242,8 @@ def leave_study_group(
         models.StudyGroupMember.group_id == group_id,
         models.StudyGroupMember.user_id == current_user.id,
     ).first()
+    if member and member.role == "owner":
+        raise HTTPException(status_code=409, detail="Group owners must archive or transfer the group before leaving.")
     if member:
         db.delete(member)
         db.commit()

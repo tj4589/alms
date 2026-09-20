@@ -1,0 +1,50 @@
+.walking-bot {
+  --walking-bot-height: clamp(80px, 12vw, 120px);
+  --walking-bot-ratio: .75;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: calc(var(--walking-bot-height) + 24px);
+  overflow: clip;
+  pointer-events: none;
+  border-bottom: 1px solid var(--margin-rule);
+  background: transparent;
+  contain: layout paint;
+}
+.walking-bot::after { content: ''; position: absolute; bottom: 0; right: 8px; width: 32px; height: 1px; background: var(--highlighter); }
+.walking-bot--small { --walking-bot-height: clamp(72px, 10vw, 100px); }
+.walking-bot--large { --walking-bot-height: clamp(90px, 14vw, 136px); }
+.walking-bot__track { position: absolute; left: 8px; bottom: 3px; height: var(--walking-bot-height); aspect-ratio: var(--walking-bot-ratio); }
+.walking-bot__facing { position: absolute; inset: 0; transform-origin: 50% 94%; }
+.walking-bot__fallback { position: absolute; inset: 0; }
+.walking-bot__fallback .maxe-mark { position: absolute; width: 144%; height: 144%; left: -22%; top: -15%; }
+.walking-bot__fallback .maxe-shadow { display: none; }
+.walking-bot__shadow { position: absolute; bottom: 1px; left: 23%; width: 54%; height: 5px; border-radius: 50%; background: var(--em-ink); opacity: .12; transform-origin: center; }
+.walking-bot__sprite { position: absolute; inset: 0; background-image: var(--walking-bot-sheet); background-repeat: no-repeat; background-size: 1000% 100%; background-position: 88.888889% 0; }
+.walking-bot[data-phase='turn'] .walking-bot__sprite { background-position: 100% 0; }
+.walking-bot[data-phase='walk'] .walking-bot__sprite { animation: walking-bot-frames var(--walking-bot-cycle) steps(8, end) infinite; }
+.walking-bot[data-phase='walk'] .walking-bot__fallback { animation: walking-bot-bounce calc(var(--walking-bot-cycle) / 2) ease-in-out infinite; }
+.walking-bot[data-phase='walk'] .walking-bot__fallback .maxe-leg { animation: walking-bot-step var(--walking-bot-cycle) linear infinite; }
+.walking-bot[data-phase='walk'] .walking-bot__fallback .maxe-leg-left { animation-delay: calc(var(--walking-bot-cycle) / -2); }
+.walking-bot[data-phase='walk'] .walking-bot__fallback .maxe-antenna { transform-origin: 320px 150px; animation: walking-bot-antenna var(--walking-bot-cycle) ease-in-out infinite; }
+.walking-bot[data-phase='walk'] .walking-bot__shadow { animation: walking-bot-shadow calc(var(--walking-bot-cycle) / 2) ease-in-out infinite; }
+.walking-bot[data-paused='false'][data-phase='walk'] .walking-bot__track,
+.walking-bot[data-paused='false'][data-phase='turn'] .walking-bot__facing { will-change: transform; }
+.walking-bot[data-paused='true'] *, .walking-bot[data-paused='true'] .maxe-leg { animation-play-state: paused !important; }
+@keyframes walking-bot-frames { from { background-position: 0 0; } to { background-position: 88.888889% 0; } }
+@keyframes walking-bot-bounce { 0%,100% { transform: translate3d(0,0,0); } 50% { transform: translate3d(0,-2px,0); } }
+/* During contact the foot moves opposite the body; the return half lifts it. */
+@keyframes walking-bot-step {
+  0% { transform: translate(calc(-1 * var(--walking-bot-leg-travel)),0); }
+  25% { transform: translate(0,10px); }
+  50% { transform: translate(var(--walking-bot-leg-travel),0); }
+  75% { transform: translate(0,-26px); }
+  100% { transform: translate(calc(-1 * var(--walking-bot-leg-travel)),0); }
+}
+@keyframes walking-bot-antenna { 0%,100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+@keyframes walking-bot-shadow { 0%,100% { transform: scaleX(1.08) scaleY(.8); opacity: .16; } 50% { transform: scaleX(.94); opacity: .1; } }
+@media (max-width: 600px) { .walking-bot { --walking-bot-height: 82px; } .walking-bot--small { --walking-bot-height: 72px; } .walking-bot--large { --walking-bot-height: 90px; } }
+@media (prefers-reduced-motion: reduce) {
+  .walking-bot *, .walking-bot .maxe-leg { animation: none !important; transition: none !important; will-change: auto !important; }
+  .walking-bot__sprite { background-position: 88.888889% 0 !important; }
+}

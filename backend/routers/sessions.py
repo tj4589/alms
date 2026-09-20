@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -31,11 +32,13 @@ def _school_from_email(email: str) -> str | None:
 class SessionCreateRequest(BaseModel):
     title: str
     description: Optional[str] = None
+    purpose: Optional[str] = None
     course_id: Optional[int] = None
     topic: Optional[str] = None
     exam_goal: Optional[str] = None
     group_id: Optional[int] = None
     ends_at: Optional[str] = None
+    starts_at: Optional[str] = None
 
 
 class ChatMessageRequest(BaseModel):
@@ -72,6 +75,53 @@ def _get_participant(session_id: int, user_id: int, db: Session):
     )
 
 
+def _close_interval(session_id: int, user_id: int, db: Session, now: datetime) -> None:
+    open_interval = db.query(models.StudySessionAttendanceInterval).filter(
+        models.StudySessionAttendanceInterval.session_id == session_id,
+        models.StudySessionAttendanceInterval.user_id == user_id,
+        models.StudySessionAttendanceInterval.ended_at.is_(None),
+    ).order_by(models.StudySessionAttendanceInterval.started_at.desc()).first()
+    if open_interval:
+        open_interval.ended_at = now
+
+
+def _open_interval(session_id: int, user_id: int, kind: str, db: Session, now: datetime) -> None:
+    _close_interval(session_id, user_id, db, now)
+    db.add(models.StudySessionAttendanceInterval(
+        session_id=session_id,
+        user_id=user_id,
+        kind=kind,
+        started_at=now,
+    ))
+
+
+def _record_event(session_id: int, user_id: int, event_type: str, db: Session, now: datetime) -> None:
+    db.add(models.StudySessionAttendanceEvent(
+        event_key=f"{session_id}:{user_id}:{event_type}:{uuid4().hex}",
+        session_id=session_id,
+        user_id=user_id,
+        event_type=event_type,
+        occurred_at=now,
+    ))
+
+
+def _expire_stale_participants(session_id: int, db: Session, now: datetime) -> None:
+    participants = db.query(models.StudySessionParticipant).filter(
+        models.StudySessionParticipant.session_id == session_id,
+        models.StudySessionParticipant.status != "left",
+    ).all()
+    cutoff = now - timedelta(seconds=_HEARTBEAT_TIMEOUT)
+    for participant in participants:
+        last = participant.last_seen_at
+        if last and last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if last and last < cutoff:
+            participant.status = "left"
+            participant.left_at = now
+            _close_interval(session_id, participant.user_id, db, now)
+            _record_event(session_id, participant.user_id, "timeout", db, now)
+
+
 def _serialize_session(
     s: models.StudySession,
     participants: list,
@@ -87,6 +137,7 @@ def _serialize_session(
         "id": s.id,
         "title": s.title,
         "description": s.description,
+        "purpose": s.purpose,
         "course_id": s.course_id,
         "topic": s.topic,
         "exam_goal": s.exam_goal,
@@ -148,6 +199,11 @@ def list_sessions(
     if topic:
         query = query.filter(models.StudySession.topic.ilike(f"%{topic}%"))
     sessions = query.order_by(models.StudySession.created_at.desc()).limit(20).all()
+    now = datetime.now(timezone.utc)
+    for session in sessions:
+        _expire_stale_participants(session.id, db, now)
+    if sessions:
+        db.commit()
 
     session_ids = [s.id for s in sessions]
     all_parts: dict[int, list] = {sid: [] for sid in session_ids}
@@ -193,6 +249,12 @@ def create_session(
     if not req.title or not req.title.strip():
         raise HTTPException(status_code=400, detail="Title is required.")
 
+    starts_at = datetime.now(timezone.utc)
+    if req.starts_at:
+        try:
+            starts_at = datetime.fromisoformat(req.starts_at)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid starts_at format. Use ISO 8601.") from exc
     ends_at = None
     if req.ends_at:
         try:
@@ -200,31 +262,47 @@ def create_session(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid ends_at format. Use ISO 8601.")
 
+    if req.group_id:
+        membership = db.query(models.StudyGroupMember).filter(
+            models.StudyGroupMember.group_id == req.group_id,
+            models.StudyGroupMember.user_id == current_user.id,
+        ).first()
+        if not membership:
+            raise HTTPException(status_code=403, detail="Join the study group before creating a room for it.")
+
+    now = datetime.now(timezone.utc)
+    status = "scheduled" if starts_at > now else "active"
     session = models.StudySession(
         title=req.title.strip(),
         description=req.description,
+        purpose=req.purpose,
         course_id=req.course_id,
         topic=req.topic,
         exam_goal=req.exam_goal,
         group_id=req.group_id,
         created_by=current_user.id,
         school_name=_school_from_email(current_user.email),
-        starts_at=datetime.now(timezone.utc),
+        starts_at=starts_at,
         ends_at=ends_at,
-        status="active",
+        status=status,
     )
     db.add(session)
     db.flush()
-    participant = models.StudySessionParticipant(
-        session_id=session.id,
-        user_id=current_user.id,
-        status="studying",
-        last_seen_at=datetime.now(timezone.utc),
-    )
-    db.add(participant)
+    participants = []
+    if status == "active":
+        participant = models.StudySessionParticipant(
+            session_id=session.id,
+            user_id=current_user.id,
+            status="studying",
+            last_seen_at=now,
+        )
+        db.add(participant)
+        participants.append(participant)
+        _open_interval(session.id, current_user.id, "studying", db, now)
+        _record_event(session.id, current_user.id, "join", db, now)
     db.commit()
     db.refresh(session)
-    return _serialize_session(session, [participant], current_user.username, "studying")
+    return _serialize_session(session, participants, current_user.username, "studying" if status == "active" else None)
 
 
 @router.get("/{session_id}")
@@ -236,6 +314,9 @@ def get_session(
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Reading room not found.")
+
+    _expire_stale_participants(session_id, db, datetime.now(timezone.utc))
+    db.commit()
 
     participants = (
         db.query(models.StudySessionParticipant)
@@ -274,24 +355,35 @@ def join_session(
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Reading room not found.")
+    if session.status == "scheduled" and session.starts_at:
+        starts_at = session.starts_at
+        if starts_at.tzinfo is None:
+            starts_at = starts_at.replace(tzinfo=timezone.utc)
+        if starts_at > datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="This reading room has not started yet.")
+        session.status = "active"
     if session.status != "active":
         raise HTTPException(status_code=400, detail="This reading room has ended.")
 
     now = datetime.now(timezone.utc)
     existing = _get_participant(session_id, current_user.id, db)
     if existing:
+        if existing.status == "left":
+            _open_interval(session_id, current_user.id, "studying", db, now)
+            _record_event(session_id, current_user.id, "join", db, now)
         existing.status = "studying"
         existing.last_seen_at = now
         existing.left_at = None
     else:
-        db.add(
-            models.StudySessionParticipant(
+        participant = models.StudySessionParticipant(
                 session_id=session_id,
                 user_id=current_user.id,
                 status="studying",
                 last_seen_at=now,
             )
-        )
+        db.add(participant)
+        _open_interval(session_id, current_user.id, "studying", db, now)
+        _record_event(session_id, current_user.id, "join", db, now)
     db.commit()
     return {"status": "joined", "my_status": "studying"}
 
@@ -305,8 +397,15 @@ def take_break(
     p = _get_participant(session_id, current_user.id, db)
     if not p or p.status == "left":
         raise HTTPException(status_code=400, detail="You are not in this room.")
+    if p.status == "on_break":
+        p.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"status": "on_break"}
     p.status = "on_break"
-    p.last_seen_at = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    p.last_seen_at = now
+    _open_interval(session_id, current_user.id, "break", db, now)
+    _record_event(session_id, current_user.id, "break_start", db, now)
     db.commit()
     return {"status": "on_break"}
 
@@ -320,8 +419,15 @@ def back_to_study(
     p = _get_participant(session_id, current_user.id, db)
     if not p or p.status == "left":
         raise HTTPException(status_code=400, detail="You are not in this room.")
+    if p.status == "studying":
+        p.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"status": "studying"}
     p.status = "studying"
-    p.last_seen_at = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    p.last_seen_at = now
+    _open_interval(session_id, current_user.id, "studying", db, now)
+    _record_event(session_id, current_user.id, "break_end", db, now)
     db.commit()
     return {"status": "studying"}
 
@@ -334,9 +440,14 @@ def leave_session(
 ):
     p = _get_participant(session_id, current_user.id, db)
     if p:
+        if p.status == "left":
+            return {"status": "left"}
+        now = datetime.now(timezone.utc)
         p.status = "left"
-        p.left_at = datetime.now(timezone.utc)
-        p.last_seen_at = datetime.now(timezone.utc)
+        p.left_at = now
+        p.last_seen_at = now
+        _close_interval(session_id, current_user.id, db, now)
+        _record_event(session_id, current_user.id, "leave", db, now)
         db.commit()
     return {"status": "left"}
 
@@ -349,7 +460,9 @@ def heartbeat(
 ):
     p = _get_participant(session_id, current_user.id, db)
     if p and p.status != "left":
-        p.last_seen_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        p.last_seen_at = now
+        _record_event(session_id, current_user.id, "heartbeat", db, now)
         db.commit()
     return {"ok": True}
 

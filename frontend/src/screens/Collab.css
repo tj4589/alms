@@ -30,6 +30,9 @@
 
 /* ---- the feed ---------------------------------------------------------- */
 #s-collab .feed{list-style:none;margin:0;padding:0}
+#s-collab .discussion-filters{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 2px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+#s-collab .discussion-filters button{min-height:30px;padding:0 11px;border:1px solid var(--border);border-radius:15px;background:transparent;color:var(--text3);font:inherit;font-size:11px;cursor:pointer;text-transform:capitalize}
+#s-collab .discussion-filters button:hover,#s-collab .discussion-filters button.is-active{border-color:var(--teal);background:var(--teal2);color:var(--teal)}
 #s-collab .thread-row{display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--space-4);width:100%;padding:var(--space-5) var(--space-3);border:0;border-bottom:1px solid var(--border);border-radius:2px;background:transparent;font-family:var(--font);text-align:left;cursor:pointer;transition:background-color var(--fast) var(--ease)}
 #s-collab .thread-row:hover{background:var(--surface)}
 #s-collab .thread-avatar{display:grid;place-items:center;width:40px;height:40px;border:1px solid var(--border2);border-radius:50%;background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px}

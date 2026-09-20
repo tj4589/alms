@@ -10,6 +10,8 @@ type Thread = {
   created_by_username: string | null;
   course_id: number | null;
   past_question_id: number | null;
+  category?: 'academic' | 'casual' | string | null;
+  mood?: string | null;
   created_at: string;
 };
 
@@ -84,6 +86,7 @@ export default function Collab({
   const [newTitle, setNewTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState('');
+  const [feedFilter, setFeedFilter] = useState<'all' | 'academic' | 'casual' | 'stuck'>('all');
 
   const msgsEndRef = useRef<HTMLDivElement>(null);
 
@@ -113,6 +116,7 @@ export default function Collab({
     setSelectedThread(null);
     setNewTitle(`Discuss ${topic}`);
     setShowForm(true);
+    setFormCourseId(initialContext.course_id ?? '');
     setFormError('');
   }, [
     initialContext,
@@ -162,20 +166,22 @@ export default function Collab({
 
   // ── Create a thread ────────────────────────────────────────
   const createThread = async () => {
-    const title = newTitle.trim();
-    if (!title) { setFormError('Thread title is required.'); return; }
+    const content = newTitle.trim();
+    if (!content) { setFormError('Write something to start the discussion.'); return; }
     setCreating(true);
     setFormError('');
     try {
-      await apiPost('/threads', {
-        title,
+      const created = await apiPost('/threads', {
+        title: content.split(/\r?\n/)[0].slice(0, 180),
+        content,
         course_id: formCourseId || initialContext?.course_id || null,
         past_question_id: formQuestionId || null,
-      });
+      }) as Thread;
       setNewTitle('');
       setFormQuestionId('');
       setShowForm(false);
       await loadThreads();
+      await openThread({ ...created, created_by_username: user?.username ?? null });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not create thread.');
     } finally {
@@ -190,6 +196,11 @@ export default function Collab({
   const questionMap = new Map(
     pastQuestions.map((question) => [question.id, question.year ? `${question.year} paper` : question.title]),
   );
+  const visibleThreads = threads.filter((thread) => {
+    if (feedFilter === 'all') return true;
+    if (feedFilter === 'stuck') return thread.mood === 'stuck';
+    return thread.category === feedFilter;
+  });
 
   const meInitials = (user?.name || user?.username || 'You')
     .split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
@@ -350,7 +361,7 @@ export default function Collab({
                       value={formCourseId}
                       onChange={(e) => { setFormCourseId(e.target.value ? Number(e.target.value) : ''); setFormQuestionId(''); }}
                     >
-                      <option value="">Which course?</option>
+                      <option value="">Course (optional)</option>
                       {courses.map((course) => (
                         <option key={course.id} value={course.id}>{course.code}</option>
                       ))}
@@ -364,7 +375,7 @@ export default function Collab({
                       disabled={!formCourseId}
                       onChange={(e) => setFormQuestionId(e.target.value ? Number(e.target.value) : '')}
                     >
-                      <option value="">{formCourseId ? 'A specific past question (optional)' : 'Pick a course first'}</option>
+                      <option value="">{formCourseId ? 'A specific past question (optional)' : 'Specific past question (optional)'}</option>
                       {pastQuestions
                         .filter((question) => question.course_id === formCourseId)
                         .map((question) => (
@@ -377,11 +388,11 @@ export default function Collab({
 
                   <div className="composer-foot">
                     <span className="composer-hint">
-                      {formCourseId ? 'Enter to post' : 'Pick a course so the right people see it'}
+                      {formCourseId ? 'We’ll classify this and place it with the right course' : 'Add a course when you want a tighter academic match'}
                     </span>
                     <div className="composer-actions">
                       <button type="button" className="btn-quiet" onClick={() => { setShowForm(false); setNewTitle(''); setFormQuestionId(''); setFormError(''); }}>Cancel</button>
-                      <button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim() || !formCourseId}>
+                      <button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim()}>
                         {creating ? 'Posting...' : 'Post'}
                       </button>
                     </div>
@@ -391,6 +402,14 @@ export default function Collab({
             </div>
           </div>
 
+          <div className="discussion-filters" aria-label="Filter discussions">
+            {(['all', 'academic', 'casual', 'stuck'] as const).map((filter) => (
+              <button type="button" key={filter} className={feedFilter === filter ? 'is-active' : ''} onClick={() => setFeedFilter(filter)}>
+                {filter === 'all' ? 'Everything' : filter === 'stuck' ? 'People stuck' : filter}
+              </button>
+            ))}
+          </div>
+
           {threadsLoading && <p className="feed-state">Loading discussions...</p>}
           {threadsError && <div className="upload-alert">{threadsError}</div>}
           {!threadsLoading && !threadsError && threads.length === 0 && (
@@ -398,7 +417,7 @@ export default function Collab({
           )}
 
           <ul className="feed">
-            {!threadsLoading && threads.map((thread) => (
+            {!threadsLoading && visibleThreads.map((thread) => (
               <li key={thread.id}>
                 <button type="button" className="thread-row" onClick={() => void openThread(thread)}>
                   <span className="thread-avatar" aria-hidden="true">{threadInitials(thread.created_by_username || thread.title)}</span>
@@ -416,6 +435,7 @@ export default function Collab({
                       {questionMap.get(thread.past_question_id ?? -1) && (
                         <span className="anchor-question">{questionMap.get(thread.past_question_id ?? -1)}</span>
                       )}
+                      {thread.category && <span className="anchor-none">{thread.category}</span>}
                     </span>
                   </span>
                 </button>

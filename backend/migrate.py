@@ -57,8 +57,27 @@ _ALTER_STATEMENTS = [
     # username column — added in Reading Rooms sprint; nullable so existing rows survive
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR UNIQUE;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS level VARCHAR;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS semester VARCHAR;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS interests JSONB;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_updated_at TIMESTAMPTZ;",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid ON users (firebase_uid) WHERE firebase_uid IS NOT NULL;",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_lower ON users (LOWER(email));",
+    "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS visibility VARCHAR NOT NULL DEFAULT 'public';",
+    "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS status VARCHAR NOT NULL DEFAULT 'active';",
+    "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS welcome_message TEXT;",
+    "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;",
+    "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'member';",
+    "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE;",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_group_member_group_user ON study_group_members (group_id, user_id);",
+    "UPDATE study_group_members SET role = 'owner' FROM study_groups WHERE study_group_members.group_id = study_groups.id AND study_group_members.user_id = study_groups.created_by AND study_group_members.role = 'member';",
+    "ALTER TABLE discussion_threads ADD COLUMN IF NOT EXISTS category VARCHAR;",
+    "ALTER TABLE discussion_threads ADD COLUMN IF NOT EXISTS mood VARCHAR;",
+    "ALTER TABLE discussion_threads ADD COLUMN IF NOT EXISTS group_id INTEGER;",
+    "ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS purpose TEXT;",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_session_participant_session_user ON study_session_participants (session_id, user_id);",
     # Vector columns are added only when absent, so repeated runs preserve
     # existing embeddings on a live database.
     "ALTER TABLE past_questions ADD COLUMN IF NOT EXISTS embedding vector(384);",
@@ -81,6 +100,9 @@ with engine.connect() as conn:
 # ── 2. Create any tables that don't exist yet ──────────────────────────────────
 
 print("Creating missing tables...")
+# Feedback is additive.  Base.metadata.create_all creates its nullable
+# public-visitor columns and required source/status fields without changing
+# existing user, material, or community records.
 Base.metadata.create_all(bind=engine)
 print("  Done.")
 

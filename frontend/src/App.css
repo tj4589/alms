@@ -1691,6 +1691,9 @@
 .auth-error::before { display: none; }
 .auth-footnote { margin-top: 19px; color: var(--auth-muted); font-size: 13px; text-align: center; }
 .auth-footnote button { padding: 0; border: 0; color: var(--auth-orange); background: transparent; font-size: 13px; font-weight: 650; cursor: pointer; }
+.auth-feedback-link { display: block; width: 100%; margin-top: 22px; padding: 0; border: 0; color: var(--auth-muted); background: transparent; font-size: 11px; text-align: center; cursor: pointer; }
+.auth-feedback-link span { color: var(--auth-orange); font-weight: 650; }
+.auth-feedback-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .auth-forgot,
 .auth-secondary-action,
 .auth-text-action,

@@ -71,6 +71,26 @@
 #s-groups .gs-detail-head h1{margin:0;font-family:var(--serif);font-size:28px;font-weight:400;line-height:1.16;color:var(--text)}
 #s-groups .gs-detail-head p{margin:5px 0 0;font-size:12.5px;color:var(--text3)}
 #s-groups .gs-detail-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-5) 0;border-bottom:1px solid var(--border)}
+#s-groups .group-home-tabs{display:flex;gap:0;overflow-x:auto;border-bottom:1px solid var(--border);margin-top:4px}
+#s-groups .group-home-tabs button{flex:0 0 auto;padding:13px 12px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text3);font:inherit;font-size:12px;cursor:pointer}
+#s-groups .group-home-tabs button:hover,#s-groups .group-home-tabs button.is-active{border-bottom-color:var(--highlighter);color:var(--text)}
+#s-groups .group-welcome{margin:var(--space-5) 0;padding:18px 20px;border-left:2px solid var(--teal);background:var(--teal2)}
+#s-groups .group-welcome p:not(.gs-section-label){margin:0;color:var(--text2);font-size:14px;line-height:1.6}
+#s-groups .group-checklist{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px}
+#s-groups .group-checklist span{padding:5px 9px;border:1px solid var(--border2);border-radius:14px;color:var(--text3);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+#s-groups .group-checklist span.is-done{border-color:var(--teal);color:var(--teal)}
+#s-groups .group-community-panel{padding-top:var(--space-6)}
+#s-groups .group-post-compose{padding:15px 0;border-bottom:1px solid var(--border)}
+#s-groups .group-post-compose textarea{display:block;width:100%;padding:12px;border:1px solid var(--border2);border-radius:2px;background:var(--bg);color:var(--text);font:inherit;line-height:1.5;resize:vertical}
+#s-groups .group-post-compose textarea:focus{outline:2px solid var(--teal);outline-offset:2px}
+#s-groups .group-post-actions{display:flex;align-items:center;justify-content:space-between;margin-top:10px;color:var(--text3);font-family:var(--mono);font-size:10px;text-transform:uppercase}
+#s-groups .group-posts{list-style:none;margin:0;padding:0}
+#s-groups .group-posts li{padding:17px 0;border-bottom:1px solid var(--border)}
+#s-groups .group-posts li>div{display:flex;justify-content:space-between;gap:10px;color:var(--text3);font-size:11px}
+#s-groups .group-posts li strong{color:var(--text2);font-weight:600}
+#s-groups .group-posts li p{margin:8px 0 0;color:var(--text);font-size:14px;line-height:1.6;white-space:pre-wrap}
+#s-groups .group-posts .group-post-empty{color:var(--text3);font-size:13px}
+#s-groups .gs-form-context{margin:0 0 14px;color:var(--teal);font-size:12px}
 
 #s-groups .gs-section{padding:var(--space-6) 0 0}
 #s-groups .gs-section-label{margin:0 0 var(--space-3);font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}

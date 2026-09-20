@@ -4,12 +4,15 @@ import { getSessionPreference, setSessionPreference } from '../lib/session';
 import { getTheme, setTheme } from '../lib/theme';
 import type { Theme } from '../lib/theme';
 import type { SessionPreference } from '../lib/session';
+import FeedbackInbox from '../components/FeedbackInbox';
+import FeedbackPanel from '../components/FeedbackPanel';
 import './Settings.css';
 
 
 type SettingsProps = {
   go: (s: ScreenType) => void;
   user: User | null;
+  onEditProfile?: () => void;
 };
 
 // The three cards that used to sit under "Privacy summary" restated the same
@@ -30,7 +33,7 @@ const DATA_NOTES = [
   },
 ];
 
-export default function Settings({ go, user }: SettingsProps) {
+export default function Settings({ go, user, onEditProfile }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
   const [sessionPref, setPref] = useState<SessionPreference>(() => getSessionPreference());
   const staySignedIn = sessionPref === 'stay';
@@ -61,6 +64,24 @@ export default function Settings({ go, user }: SettingsProps) {
           <button type="button" className="account-link" onClick={() => go('profile')}>View profile &rarr;</button>
         </div>
       </section>
+
+      {onEditProfile && (
+        <section className="setting-block" aria-labelledby="settings-academic-profile">
+          <p className="notes-label">Academic profile</p>
+          <h2 className="notes-title" id="settings-academic-profile">Keep your recommendations current</h2>
+          <p className="setting-note">Update your department, level, courses, and interests whenever your semester changes.</p>
+          <button type="button" className="account-link" onClick={onEditProfile}>Edit academic profile &rarr;</button>
+        </section>
+      )}
+
+      <section className="setting-block settings-feedback-block" aria-labelledby="settings-feedback-title">
+        <p className="notes-label">Help shape ExamMind</p>
+        <h2 className="notes-title" id="settings-feedback-title">Tell us what you noticed</h2>
+        <p className="setting-note">Found a rough edge, or have an idea that would make studying feel more natural?</p>
+        <div className="settings-feedback-panel"><FeedbackPanel mode="authenticated" /></div>
+      </section>
+
+      {user?.role === 'admin' && <FeedbackInbox />}
 
       <section className="setting-block" aria-labelledby="settings-session-title">
         <p className="notes-label">Staying signed in</p>

@@ -46,6 +46,7 @@ import SearchResults from './screens/SearchResults';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
 import Reader from './screens/Reader';
+import Onboarding from './screens/Onboarding';
 import Logo from './components/Logo';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
@@ -55,6 +56,7 @@ import MaxeWorkspace from './components/Maxe/MaxeWorkspace';
 import { Auth } from './components/Auth';
 import Landing from './components/Landing';
 import Privacy from './components/Privacy';
+import FeedbackPage from './components/FeedbackPage';
 import { apiGet } from './lib/api';
 import { firebaseAuth } from './lib/firebase';
 import { signOut as signOutFirebase } from 'firebase/auth';
@@ -65,10 +67,13 @@ type NavigationItem = {
   icon: PhosphorIcon;
 };
 
-type PublicView = 'landing' | 'auth' | 'privacy';
+type PublicView = 'landing' | 'auth' | 'privacy' | 'feedback';
 
 function publicViewFromPath(): PublicView {
-  return window.location.pathname.replace(/\/+$/, '') === '/privacy' ? 'privacy' : 'landing';
+  const path = window.location.pathname.replace(/\/+$/, '');
+  if (path === '/privacy') return 'privacy';
+  if (path === '/feedback') return 'feedback';
+  return 'landing';
 }
 
 const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
@@ -157,6 +162,8 @@ export default function App() {
   const [publicView, setPublicView] = useState<PublicView>(publicViewFromPath);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
@@ -231,6 +238,17 @@ export default function App() {
       });
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    apiGet('/community/profile')
+      .then((data) => {
+        const required = Boolean((data as { onboarding_required?: boolean }).onboarding_required);
+        setNeedsOnboarding(required);
+        if (required) setActiveScreen('onboarding');
+      })
+      .catch(() => setNeedsOnboarding(false));
+  }, [token]);
+
   const handleLogin = async (jwt: string) => {
     storeToken(jwt);
     setToken(jwt);
@@ -249,6 +267,8 @@ export default function App() {
     clearStoredToken();
     setToken(null);
     setUser(null);
+    setNeedsOnboarding(false);
+    setEditingProfile(false);
     setActiveScreen('dashboard');
     setPublicView('landing');
     setSidebarOpen(false);
@@ -262,6 +282,7 @@ export default function App() {
   };
 
   const openPrivacy = () => navigatePublic('/privacy', 'privacy');
+  const openFeedback = () => navigatePublic('/feedback', 'feedback');
   const returnToLanding = () => navigatePublic('/', 'landing');
   const openAuth = (mode: 'login' | 'register') => {
     setAuthInitialMode(mode);
@@ -456,6 +477,16 @@ export default function App() {
     );
   }
 
+  if (publicView === 'feedback') {
+    return (
+      <FeedbackPage
+        onBackToHome={returnToLanding}
+        onGetStarted={() => openAuth('register')}
+        onSignIn={() => openAuth('login')}
+      />
+    );
+  }
+
   if (!token) {
     if (publicView === 'landing') {
       return (
@@ -463,6 +494,7 @@ export default function App() {
           onGetStarted={() => openAuth('register')}
           onSignIn={() => openAuth('login')}
           onPrivacy={openPrivacy}
+          onFeedback={openFeedback}
         />
       );
     }
@@ -473,6 +505,18 @@ export default function App() {
         onLogin={handleLogin}
         initialMode={authInitialMode}
         onBackToLanding={returnToLanding}
+        onPublicFeedback={openFeedback}
+      />
+    );
+  }
+
+  if (needsOnboarding || editingProfile) {
+    return (
+      <Onboarding
+        userName={user?.name || 'Student'}
+        isEditing={editingProfile}
+        onComplete={() => { setNeedsOnboarding(false); setEditingProfile(false); setActiveScreen('dashboard'); }}
+        onLogout={handleLogout}
       />
     );
   }
@@ -751,7 +795,7 @@ export default function App() {
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
-        {activeScreen === 'settings' && <Settings go={go} user={user} />}
+        {activeScreen === 'settings' && <Settings go={go} user={user} onEditProfile={() => setEditingProfile(true)} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'search' && (

@@ -1,9 +1,10 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, ingest, mvp, rag, search, sessions, understand
+from fastapi.responses import JSONResponse
+from routers import auth, community, feedback, ingest, mvp, rag, search, sessions, understand
 import models as _models  # noqa: F401 — registers all ORM classes with Base
 from database import Base, engine
 
@@ -28,14 +29,35 @@ def _prepare_database() -> None:
     Base.metadata.create_all(bind=engine)
     # create_all does not add columns to a table that already exists. Keep the
     # Firebase identity migration safe for an existing Neon deployment too.
-    with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR"))
-        connection.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid "
-                "ON users (firebase_uid) WHERE firebase_uid IS NOT NULL"
-            )
-        )
+    statements = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid ON users (firebase_uid) WHERE firebase_uid IS NOT NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS level VARCHAR",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS semester VARCHAR",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS interests JSONB",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_updated_at TIMESTAMPTZ",
+        "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS visibility VARCHAR NOT NULL DEFAULT 'public'",
+        "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS status VARCHAR NOT NULL DEFAULT 'active'",
+        "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS welcome_message TEXT",
+        "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ",
+        "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'member'",
+        "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_group_member_group_user ON study_group_members (group_id, user_id)",
+        "UPDATE study_group_members SET role = 'owner' FROM study_groups WHERE study_group_members.group_id = study_groups.id AND study_group_members.user_id = study_groups.created_by AND study_group_members.role = 'member'",
+        "ALTER TABLE discussion_threads ADD COLUMN IF NOT EXISTS category VARCHAR",
+        "ALTER TABLE discussion_threads ADD COLUMN IF NOT EXISTS mood VARCHAR",
+        "ALTER TABLE discussion_threads ADD COLUMN IF NOT EXISTS group_id INTEGER",
+        "ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS purpose TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_session_participant_session_user ON study_session_participants (session_id, user_id)",
+    ]
+    for statement in statements:
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(statement))
+        except Exception as exc:
+            print(f"Warning: schema update skipped: {exc}")
 
 
 @app.on_event("startup")
@@ -65,7 +87,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def limit_public_feedback_body(request: Request, call_next):
+    """Reject oversized feedback requests before they reach body validation."""
+    if request.method == "POST" and request.url.path == "/feedback/public":
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                too_large = int(content_length) > feedback.PUBLIC_FEEDBACK_MAX_BYTES
+            except ValueError:
+                return JSONResponse(status_code=400, content={"detail": "Invalid request size."})
+            if too_large:
+                return JSONResponse(status_code=413, content={"detail": "Feedback submission is too large."})
+    return await call_next(request)
+
 app.include_router(auth.router)
+app.include_router(community.router)
+app.include_router(feedback.router)
 app.include_router(ingest.router)
 app.include_router(rag.router)
 app.include_router(mvp.router)

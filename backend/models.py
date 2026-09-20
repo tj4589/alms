@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Integer, LargeBinary, String, Text, ForeignKey, JSON
+from sqlalchemy import Boolean, Column, DateTime, Integer, LargeBinary, String, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from database import Base
@@ -19,6 +19,12 @@ class User(Base):
     # Firebase is the external identity source. Nullable keeps existing
     # Neon users and their study data linkable by verified email on first sign-in.
     firebase_uid = Column(String, unique=True, nullable=True, index=True)
+    department = Column(String, nullable=True, index=True)
+    level = Column(String, nullable=True)
+    semester = Column(String, nullable=True)
+    interests = Column(JSON, nullable=True)
+    onboarding_completed = Column(Boolean, nullable=False, default=False, server_default="false")
+    profile_updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 class Course(Base):
     __tablename__ = "courses"
@@ -166,6 +172,9 @@ class DiscussionThread(Base):
     created_by = Column(Integer, ForeignKey("users.id"))
     past_question_id = Column(Integer, ForeignKey("past_questions.id"), nullable=True)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
+    category = Column(String, nullable=True, index=True)
+    mood = Column(String, nullable=True)
+    group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
 class ThreadMessage(Base):
@@ -188,6 +197,10 @@ class StudyGroup(Base):
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
     topic = Column(String, nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.id"))
+    visibility = Column(String, nullable=False, default="public", server_default="public")
+    status = Column(String, nullable=False, default="active", server_default="active")
+    welcome_message = Column(Text, nullable=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
 
@@ -197,7 +210,89 @@ class StudyGroupMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("study_groups.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    role = Column(String, nullable=False, default="member", server_default="member")
+    notifications_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
     joined_at = Column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "user_id", name="uq_study_group_member_group_user"),
+    )
+
+
+class UserCourse(Base):
+    __tablename__ = "user_courses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "course_id", name="uq_user_course_user_course"),
+    )
+
+
+class StudyGroupPost(Base):
+    __tablename__ = "study_group_posts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("study_groups.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    content = Column(Text)
+    post_type = Column(String, nullable=False, default="discussion", server_default="discussion")
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class StudyGroupInvite(Base):
+    __tablename__ = "study_group_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("study_groups.id"), index=True)
+    invited_user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    invited_by = Column(Integer, ForeignKey("users.id"), index=True)
+    status = Column(String, nullable=False, default="pending", server_default="pending")
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "invited_user_id", name="uq_study_group_invite_group_user"),
+    )
+
+
+class CommunityReport(Base):
+    __tablename__ = "community_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), index=True)
+    subject_type = Column(String, nullable=False)
+    subject_id = Column(Integer, nullable=False, index=True)
+    reason = Column(String, nullable=False)
+    details = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="open", server_default="open")
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class Feedback(Base):
+    """A product feedback submission from a verified student or visitor.
+
+    Public submissions intentionally have no user foreign key.  The source
+    column is written by the endpoint, never accepted from the browser, so an
+    optional guest email cannot become an account identity by accident.
+    """
+
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    guest_name = Column(String(120), nullable=True)
+    reply_email = Column(String(254), nullable=True)
+    source = Column(String(20), nullable=False, index=True)
+    category = Column(String(80), nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    rating = Column(Integer, nullable=True)
+    page_path = Column(String(512), nullable=False)
+    status = Column(String(20), nullable=False, default="new", server_default="new", index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
 
 class StudySession(Base):
@@ -206,6 +301,7 @@ class StudySession(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
     description = Column(Text, nullable=True)
+    purpose = Column(Text, nullable=True)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
     topic = Column(String, nullable=True, index=True)
     exam_goal = Column(String, nullable=True)
@@ -228,6 +324,33 @@ class StudySessionParticipant(Base):
     last_seen_at = Column(DateTime(timezone=True), default=utc_now)
     status = Column(String, default="studying")  # studying, on_break, left
     left_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "user_id", name="uq_study_session_participant_session_user"),
+    )
+
+
+class StudySessionAttendanceInterval(Base):
+    __tablename__ = "study_session_attendance_intervals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("study_sessions.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    kind = Column(String, nullable=False, default="studying", server_default="studying")
+    started_at = Column(DateTime(timezone=True), default=utc_now)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class StudySessionAttendanceEvent(Base):
+    __tablename__ = "study_session_attendance_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_key = Column(String, unique=True, index=True)
+    session_id = Column(Integer, ForeignKey("study_sessions.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    event_type = Column(String, nullable=False)
+    occurred_at = Column(DateTime(timezone=True), default=utc_now)
+    metadata_json = Column(JSON, nullable=True)
 
 
 class StudySessionMessage(Base):

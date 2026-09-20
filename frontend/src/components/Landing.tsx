@@ -11,7 +11,7 @@ import './Landing.css';
 
 gsap.registerPlugin(ScrollTrigger, useGSAP);
 
-type LandingProps = { onGetStarted: () => void; onSignIn: () => void; onPrivacy: () => void };
+type LandingProps = { onGetStarted: () => void; onSignIn: () => void; onPrivacy: () => void; onFeedback: () => void };
 type DeviceOrientationWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<'granted' | 'denied' | 'default'>;
 };
@@ -32,7 +32,7 @@ function Brand() {
   return <><span className="lp-brand-mark" aria-hidden="true"><Logo size={26} /></span><span>Exam<span className="lp-brand-dot">Mind.</span></span></>;
 }
 
-export default function Landing({ onGetStarted, onSignIn, onPrivacy }: LandingProps) {
+export default function Landing({ onGetStarted, onSignIn, onPrivacy, onFeedback }: LandingProps) {
   const root = useRef<HTMLElement>(null);
   const waterCanvas = useRef<HTMLCanvasElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -443,7 +443,7 @@ export default function Landing({ onGetStarted, onSignIn, onPrivacy }: LandingPr
       </div>
 
       <section className="lp-final" id="start"><div className="lp-wrap lp-final-inner"><div><h2>Here’s to your<br />next <em>“I get it.”</em></h2><p>Start with your notes. See where they take you.</p></div><button className="lp-button lp-final-button" onClick={start}>Create your free account <ArrowUpRight size={24} /></button></div></section>
-      <footer className="lp-footer"><div className="lp-wrap"><div className="lp-footer-top"><a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a><p>A clearer way to study.<br />Built around your material.</p><div><a href="#capabilities">Why ExamMind</a><a href="#workflow">How it works</a><a href="/privacy" onClick={event => { event.preventDefault(); onPrivacy(); }}>Privacy</a><button onClick={signIn}>Student login <ArrowUpRight size={15} /></button></div></div><div className="lp-footer-bottom"><span>© {new Date().getFullYear()} ExamMind</span><p className="lp-tag"><MakerTag /></p><span>Stay curious. Keep going.</span></div></div></footer>
+      <footer className="lp-footer"><div className="lp-wrap"><div className="lp-footer-top"><a className="lp-brand" href="#home" aria-label="ExamMind home"><Brand /></a><p>A clearer way to study.<br />Built around your material.</p><div><a href="#capabilities">Why ExamMind</a><a href="#workflow">How it works</a><a href="/privacy" onClick={event => { event.preventDefault(); onPrivacy(); }}>Privacy</a><a href="/feedback" onClick={event => { event.preventDefault(); onFeedback(); }}>Feedback</a><button onClick={signIn}>Student login <ArrowUpRight size={15} /></button></div></div><div className="lp-footer-bottom"><span>© {new Date().getFullYear()} ExamMind</span><p className="lp-tag"><MakerTag /></p><span>Stay curious. Keep going.</span></div></div></footer>
     </main>
   );
 }

@@ -29,13 +29,25 @@ type StudyGroup = {
   created_at: string;
   member_count: number;
   is_member: boolean;
+  visibility?: 'public' | 'private';
+  status?: string;
+  welcome_message?: string | null;
 };
 
 type GroupMember = {
   user_id: number;
   username: string | null;
   name: string;
+  role?: string;
   joined_at: string;
+};
+
+type GroupPost = {
+  id: number;
+  username: string | null;
+  content: string;
+  post_type: 'discussion' | 'announcement' | 'lounge' | string;
+  created_at: string;
 };
 
 type StudySession = {
@@ -153,13 +165,17 @@ function RoomDetail({
 
   useEffect(() => {
     setLoadError('');
-    apiPost(`/study-sessions/${session.id}/join`, {})
-      .then(() => refresh())
-      .catch(() => refresh());
+    if (session.status === 'scheduled') {
+      void refresh();
+    } else {
+      apiPost(`/study-sessions/${session.id}/join`, {})
+        .then(() => refresh())
+        .catch(() => refresh());
+    }
 
     const interval = setInterval(() => void refresh(), 10000);
     return () => clearInterval(interval);
-  }, [session.id, refresh]);
+  }, [session.id, session.status, refresh]);
 
   useEffect(() => {
     if (roomTab === 'chat') {
@@ -263,10 +279,15 @@ function RoomDetail({
                 {isOnBreak ? '☕ On break' : '📖 Studying'}
               </span>
             )}
+            {detail.status === 'scheduled' && detail.starts_at && (
+              <span style={{ fontSize: 11, color: 'var(--gold)' }}>
+                Starts {new Date(detail.starts_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+              </span>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
-          {isOnBreak ? (
+          {detail.status === 'scheduled' ? null : isOnBreak ? (
             <button
               className="cta"
               style={{ marginTop: 0, fontSize: 12, padding: '7px 14px', minHeight: 40 }}
@@ -666,6 +687,12 @@ export default function StudyGroups({
   const [formCourseId, setFormCourseId] = useState<number | ''>('');
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupFormError, setGroupFormError] = useState('');
+  const [groupTab, setGroupTab] = useState<'home' | 'discussions' | 'rooms' | 'materials' | 'members' | 'lounge'>('home');
+  const [groupHome, setGroupHome] = useState<{ group: StudyGroup & { welcome_message?: string | null }; tabs: Record<string, number>; checklist: Record<string, boolean>; my_role?: string | null } | null>(null);
+  const [groupPosts, setGroupPosts] = useState<GroupPost[]>([]);
+  const [groupPostInput, setGroupPostInput] = useState('');
+  const [groupPostType, setGroupPostType] = useState<'discussion' | 'lounge'>('discussion');
+  const [groupPosting, setGroupPosting] = useState(false);
 
   // ── Reading Rooms state ───────────────────────────────────────────────────
   const [sessions, setSessions] = useState<StudySession[]>([]);
@@ -674,10 +701,14 @@ export default function StudyGroups({
   const [showRoomForm, setShowRoomForm] = useState(false);
   const [roomTitle, setRoomTitle] = useState('');
   const [roomTopic, setRoomTopic] = useState('');
+  const [roomPurpose, setRoomPurpose] = useState('');
   const [roomGoal, setRoomGoal] = useState('');
+  const [roomStartsAt, setRoomStartsAt] = useState('');
+  const [roomEndsAt, setRoomEndsAt] = useState('');
   const [roomCourseId, setRoomCourseId] = useState<number | ''>('');
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [roomFormError, setRoomFormError] = useState('');
+  const [roomGroupId, setRoomGroupId] = useState<number | null>(null);
 
   // ── Load groups ───────────────────────────────────────────────────────────
   const loadGroups = useCallback(async () => {
@@ -721,6 +752,19 @@ export default function StudyGroups({
   }, [mainTab, openGroup, loadSessions]);
 
   useEffect(() => {
+    if (!openGroup) return;
+    setGroupTab('home');
+    Promise.all([
+      apiGet(`/community/groups/${openGroup.id}/home`).then((data) => setGroupHome(data as typeof groupHome)),
+      apiGet(`/community/groups/${openGroup.id}/posts`).then((data) => setGroupPosts(data as GroupPost[])),
+      apiGet(`/study-groups/${openGroup.id}/members`).then((data) => setGroupMembers((current) => ({ ...current, [openGroup.id]: data as GroupMember[] }))),
+    ]).catch(() => {
+      setGroupHome(null);
+      setGroupPosts([]);
+    });
+  }, [openGroup]);
+
+  useEffect(() => {
     if (!initialContext) return;
     const topic = initialContext.topic || initialContext.query;
     const courseId = initialContext.course_id ?? '';
@@ -729,9 +773,11 @@ export default function StudyGroups({
     setSelectedSession(null);
     if (initialContext.action === 'reading_room') {
       setMainTab('rooms');
+      setRoomGroupId(null);
       setShowRoomForm(true);
       setRoomTitle(`${coursePrefix}${topic} Reading Room`);
       setRoomTopic(topic);
+      setRoomPurpose(`Work through ${initialContext.material_title || topic} together.`);
       setRoomGoal(`Study ${initialContext.material_title || topic} using uploaded ExamMind materials.`);
       setRoomCourseId(courseId);
       setRoomFormError('');
@@ -760,7 +806,9 @@ export default function StudyGroups({
     setGroupActionPending(groupId);
     try {
       const res = await apiPost(`/study-groups/${groupId}/join`, {}) as { member_count: number };
+      const joined = groups.find((group) => group.id === groupId);
       setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, is_member: true, member_count: res.member_count } : g));
+      if (joined) setOpenGroup({ ...joined, is_member: true, member_count: res.member_count });
     } catch { /* Keep the current membership state when the service is unavailable. */ }
     finally { setGroupActionPending(null); }
   };
@@ -790,6 +838,7 @@ export default function StudyGroups({
       setGroups((prev) => [newGroup, ...prev]);
       setShowGroupForm(false);
       setFormName(''); setFormDesc(''); setFormTopic(''); setFormCourseId('');
+      setOpenGroup(newGroup);
     } catch (err) {
       setGroupFormError(err instanceof Error ? err.message : 'Could not create group.');
     } finally { setCreatingGroup(false); }
@@ -805,16 +854,38 @@ export default function StudyGroups({
       const newRoom = await apiPost('/study-sessions', {
         title,
         topic: roomTopic.trim() || null,
+        purpose: roomPurpose.trim() || null,
         exam_goal: roomGoal.trim() || null,
         course_id: roomCourseId || null,
+        group_id: roomGroupId,
+        starts_at: roomStartsAt ? new Date(roomStartsAt).toISOString() : null,
+        ends_at: roomEndsAt ? new Date(roomEndsAt).toISOString() : null,
       }) as StudySession;
       setSessions((prev) => [newRoom, ...prev]);
       setShowRoomForm(false);
-      setRoomTitle(''); setRoomTopic(''); setRoomGoal(''); setRoomCourseId('');
-      setSelectedSession(newRoom);
+      setRoomTitle(''); setRoomTopic(''); setRoomPurpose(''); setRoomGoal(''); setRoomCourseId(''); setRoomStartsAt(''); setRoomEndsAt('');
+      setRoomGroupId(null);
+      if (newRoom.status === 'active') setSelectedSession(newRoom);
     } catch (err) {
       setRoomFormError(err instanceof Error ? err.message : 'Could not create room.');
     } finally { setCreatingRoom(false); }
+  };
+
+  const createGroupPost = async () => {
+    if (!openGroup || !groupPostInput.trim() || groupPosting) return;
+    setGroupPosting(true);
+    try {
+      const post = await apiPost(`/community/groups/${openGroup.id}/posts`, {
+        content: groupPostInput.trim(),
+        post_type: groupPostType,
+      }) as GroupPost;
+      setGroupPosts((current) => [post, ...current]);
+      setGroupPostInput('');
+    } catch {
+      // Keep the draft visible so a transient connection problem is recoverable.
+    } finally {
+      setGroupPosting(false);
+    }
   };
 
   const toggleGroupDetail = async (groupId: number) => {
@@ -997,17 +1068,37 @@ export default function StudyGroups({
                   {groupActionPending === openGroup.id ? '...' : 'Join group'}
                 </button>
               )}
-              <button className="gs-ghost" onClick={() => setMainTab('rooms')}>Start a reading room</button>
+              <button className="gs-ghost" onClick={() => { setRoomGroupId(openGroup.id); setMainTab('rooms'); setOpenGroup(null); setShowRoomForm(true); }}>Start a reading room</button>
             </div>
 
-            {openGroup.description && (
+            <div className="group-home-tabs" role="tablist" aria-label="Group home">
+              {(['home', 'discussions', 'rooms', 'materials', 'members', 'lounge'] as const).map((tab) => (
+                <button type="button" role="tab" aria-selected={groupTab === tab} className={groupTab === tab ? 'is-active' : ''} key={tab} onClick={() => { setGroupTab(tab); if (tab === 'lounge' || tab === 'discussions') setGroupPostType(tab === 'lounge' ? 'lounge' : 'discussion'); }}>
+                  {tab === 'home' ? 'Home' : tab[0].toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {groupTab === 'home' && (
+              <section className="group-welcome">
+                <p className="gs-section-label">Start here</p>
+                <p>{groupHome?.group.welcome_message || openGroup.welcome_message || 'Welcome. Make the next question easier for someone else.'}</p>
+                <div className="group-checklist">
+                  <span className={groupHome?.checklist.joined ? 'is-done' : ''}>Joined</span>
+                  <span className={groupHome?.checklist.introduced ? 'is-done' : ''}>Say hello</span>
+                  <span className={groupHome?.checklist.opened_room ? 'is-done' : ''}>Open a room</span>
+                </div>
+              </section>
+            )}
+
+            {groupTab === 'home' && openGroup.description && (
               <section className="gs-section">
                 <p className="gs-section-label">About</p>
                 <p className="margin-note">{openGroup.description}</p>
               </section>
             )}
 
-            <section className="gs-section">
+            {groupTab === 'home' && <section className="gs-section">
               <p className="gs-section-label">Members</p>
               {groupMembers[openGroup.id] === undefined ? (
                 <p className="margin-note">Loading members...</p>
@@ -1034,9 +1125,9 @@ export default function StudyGroups({
                   ))}
                 </ul>
               )}
-            </section>
+            </section>}
 
-            <section className="gs-section">
+            {groupTab === 'home' && <section className="gs-section">
               <p className="gs-section-label">Reading rooms</p>
               {sessions.filter((room) => room.group_id === openGroup.id).length === 0 ? (
                 <p className="margin-note">No reading rooms in this group yet. Start one to revise live with the group.</p>
@@ -1063,7 +1154,37 @@ export default function StudyGroups({
                   ))}
                 </ul>
               )}
-            </section>
+            </section>}
+
+            {(groupTab === 'discussions' || groupTab === 'lounge') && (
+              <section className="group-community-panel">
+                <div className="group-post-compose">
+                  <textarea value={groupPostInput} onChange={(event) => setGroupPostInput(event.target.value)} placeholder={groupTab === 'lounge' ? 'Say something to the lounge…' : 'Start the group discussion…'} rows={3} />
+                  <div className="group-post-actions">
+                    <span>{groupPosts.filter((post) => post.post_type === groupTab || (groupTab === 'discussions' && post.post_type === 'announcement')).length} posts</span>
+                    <button type="button" className="gs-primary" onClick={() => void createGroupPost()} disabled={groupPosting || !groupPostInput.trim()}>{groupPosting ? 'Posting…' : 'Post'}</button>
+                  </div>
+                </div>
+                <ul className="group-posts">
+                  {groupPosts.filter((post) => groupTab === 'lounge' ? post.post_type === 'lounge' : post.post_type !== 'lounge').map((post) => (
+                    <li key={post.id}><div><strong>@{post.username || 'student'}</strong><span>{timeAgo(post.created_at)}</span></div><p>{post.content}</p></li>
+                  ))}
+                  {groupPosts.filter((post) => groupTab === 'lounge' ? post.post_type === 'lounge' : post.post_type !== 'lounge').length === 0 && <li className="group-post-empty">Nothing here yet. Start the first thread.</li>}
+                </ul>
+              </section>
+            )}
+
+            {groupTab === 'materials' && (
+              <section className="gs-section"><p className="gs-section-label">Course materials</p><p className="margin-note">{groupHome?.tabs.materials ?? 0} materials are anchored to this group’s course. Open My Materials to read and practice from them.</p><button type="button" className="gs-link" onClick={() => go('questions')}>Open course materials <span>→</span></button></section>
+            )}
+
+            {groupTab === 'rooms' && (
+              <section className="gs-section"><p className="gs-section-label">Reading rooms</p><p className="margin-note">{groupHome?.tabs.rooms ?? sessions.filter((room) => room.group_id === openGroup.id).length} rooms have been opened for this group.</p><button type="button" className="gs-primary" onClick={() => { setRoomGroupId(openGroup.id); setMainTab('rooms'); setOpenGroup(null); setShowRoomForm(true); }}>Start a group room</button></section>
+            )}
+
+            {groupTab === 'members' && (
+              <section className="gs-section"><p className="gs-section-label">Members</p><p className="margin-note">{openGroup.member_count} people are part of this group. Choose a name to view a public profile.</p><ul className="gs-members">{(groupMembers[openGroup.id] || []).map((member) => <li className="gs-member" key={member.user_id}><span className="gs-member-open">{member.username ? `@${member.username}` : 'Student'}{member.role === 'owner' && <small> owner</small>}</span></li>)}</ul></section>
+            )}
           </div>
 
           <aside className="gs-margin">
@@ -1113,9 +1234,20 @@ export default function StudyGroups({
                   <input id="room-topic" type="text" placeholder="Critical path, cost variance" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} />
                 </div>
                 <div className="gs-field">
+                  <label htmlFor="room-purpose">Purpose (optional)</label>
+                  <input id="room-purpose" type="text" placeholder="Work through the paper together" value={roomPurpose} onChange={(e) => setRoomPurpose(e.target.value)} />
+                </div>
+                <div className="gs-field">
                   <label htmlFor="room-goal">Goal for tonight (optional)</label>
                   <input id="room-goal" type="text" placeholder="Get through the 2023 paper" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} />
                 </div>
+                <div className="gs-field gs-datetime-row">
+                  <label htmlFor="room-starts">Starts (optional)</label>
+                  <input id="room-starts" type="datetime-local" value={roomStartsAt} onChange={(e) => setRoomStartsAt(e.target.value)} />
+                  <label htmlFor="room-ends">Ends (optional)</label>
+                  <input id="room-ends" type="datetime-local" value={roomEndsAt} onChange={(e) => setRoomEndsAt(e.target.value)} />
+                </div>
+                {roomGroupId && <p className="gs-form-context">This room will open inside {groups.find((group) => group.id === roomGroupId)?.name || 'your group'}.</p>}
                 <div className="gs-form-actions">
                   <button className="gs-primary" onClick={() => void createRoom()} disabled={creatingRoom || !roomTitle.trim()}>
                     {creatingRoom ? 'Starting...' : 'Start room'}
@@ -1135,6 +1267,7 @@ export default function StudyGroups({
               {!sessionsLoading && sessions.map((room) => {
                 const course = room.course_id ? courseMap.get(room.course_id) : null;
                 const live = room.status === 'active';
+                const scheduled = room.status === 'scheduled';
                 const inRoom = room.my_status && room.my_status !== 'left';
                 return (
                   <li key={room.id}>
@@ -1143,7 +1276,7 @@ export default function StudyGroups({
                       className="gs-row"
                       onClick={() => { if (live) setSelectedSession(room); }}
                       disabled={!live}
-                      aria-label={live ? `${inRoom ? 'Re-enter' : 'Join'} ${room.title}` : `${room.title}, ended`}
+                      aria-label={live ? `${inRoom ? 'Re-enter' : 'Join'} ${room.title}` : scheduled ? `${room.title}, scheduled` : `${room.title}, ended`}
                     >
                       <span className={`gs-avatar ${tintClass(room.id)}`} aria-hidden="true">{groupInitials(room.title)}</span>
                       <span>
@@ -1158,6 +1291,8 @@ export default function StudyGroups({
                       <span className="gs-right">
                         {live
                           ? <span className="gs-live">{inRoom ? 'You are in' : 'Live'}</span>
+                          : scheduled
+                            ? <span className="gs-when">Scheduled</span>
                           : <span className="gs-when">{timeAgo(room.created_at)}</span>}
                         {live && <span className="gs-enter">{inRoom ? 'Re-enter' : 'Join'}</span>}
                       </span>
