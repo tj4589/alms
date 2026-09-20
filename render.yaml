@@ -56,7 +56,7 @@ services:
       - key: FIREBASE_CERTS_URL
         value: https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com
       - key: GOOGLE_CERTS_URL
-        value: https://www.googleapis.com/oauth2/v3/certs
+        value: https://www.googleapis.com/oauth2/v1/certs
       - key: FIREBASE_CLOCK_SKEW_SECONDS
         value: "60"
       - key: FIREBASE_CERT_FETCH_TIMEOUT_SECONDS

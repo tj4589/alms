@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -8,6 +10,35 @@ import schemas
 from database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
+
+
+def _verification_reason(stage: str, message: str) -> str:
+    """Map internal auth failures to safe, stable log reason codes."""
+    normalized = message.casefold()
+    if "temporarily unavailable" in normalized or "not configured correctly" in normalized:
+        return f"{stage}_certificate_fetch_failed"
+    if "signature is invalid" in normalized:
+        return f"{stage}_signature_invalid"
+    if "audience is invalid" in normalized:
+        return f"{stage}_audience_invalid"
+    if "issuer is invalid" in normalized:
+        return f"{stage}_issuer_invalid"
+    if stage == "google" and "covenant university google account" in normalized:
+        return "google_hosted_domain_invalid"
+    if stage == "google" and "does not match the firebase account" in normalized:
+        return "google_email_mismatch"
+    if stage == "google" and "not configured" in normalized:
+        return "google_configuration_invalid"
+    return f"{stage}_claims_invalid"
+
+
+def _log_verification_failure(stage: str, exc: FirebaseTokenError) -> None:
+    logger.warning(
+        "firebase_session_verification_failed stage=%s reason=%s",
+        stage,
+        _verification_reason(stage, str(exc)),
+    )
 
 
 @router.get("/me", response_model=schemas.UserResponse)
@@ -21,7 +52,11 @@ def firebase_session(
     db: Session = Depends(get_db),
 ):
     try:
-        claims = verify_firebase_id_token(payload.firebase_id_token)
+        try:
+            claims = verify_firebase_id_token(payload.firebase_id_token)
+        except FirebaseTokenError as exc:
+            _log_verification_failure("firebase", exc)
+            raise
         firebase_claim = claims.get("firebase")
         provider = (
             firebase_claim.get("sign_in_provider")
@@ -30,14 +65,20 @@ def firebase_session(
         )
 
         if payload.provider == "google":
-            if provider != "google.com" or not payload.google_id_token:
-                raise FirebaseTokenError("Google provider verification is required.")
-            verify_google_provider_token(
-                payload.google_id_token,
-                expected_email=claims["email"],
-            )
+            try:
+                if provider != "google.com" or not payload.google_id_token:
+                    raise FirebaseTokenError("Google provider verification is required.")
+                verify_google_provider_token(
+                    payload.google_id_token,
+                    expected_email=claims["email"],
+                )
+            except FirebaseTokenError as exc:
+                _log_verification_failure("google", exc)
+                raise
         elif provider == "google.com":
-            raise FirebaseTokenError("Google provider verification is required.")
+            exc = FirebaseTokenError("Google provider verification is required.")
+            _log_verification_failure("google", exc)
+            raise exc
 
         user = auth.get_or_create_firebase_user(
             db,

@@ -8,6 +8,7 @@ below honours the cache lifetime returned by Google's certificate endpoint.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -22,6 +23,9 @@ from urllib.request import Request, urlopen
 from jose import JWTError, jwt
 
 
+logger = logging.getLogger(__name__)
+
+
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "exammind-509123").strip()
 FIREBASE_ISSUER = f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"
 FIREBASE_CERTS_URL = os.getenv(
@@ -29,7 +33,7 @@ FIREBASE_CERTS_URL = os.getenv(
     "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com",
 ).strip()
 GOOGLE_CERTS_URL = os.getenv(
-    "GOOGLE_CERTS_URL", "https://www.googleapis.com/oauth2/v3/certs"
+    "GOOGLE_CERTS_URL", "https://www.googleapis.com/oauth2/v1/certs"
 ).strip()
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 ALLOWED_SCHOOL_EMAIL_DOMAINS = {
@@ -77,21 +81,45 @@ class _CertificateCache:
                 raw_body = response.read()
                 headers = response.headers
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            logger.warning(
+                "identity_certificate_fetch_failed error_type=%s",
+                type(exc).__name__,
+            )
             raise FirebaseTokenError("Identity verification is temporarily unavailable.") from exc
         except FirebaseTokenError:
             raise
 
         try:
             decoded = json.loads(raw_body.decode("utf-8"))
+            if not isinstance(decoded, dict):
+                raise ValueError("certificate response is not an object")
             certificates = {
-                str(key): str(value)
+                key: value.strip()
                 for key, value in decoded.items()
-                if isinstance(key, str) and isinstance(value, str)
+                if (
+                    isinstance(key, str)
+                    and key
+                    and isinstance(value, str)
+                    and "-----BEGIN CERTIFICATE-----" in value
+                    and "-----END CERTIFICATE-----" in value
+                )
             }
         except (UnicodeDecodeError, json.JSONDecodeError, AttributeError) as exc:
+            logger.warning(
+                "identity_certificate_response_parse_failed format=x509_map error_type=%s",
+                type(exc).__name__,
+            )
+            raise FirebaseTokenError("Identity verification is temporarily unavailable.") from exc
+        except ValueError as exc:
+            logger.warning(
+                "identity_certificate_response_parse_failed format=x509_map reason=not_object",
+            )
             raise FirebaseTokenError("Identity verification is temporarily unavailable.") from exc
 
         if not certificates:
+            logger.warning(
+                "identity_certificate_response_parse_failed format=x509_map reason=no_certificates",
+            )
             raise FirebaseTokenError("Identity verification is temporarily unavailable.")
 
         expires_at = now + _cache_seconds(headers)
@@ -235,6 +263,10 @@ def _verify_signed_token(
                 "verify_aud": False,
                 "verify_iss": False,
                 "verify_sub": False,
+                # ExamMind receives the Google ID token but does not receive
+                # or use the matching Google access token. The ID token's
+                # at_hash claim therefore cannot be checked here.
+                "verify_at_hash": False,
             },
         )
     except JWTError as exc:

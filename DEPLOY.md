@@ -114,7 +114,7 @@ schema is created from the models.
    ```text
    FIREBASE_PROJECT_ID=exammind-509123
    FIREBASE_CERTS_URL=https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com
-   GOOGLE_CERTS_URL=https://www.googleapis.com/oauth2/v3/certs
+   GOOGLE_CERTS_URL=https://www.googleapis.com/oauth2/v1/certs
    FIREBASE_CLOCK_SKEW_SECONDS=60
    FIREBASE_CERT_FETCH_TIMEOUT_SECONDS=10
    ```
