@@ -72,7 +72,7 @@ def _prepare_database_on_startup() -> None:
         # the configured Neon connection is fixed.
         print(f"Warning: database initialization failed: {exc}")
 
-default_cors_origins = "http://localhost:5173,http://127.0.0.1:5173"
+default_cors_origins = "http://localhost:5173,http://127.0.0.1:5173,https://exammind-web.onrender.com"
 cors_origins = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", default_cors_origins).split(",")

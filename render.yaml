@@ -44,10 +44,9 @@ services:
         value: "0.0.0.0"
       - key: BACKEND_PORT
         value: "8000"
-      # Must list the deployed frontend origin. Fill in after the first deploy,
-      # once exammind-web has its URL -- see DEPLOY.md step 4.
+      # The deployed frontend origin used by the live web service.
       - key: CORS_ORIGINS
-        sync: false
+        value: https://exammind-web.onrender.com
       - key: ALLOWED_SCHOOL_EMAIL_DOMAINS
         value: stu.cu.edu.ng,covenantuniversity.edu.ng
       - key: FIREBASE_PROJECT_ID
@@ -122,11 +121,10 @@ services:
     staticPublishPath: dist
     envVars:
       # Baked into the bundle at build time by Vite, not read at runtime.
-      # Fill in after exammind-api has deployed and you have its URL -- see
-      # DEPLOY.md step 3. Must include the scheme (https://) and no trailing
-      # slash.
+      # Baked into the bundle at build time by Vite. Must include the scheme
+      # (https://) and no trailing slash.
       - key: VITE_API_BASE_URL
-        sync: false
+        value: https://exammind-api.onrender.com
       - key: VITE_FIREBASE_API_KEY
         sync: false
       - key: VITE_FIREBASE_AUTH_DOMAIN

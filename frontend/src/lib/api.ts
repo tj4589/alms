@@ -1,7 +1,12 @@
 import { getToken, clearToken } from './session';
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001';
+const LOCAL_API_BASE_URL = 'http://127.0.0.1:8001';
+const PRODUCTION_API_BASE_URL = 'https://exammind-api.onrender.com';
+const isProductionRenderSite = typeof window !== 'undefined' && window.location.hostname === 'exammind-web.onrender.com';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || (isProductionRenderSite ? PRODUCTION_API_BASE_URL : LOCAL_API_BASE_URL)).replace(/\/+$/, '');
 
-export const BACKEND_CONNECTION_ERROR = 'Cannot connect to backend. Start FastAPI and confirm VITE_API_BASE_URL matches the running backend. Try http://127.0.0.1:8001/docs.';
+export const BACKEND_CONNECTION_ERROR = isProductionRenderSite
+  ? 'ExamMind could not reach its live API. Please try again shortly.'
+  : `Cannot connect to backend. Start FastAPI and confirm VITE_API_BASE_URL matches the running backend. Try ${LOCAL_API_BASE_URL}/docs.`;
 
 type RequestBody = Record<string, unknown> | unknown[];
 
