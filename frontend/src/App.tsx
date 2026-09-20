@@ -54,6 +54,7 @@ import MaxeTrigger from './components/Maxe/MaxeTrigger';
 import MaxeWorkspace from './components/Maxe/MaxeWorkspace';
 import { Auth } from './components/Auth';
 import Landing from './components/Landing';
+import Privacy from './components/Privacy';
 import { apiGet } from './lib/api';
 import { DEV_AUTH_USER, isDevAuthToken } from './lib/devAuth';
 
@@ -62,6 +63,12 @@ type NavigationItem = {
   screen: ScreenType;
   icon: PhosphorIcon;
 };
+
+type PublicView = 'landing' | 'auth' | 'privacy';
+
+function publicViewFromPath(): PublicView {
+  return window.location.pathname.replace(/\/+$/, '') === '/privacy' ? 'privacy' : 'landing';
+}
 
 const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
   {
@@ -146,7 +153,7 @@ export default function App() {
     }
     return readStoredToken();
   });
-  const [publicView, setPublicView] = useState<'landing' | 'auth'>('landing');
+  const [publicView, setPublicView] = useState<PublicView>(publicViewFromPath);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
@@ -161,6 +168,12 @@ export default function App() {
   const [practiceInitialTopic, setPracticeInitialTopic] = useState('');
   const [practiceContext, setPracticeContext] = useState<SearchActionContext | null>(null);
   const [communityContext, setCommunityContext] = useState<(SearchActionContext & { action: 'discussion' | 'study_group' | 'reading_room' }) | null>(null);
+
+  useEffect(() => {
+    const syncPublicPath = () => setPublicView(publicViewFromPath());
+    window.addEventListener('popstate', syncPublicPath);
+    return () => window.removeEventListener('popstate', syncPublicPath);
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<GlobalSearchResult | null>(null);
@@ -249,6 +262,19 @@ export default function App() {
     setPublicView('landing');
     setSidebarOpen(false);
     setMaxeOpen(false);
+  };
+
+  const navigatePublic = (path: string, view: PublicView) => {
+    window.history.pushState({}, '', path);
+    setPublicView(view);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  };
+
+  const openPrivacy = () => navigatePublic('/privacy', 'privacy');
+  const returnToLanding = () => navigatePublic('/', 'landing');
+  const openAuth = (mode: 'login' | 'register') => {
+    setAuthInitialMode(mode);
+    navigatePublic('/', 'auth');
   };
 
   // A second argument names what the screen should open: whose profile, or
@@ -429,18 +455,23 @@ export default function App() {
     }
   };
 
+  if (publicView === 'privacy') {
+    return (
+      <Privacy
+        onBackToHome={returnToLanding}
+        onGetStarted={() => openAuth('register')}
+        onSignIn={() => openAuth('login')}
+      />
+    );
+  }
+
   if (!token) {
     if (publicView === 'landing') {
       return (
         <Landing
-          onGetStarted={() => {
-            setAuthInitialMode('register');
-            setPublicView('auth');
-          }}
-          onSignIn={() => {
-            setAuthInitialMode('login');
-            setPublicView('auth');
-          }}
+          onGetStarted={() => openAuth('register')}
+          onSignIn={() => openAuth('login')}
+          onPrivacy={openPrivacy}
         />
       );
     }
@@ -450,7 +481,7 @@ export default function App() {
         key={authInitialMode}
         onLogin={handleLogin}
         initialMode={authInitialMode}
-        onBackToLanding={() => setPublicView('landing')}
+        onBackToLanding={returnToLanding}
       />
     );
   }
