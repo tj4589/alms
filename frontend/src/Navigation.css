@@ -8,6 +8,9 @@
 .workspace-shell .logo-mark{display:grid;place-items:center;background:none;border:0;box-shadow:none}
 .workspace-shell .logo-name{position:static;display:block;font:600 23px/1 var(--font);letter-spacing:-1px;color:#252b24;opacity:1}
 .workspace-shell .logo-name span{color:var(--brand-word)}
+.workspace-shell .nav-pin{display:flex;align-items:center;gap:10px;width:calc(100% - 28px);min-height:34px;margin:0 14px 4px;padding:0 10px;border:1px solid #dedfd4;border-radius:9px;background:transparent;color:#687062;cursor:pointer;font:500 11px var(--font);text-align:left}
+.workspace-shell .nav-pin svg{width:17px;height:17px;flex:0 0 auto}
+.workspace-shell .nav-pin:hover{border-color:#ac401e;color:#252b24;background:#f7f5ee}
 .workspace-shell .nav{padding:8px 14px;flex:1;display:flex;flex-direction:column;gap:26px;overflow:visible}
 .workspace-shell .nav-group{display:flex;flex-direction:column;gap:4px}
 .workspace-shell .nav-section{padding:0 12px 7px;color:#74776b;font:500 12px/1.4 var(--font);letter-spacing:0;text-transform:none}
@@ -42,6 +45,39 @@
 .workspace-shell :is(button,input,a):focus-visible{outline:2px solid #ac401e;outline-offset:3px}
 .workspace-shell .mobile-nav-sheet{display:none}
 @media(min-width:769px){.workspace-shell .mob-nav,.workspace-shell .mob-menu,.workspace-shell .sidebar-scrim{display:none}}
+/* Focus mode: inside a tab the rail becomes a slim icon dock. Hovering the
+   dock brings the labels back without making the student leave the page. */
+@media(min-width:769px){
+  .workspace-shell.is-compact-nav .sidebar{width:72px;overflow:visible;transition:width .22s cubic-bezier(.16,.84,.44,1);z-index:240}
+  .workspace-shell.is-compact-nav .sidebar:hover,.workspace-shell.is-compact-nav .sidebar:focus-within{width:220px;box-shadow:14px 0 32px rgba(37,43,36,.08)}
+  .workspace-shell.is-compact-nav .main{margin-left:72px;transition:margin-left .22s cubic-bezier(.16,.84,.44,1)}
+  .workspace-shell.is-compact-nav .logo{padding:0 21px;justify-content:flex-start}
+  .workspace-shell.is-compact-nav .logo-name,
+  .workspace-shell.is-compact-nav .nav-section,
+  .workspace-shell.is-compact-nav .rail-item-label,
+  .workspace-shell.is-compact-nav .rail-account-copy{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .1s ease}
+  .workspace-shell.is-compact-nav .sidebar:hover .logo{padding:0 24px}
+  .workspace-shell.is-compact-nav .sidebar:hover .logo-name,
+  .workspace-shell.is-compact-nav .sidebar:focus-within .logo-name,
+  .workspace-shell.is-compact-nav .sidebar:hover .nav-section,
+  .workspace-shell.is-compact-nav .sidebar:focus-within .nav-section,
+  .workspace-shell.is-compact-nav .sidebar:hover .rail-item-label,
+  .workspace-shell.is-compact-nav .sidebar:focus-within .rail-item-label,
+  .workspace-shell.is-compact-nav .sidebar:hover .rail-account-copy{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .16s ease .06s}
+  .workspace-shell.is-compact-nav .sidebar:focus-within .rail-account-copy{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .16s ease .06s}
+  .workspace-shell.is-compact-nav .nav-pin{width:42px;overflow:hidden;justify-content:center;padding:0;margin-left:15px}
+  .workspace-shell.is-compact-nav .sidebar:hover .nav-pin,.workspace-shell.is-compact-nav .sidebar:focus-within .nav-pin{width:calc(100% - 28px);justify-content:flex-start;padding:0 10px}
+  .workspace-shell.is-compact-nav .nav-pin span{opacity:0;visibility:hidden}
+  .workspace-shell.is-compact-nav .sidebar:hover .nav-pin span,.workspace-shell.is-compact-nav .sidebar:focus-within .nav-pin span{opacity:1;visibility:visible}
+  .workspace-shell.is-compact-nav .nav{padding-left:14px;padding-right:14px}
+  .workspace-shell.is-compact-nav .rail-item-surface{justify-content:flex-start;padding:0 12px}
+  .workspace-shell.is-compact-nav .sidebar:not(:hover) .rail-item-surface{justify-content:center;padding:0}
+  .workspace-shell.is-compact-nav .sidebar:not(:hover) .user-btn .rail-item-surface{justify-content:center}
+  .workspace-shell.is-compact-nav .sidebar:not(:hover) .settings-btn,
+  .workspace-shell.is-compact-nav .sidebar:not(:hover) .logout-btn{width:42px;margin-left:auto;margin-right:auto}
+  .workspace-shell.is-compact-nav .sidebar:not(:hover) .user-btn{width:42px;margin-left:auto;margin-right:auto;padding:6px}
+  .workspace-shell.is-compact-nav .sidebar:not(:hover) .user-btn .rail-account-surface{gap:0}
+}
 @media(max-width:1150px){.workspace-shell .sidebar{width:200px}.workspace-shell .main{margin-left:200px}.workspace-location>span{display:none}.workspace-shell .topbar{padding:0 24px;gap:14px}.workspace-shell .tb-right>.ico-btn{display:none}}
 @media(max-width:900px){.workspace-shell .sidebar{width:180px}.workspace-shell .main{margin-left:180px}.workspace-shell .logo{padding:0 18px}.workspace-shell .logo-name{font-size:21px}.workspace-shell .offline-pill{display:none}}
 @media(max-width:768px){

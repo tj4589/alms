@@ -169,6 +169,7 @@ export default function App() {
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(() => localStorage.getItem('exammind-sidebar-pinned') === 'true');
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [toast, setToast] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
@@ -224,6 +225,10 @@ export default function App() {
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    localStorage.setItem('exammind-sidebar-pinned', String(sidebarPinned));
+  }, [sidebarPinned]);
 
   // Hydrate user info from a stored token on first load
   useEffect(() => {
@@ -532,13 +537,18 @@ export default function App() {
       : null;
   const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
 
+  const compactSidebar = !sidebarPinned && activeScreen !== 'dashboard' && activeScreen !== 'onboarding';
+
   return (
-    <div className="shell workspace-shell">
+    <div className={`shell workspace-shell${compactSidebar ? ' is-compact-nav' : ''}`}>
       <aside className="sidebar" id="sidebar" aria-label="Primary navigation">
         <div className="logo" aria-label="ExamMind">
           <div className="logo-mark"><Logo size={24} /></div>
           <div className="logo-name">Exam<span>Mind.</span></div>
         </div>
+        <button type="button" className="nav-pin" onClick={() => setSidebarPinned((current) => !current)} aria-pressed={sidebarPinned} aria-label={sidebarPinned ? 'Collapse navigation rail' : 'Keep navigation expanded'} title={sidebarPinned ? 'Collapse navigation rail' : 'Keep navigation expanded'}>
+          <ListIcon aria-hidden="true" weight="regular" /><span>{sidebarPinned ? 'Collapse rail' : 'Keep expanded'}</span>
+        </button>
         <nav className="nav">
           {NAV_GROUPS.map((group) => (
             <div className="nav-group" role="group" aria-label={group.label} key={group.label}>
