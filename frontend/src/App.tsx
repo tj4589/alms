@@ -1062,7 +1062,8 @@ export default function App() {
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
-        {activeScreen === 'settings' && <Settings go={go} user={user} onEditProfile={() => setEditingProfile(true)} />}
+        {profileNudgeVisible && <div className="profile-nudge" role="status"><span><strong>Your desk can know you better.</strong><small>Add your department, level or courses for more useful recommendations.</small></span><button type="button" onClick={() => { setOnboardingReturnScreen('dashboard'); setEditingProfile(true); setProfileNudgeVisible(false); setActiveScreen('onboarding'); }}>Finish profile</button><button type="button" className="profile-nudge-dismiss" aria-label="Dismiss profile reminder" onClick={() => { localStorage.setItem('exammind-profile-nudge-dismissed', 'true'); setProfileNudgeVisible(false); }}>×</button></div>}
+        {activeScreen === 'settings' && <Settings go={go} user={user} onEditProfile={() => { setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'search' && (

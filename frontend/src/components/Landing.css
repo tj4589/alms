@@ -487,3 +487,4 @@ html.lp-active body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   .lp-step { position: relative; top: auto !important; transform: none !important; }
   .lp-workflow-intro { position: static; }
 }
+.lp-account-notice{position:fixed;z-index:30;top:18px;left:50%;max-width:min(90vw,620px);padding:12px 18px;transform:translateX(-50%);border:1px solid rgba(255,255,255,.34);border-radius:999px;background:rgba(29,34,28,.94);color:#fffdf7;box-shadow:0 14px 30px rgba(20,24,20,.18);font-size:12px;line-height:1.45;text-align:center}

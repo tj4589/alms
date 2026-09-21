@@ -11,7 +11,7 @@ import './Landing.css';
 
 gsap.registerPlugin(ScrollTrigger, useGSAP);
 
-type LandingProps = { onGetStarted: () => void; onSignIn: () => void; onPrivacy: () => void; onFeedback: () => void };
+type LandingProps = { onGetStarted: () => void; onSignIn: () => void; onPrivacy: () => void; onFeedback: () => void; deletionNotice?: string };
 type DeviceOrientationWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<'granted' | 'denied' | 'default'>;
 };
@@ -33,7 +33,7 @@ function Brand() {
   return <><span className="lp-brand-mark" aria-hidden="true"><Logo size={26} /></span><span>Exam<span className="lp-brand-dot">Mind.</span></span></>;
 }
 
-export default function Landing({ onGetStarted, onSignIn, onPrivacy, onFeedback }: LandingProps) {
+export default function Landing({ onGetStarted, onSignIn, onPrivacy, onFeedback, deletionNotice }: LandingProps) {
   const root = useRef<HTMLElement>(null);
   const waterCanvas = useRef<HTMLCanvasElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -346,6 +346,7 @@ export default function Landing({ onGetStarted, onSignIn, onPrivacy, onFeedback 
 
   return (
     <main className="lp" ref={root} id="home">
+      {deletionNotice && <div className="lp-account-notice" role="status">{deletionNotice}</div>}
       <a href="#main-content" className="lp-skip">Skip to content</a>
       <header className={`lp-header${isScrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-menu-open' : ''}`}>
         <nav className="lp-nav lp-wrap" aria-label="Public navigation">
