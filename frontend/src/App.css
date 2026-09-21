@@ -2597,3 +2597,14 @@
   .wb-search-control input{font-size:16px;}
   .wb-course-main small{white-space:normal;}
 }
+
+/* The workspace search is a small command drawer rather than a dropdown. It
+   keeps the feed visible while giving results enough room to breathe. */
+.workspace-shell .global-search-panel.gs-preview-panel{position:fixed;top:74px;right:auto;bottom:0;left:var(--sidebar-collapsed-width);width:min(360px,calc(100vw - var(--sidebar-collapsed-width)));max-height:none;overflow:auto;padding:16px;border-radius:0 16px 0 0;background:var(--bg2);box-shadow:16px 0 36px rgba(37,43,36,.12);animation:searchDrawerIn .18s cubic-bezier(.23,1,.32,1)}
+@keyframes searchDrawerIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+.gsp-drawer-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:var(--text);font-size:14px}
+.gsp-drawer-input{display:block;width:100%;min-height:40px;margin-bottom:14px;padding:0 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:13px var(--font);outline:none}
+.gsp-drawer-input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(172,64,30,.1)}
+.gsp-drawer-top .gs-close-btn{width:30px;height:30px}
+@media(max-width:768px){.workspace-shell .global-search-panel.gs-preview-panel{top:62px;left:0;width:100vw;border-radius:0;bottom:78px}.gsp-drawer-input{font-size:16px}}
+@media(prefers-reduced-motion:reduce){.workspace-shell .global-search-panel.gs-preview-panel{animation:none}}

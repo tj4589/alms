@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent } from 'react';
 import { BellIcon } from '@phosphor-icons/react/dist/icons/Bell';
 import { BooksIcon } from '@phosphor-icons/react/dist/icons/Books';
 import { ChatsCircleIcon } from '@phosphor-icons/react/dist/icons/ChatsCircle';
@@ -169,7 +169,7 @@ export default function App() {
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarPinned, setSidebarPinned] = useState(() => localStorage.getItem('exammind-sidebar-pinned') === 'true');
+  const [navExpanded, setNavExpanded] = useState(false);
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [toast, setToast] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
@@ -197,6 +197,9 @@ export default function App() {
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement>(null);
+  const navCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navPointerInside = useRef(false);
+  const navFocusInside = useRef(false);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseRef = useRef<HTMLButtonElement>(null);
   const maxeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -226,9 +229,44 @@ export default function App() {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [sidebarOpen]);
 
-  useEffect(() => {
-    localStorage.setItem('exammind-sidebar-pinned', String(sidebarPinned));
-  }, [sidebarPinned]);
+  const expandNav = () => {
+    if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
+    setNavExpanded(true);
+  };
+
+  const scheduleNavCollapse = () => {
+    if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
+    navCollapseTimer.current = setTimeout(() => {
+      if (!navPointerInside.current && !navFocusInside.current) setNavExpanded(false);
+    }, 220);
+  };
+
+  const handleNavPointerEnter = () => {
+    navPointerInside.current = true;
+    expandNav();
+  };
+
+  const handleNavPointerLeave = () => {
+    navPointerInside.current = false;
+    scheduleNavCollapse();
+  };
+
+  const handleNavFocus = () => {
+    navFocusInside.current = true;
+    expandNav();
+  };
+
+  const handleNavBlur = (event: ReactFocusEvent<HTMLElement>) => {
+    const nextTarget = event.relatedTarget as Node | null;
+    if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+      navFocusInside.current = false;
+      scheduleNavCollapse();
+    }
+  };
+
+  useEffect(() => () => {
+    if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
+  }, []);
 
   // Hydrate user info from a stored token on first load
   useEffect(() => {
@@ -537,18 +575,17 @@ export default function App() {
       : null;
   const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
 
-  const compactSidebar = !sidebarPinned && activeScreen !== 'dashboard' && activeScreen !== 'onboarding';
+  // Keep the authenticated rail compact so the active workspace owns the
+  // screen. Navigation.css expands it on hover/focus for quick wayfinding.
+  const compactSidebar = true;
 
   return (
-    <div className={`shell workspace-shell${compactSidebar ? ' is-compact-nav' : ''}`}>
-      <aside className="sidebar" id="sidebar" aria-label="Primary navigation">
+    <div className={`shell workspace-shell${compactSidebar ? ' is-compact-nav' : ''}${navExpanded ? ' is-nav-expanded' : ''}`}>
+      <aside className="sidebar" id="sidebar" aria-label="Primary navigation" onPointerEnter={handleNavPointerEnter} onPointerLeave={handleNavPointerLeave} onFocusCapture={handleNavFocus} onBlurCapture={handleNavBlur}>
         <div className="logo" aria-label="ExamMind">
           <div className="logo-mark"><Logo size={24} /></div>
           <div className="logo-name">Exam<span>Mind.</span></div>
         </div>
-        <button type="button" className="nav-pin" onClick={() => setSidebarPinned((current) => !current)} aria-pressed={sidebarPinned} aria-label={sidebarPinned ? 'Collapse navigation rail' : 'Keep navigation expanded'} title={sidebarPinned ? 'Collapse navigation rail' : 'Keep navigation expanded'}>
-          <ListIcon aria-hidden="true" weight="regular" /><span>{sidebarPinned ? 'Collapse rail' : 'Keep expanded'}</span>
-        </button>
         <nav className="nav">
           {NAV_GROUPS.map((group) => (
             <div className="nav-group" role="group" aria-label={group.label} key={group.label}>
@@ -563,6 +600,7 @@ export default function App() {
                     onClick={() => go(item.screen)}
                     aria-current={isActive ? 'page' : undefined}
                     aria-label={item.label}
+                    title={item.label}
                     key={item.screen}
                   >
                     <span className="rail-item-surface" aria-hidden="true">
@@ -581,6 +619,7 @@ export default function App() {
             className="user-btn rail-button"
             onClick={() => go('profile')}
             aria-label={`Open your profile, ${user?.name ?? 'Student'}`}
+            title="Profile"
           >
             <span className="rail-item-surface rail-account-surface" aria-hidden="true">
               <span className="ava">{userInitials}</span>
@@ -595,6 +634,7 @@ export default function App() {
             className={`settings-btn rail-button ${activeScreen === 'settings' || activeScreen === 'profile' ? 'on' : ''}`}
             onClick={() => go('settings')}
             aria-label="Settings"
+            title="Settings"
             aria-current={activeScreen === 'settings' ? 'page' : undefined}
           >
             <span className="rail-item-surface" aria-hidden="true">
@@ -608,6 +648,7 @@ export default function App() {
             className="logout-btn rail-button"
             onClick={handleLogout}
             aria-label="Log out"
+            title="Log out"
           >
             <span className="rail-item-surface" aria-hidden="true">
               <SignOutIcon className="rail-control-icon" weight="regular" />
@@ -648,7 +689,7 @@ export default function App() {
               placeholder="Find a note, topic, or study group…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => { if (searchQuery.trim().length >= 2) setSearchOpen(true); }}
+              onFocus={() => setSearchOpen(true)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -663,6 +704,8 @@ export default function App() {
             {searchOpen && (
               <div className="global-search-panel gs-preview-panel" aria-live="polite">
                 <div className="global-search-preview">
+                  <div className="gsp-drawer-top"><strong>Search ExamMind</strong><button type="button" className="gs-close-btn" onClick={closeSearch} aria-label="Close search" title="Close search"><XIcon aria-hidden="true" weight="regular" /></button></div>
+                  <input className="gsp-drawer-input" type="text" aria-label="Search all ExamMind content" placeholder="Search notes, questions, groups..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleGlobalSearchEnter(); } }} />
                   <div className="gsp-header">
                     <div>
                       <div className="gsp-title">Search ExamMind for "{searchQuery.trim()}"</div>
