@@ -90,3 +90,22 @@
 .account-delete-modal .notes-title{margin-bottom:16px;font-size:clamp(27px,4vw,38px)}.account-delete-copy{margin:0 0 14px;color:var(--text2);font-size:13px;line-height:1.65}.account-delete-copy strong{color:var(--text)}.account-delete-auth-note{margin:20px 0 0;padding:13px;border-left:2px solid var(--teal);background:var(--teal2);color:var(--text2);font-size:12px;line-height:1.55}.account-delete-field{margin-top:18px}.account-delete-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:26px;padding-top:18px;border-top:1px solid var(--border)}.danger-button-confirm{margin-top:0;background:var(--coral);border-color:var(--coral);color:var(--surface)}
 @media(max-width:560px){.account-delete-backdrop{padding:12px;align-items:end}.account-delete-modal{padding:24px 18px;border-radius:16px 16px 6px 6px}.account-delete-actions{align-items:stretch;flex-direction:column-reverse}.account-delete-actions .danger-button{width:100%}}
 @media(prefers-reduced-motion:reduce){.account-delete-backdrop{transition:none}}
+
+/* ---- centered workspace layout ------------------------------------------ */
+#s-settings.page{width:100%;max-width:1240px;margin-inline:auto;padding:clamp(30px,4vw,56px) clamp(22px,4.5vw,72px) 96px}
+#s-settings :is(.pg-head,.settings-account-row,.setting-block,.notes){width:min(100%,980px);max-width:none;margin-inline:auto}
+#s-settings .pg-head{margin-bottom:clamp(36px,5vw,60px)}
+#s-settings .settings-account-row{margin-top:0}
+#s-settings .setting-block{margin-top:56px;padding-top:32px;border-top:1px solid var(--border)}
+#s-settings .settings-account-row + .setting-block{margin-top:48px;padding-top:0;border-top:0}
+#s-settings .settings-feedback-panel{max-width:100%;margin-top:20px}
+#s-settings .notes{margin-top:64px;padding-top:32px;border-top:1px solid var(--border)}
+
+@media(max-width:768px){
+  #s-settings.page{padding:26px 18px 90px}
+  #s-settings :is(.pg-head,.settings-account-row,.setting-block,.notes){width:100%}
+  #s-settings .pg-head{margin-bottom:38px}
+  #s-settings .setting-block{margin-top:44px;padding-top:24px}
+  #s-settings .settings-account-row + .setting-block{margin-top:38px;padding-top:0}
+  #s-settings .notes{margin-top:48px;padding-top:24px}
+}

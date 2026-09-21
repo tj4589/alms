@@ -233,7 +233,10 @@ export default function Onboarding({ userName, onComplete, onCancel, onLogout, i
 
         <div className="onboarding-layout">
           <aside className="onboarding-side" aria-label="ExamMind welcome">
-            <div className="onboarding-side-art" aria-hidden="true"><div className="onboarding-art-note"><BookOpen size={18} /><span>your desk</span><strong>ready when you are</strong></div><div className="onboarding-art-line onboarding-art-line-one" /><div className="onboarding-art-line onboarding-art-line-two" /><div className="onboarding-art-dot"><Sparkles size={16} /></div></div>
+            <div className="onboarding-side-visual">
+              <img src="/images/onboarding/students-study.webp" alt="Students studying together with a laptop and notebooks" decoding="async" />
+              <div className="onboarding-art-note" aria-hidden="true"><BookOpen size={18} /><span>your desk</span><strong>ready when you are</strong></div>
+            </div>
             <div className="onboarding-side-copy"><p>Less cramming.</p><p><em>More “getting it.”</em></p><span>Make a study desk that knows what matters to you, then keep moving.</span></div>
             <div className="onboarding-side-points"><span><CircleUserRound size={16} /> Your name, your way</span><span><UsersRound size={16} /> Better study circles</span><span><Sparkles size={16} /> More useful next steps</span></div>
           </aside>
