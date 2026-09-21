@@ -12,6 +12,10 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     role = Column(String, default="student")
+    account_status = Column(String(24), nullable=False, default="active", server_default="active", index=True)
+    deactivated_at = Column(DateTime(timezone=True), nullable=True)
+    deletion_requested_at = Column(DateTime(timezone=True), nullable=True)
+    deletion_due_at = Column(DateTime(timezone=True), nullable=True, index=True)
     name = Column(String, index=True)
     username = Column(String, unique=True, nullable=True, index=True)
     email = Column(String, unique=True, index=True)
@@ -24,7 +28,20 @@ class User(Base):
     semester = Column(String, nullable=True)
     interests = Column(JSON, nullable=True)
     onboarding_completed = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Pending, skipped, or completed keeps a skipped profile distinct from a
+    # finished one without breaking the legacy boolean used by older clients.
+    onboarding_state = Column(String(20), nullable=False, default="pending", server_default="pending", index=True)
     profile_updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class DeletedFirebaseIdentity(Base):
+    """A tombstone that prevents a partial Firebase deletion from recreating an account."""
+
+    __tablename__ = "deleted_firebase_identities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    firebase_uid = Column(String, unique=True, nullable=False, index=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 class Course(Base):
     __tablename__ = "courses"
@@ -33,6 +50,8 @@ class Course(Base):
     code = Column(String, unique=True, index=True)
     name = Column(String)
     description = Column(Text, nullable=True)
+    department = Column(String, nullable=True, index=True)
+    level = Column(String, nullable=True, index=True)
 
 class Topic(Base):
     __tablename__ = "topics"
@@ -169,7 +188,7 @@ class DiscussionThread(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
-    created_by = Column(Integer, ForeignKey("users.id"))
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     past_question_id = Column(Integer, ForeignKey("past_questions.id"), nullable=True)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
     category = Column(String, nullable=True, index=True)
@@ -196,7 +215,7 @@ class StudyGroup(Base):
     description = Column(Text, nullable=True)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
     topic = Column(String, nullable=True, index=True)
-    created_by = Column(Integer, ForeignKey("users.id"))
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     visibility = Column(String, nullable=False, default="public", server_default="public")
     status = Column(String, nullable=False, default="active", server_default="active")
     welcome_message = Column(Text, nullable=True)
@@ -237,7 +256,7 @@ class StudyGroupPost(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("study_groups.id"), index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     content = Column(Text)
     post_type = Column(String, nullable=False, default="discussion", server_default="discussion")
     created_at = Column(DateTime(timezone=True), default=utc_now)
@@ -262,7 +281,7 @@ class CommunityReport(Base):
     __tablename__ = "community_reports"
 
     id = Column(Integer, primary_key=True, index=True)
-    reporter_id = Column(Integer, ForeignKey("users.id"), index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     subject_type = Column(String, nullable=False)
     subject_id = Column(Integer, nullable=False, index=True)
     reason = Column(String, nullable=False)
@@ -306,7 +325,7 @@ class StudySession(Base):
     topic = Column(String, nullable=True, index=True)
     exam_goal = Column(String, nullable=True)
     group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"))
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     school_name = Column(String, nullable=True)
     starts_at = Column(DateTime(timezone=True), nullable=True)
     ends_at = Column(DateTime(timezone=True), nullable=True)
@@ -369,7 +388,7 @@ class StudySessionAIQuestion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("study_sessions.id"), index=True)
-    asked_by = Column(Integer, ForeignKey("users.id"))
+    asked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     question = Column(Text)
     answer = Column(Text)
     sources = Column(JSON, nullable=True)

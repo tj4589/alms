@@ -3,6 +3,9 @@ const DB_NAME = 'exammind-offline';
 // stores that are missing, so an existing database keeps studyPacks,
 // pendingUploads and practiceAttempts and their contents untouched.
 const DB_VERSION = 2;
+const OFFLINE_CLEANUP_TIMEOUT_MS = 5000;
+const openConnections = new Set<IDBDatabase>();
+let offlineCleanupPromise: Promise<void> | null = null;
 
 export type OfflineStudyPack = {
   id: string;
@@ -49,6 +52,10 @@ export type SavedItem = {
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('Offline storage is unavailable.'));
+      return;
+    }
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = () => {
@@ -67,9 +74,68 @@ function openDb(): Promise<IDBDatabase> {
       }
     };
 
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Offline storage could not be opened.'));
+    request.onsuccess = () => {
+      const db = request.result;
+      openConnections.add(db);
+      db.onclose = () => openConnections.delete(db);
+      db.onversionchange = () => {
+        db.close();
+        openConnections.delete(db);
+      };
+      resolve(db);
+    };
   });
+}
+
+function closeDb(db: IDBDatabase): void {
+  db.close();
+  openConnections.delete(db);
+}
+
+/**
+ * Remove only ExamMind's own offline database. The operation is deliberately
+ * idempotent and does not enumerate or touch databases owned by other apps.
+ * A blocked delete rejects after a bounded wait rather than claiming that
+ * local account data was removed when another tab still has it open.
+ */
+export function clearOfflineAccountData(): Promise<void> {
+  if (offlineCleanupPromise) return offlineCleanupPromise;
+  if (typeof indexedDB === 'undefined') return Promise.resolve();
+
+  offlineCleanupPromise = new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve();
+    };
+    const closeConnections = () => {
+      openConnections.forEach((db) => closeDb(db));
+    };
+    const timeout = window.setTimeout(() => {
+      closeConnections();
+      finish(new Error('Offline account data could not be cleared before the timeout.'));
+    }, OFFLINE_CLEANUP_TIMEOUT_MS);
+
+    closeConnections();
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDB.deleteDatabase(DB_NAME);
+    } catch (error) {
+      finish(error);
+      return;
+    }
+    request.onblocked = closeConnections;
+    request.onerror = () => finish(request.error || new Error('Offline account data could not be cleared.'));
+    request.onsuccess = () => finish();
+  }).finally(() => {
+    offlineCleanupPromise = null;
+  });
+
+  return offlineCleanupPromise;
 }
 
 async function writeRecord<T>(storeName: string, value: T) {
@@ -77,8 +143,14 @@ async function writeRecord<T>(storeName: string, value: T) {
   return new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readwrite');
     transaction.objectStore(storeName).put(value);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
+    const finish = (error?: unknown) => {
+      closeDb(db);
+      if (error) reject(error);
+      else resolve();
+    };
+    transaction.oncomplete = () => finish();
+    transaction.onerror = () => finish(transaction.error || new Error('Offline write failed.'));
+    transaction.onabort = () => finish(transaction.error || new Error('Offline write was aborted.'));
   });
 }
 
@@ -113,8 +185,10 @@ export async function removePracticeAttempt(id: string) {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction('practiceAttempts', 'readwrite');
     tx.objectStore('practiceAttempts').delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const finish = (error?: unknown) => { closeDb(db); if (error) reject(error); else resolve(); };
+    tx.oncomplete = () => finish();
+    tx.onerror = () => finish(tx.error || new Error('Offline delete failed.'));
+    tx.onabort = () => finish(tx.error || new Error('Offline delete was aborted.'));
   });
 }
 
@@ -123,8 +197,10 @@ export async function removeStudyPack(id: string) {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction('studyPacks', 'readwrite');
     tx.objectStore('studyPacks').delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const finish = (error?: unknown) => { closeDb(db); if (error) reject(error); else resolve(); };
+    tx.oncomplete = () => finish();
+    tx.onerror = () => finish(tx.error || new Error('Offline delete failed.'));
+    tx.onabort = () => finish(tx.error || new Error('Offline delete was aborted.'));
   });
 }
 
@@ -133,8 +209,10 @@ export async function removePendingUpload(id: string) {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction('pendingUploads', 'readwrite');
     tx.objectStore('pendingUploads').delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const finish = (error?: unknown) => { closeDb(db); if (error) reject(error); else resolve(); };
+    tx.oncomplete = () => finish();
+    tx.onerror = () => finish(tx.error || new Error('Offline delete failed.'));
+    tx.onabort = () => finish(tx.error || new Error('Offline delete was aborted.'));
   });
 }
 
@@ -143,8 +221,10 @@ export async function countRecords(storeName: StoreName) {
   return new Promise<number>((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readonly');
     const request = transaction.objectStore(storeName).count();
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => { closeDb(db); resolve(request.result); };
+    request.onerror = () => { closeDb(db); reject(request.error || new Error('Offline read failed.')); };
+    transaction.onerror = () => { closeDb(db); reject(transaction.error || new Error('Offline read failed.')); };
+    transaction.onabort = () => { closeDb(db); reject(transaction.error || new Error('Offline read was aborted.')); };
   });
 }
 
@@ -153,8 +233,10 @@ export async function listRecords<T>(storeName: StoreName) {
   return new Promise<T[]>((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readonly');
     const request = transaction.objectStore(storeName).getAll();
-    request.onsuccess = () => resolve(request.result as T[]);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => { closeDb(db); resolve(request.result as T[]); };
+    request.onerror = () => { closeDb(db); reject(request.error || new Error('Offline read failed.')); };
+    transaction.onerror = () => { closeDb(db); reject(transaction.error || new Error('Offline read failed.')); };
+    transaction.onabort = () => { closeDb(db); reject(transaction.error || new Error('Offline read was aborted.')); };
   });
 }
 
@@ -168,8 +250,10 @@ export async function removeItem(id: string) {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction('savedItems', 'readwrite');
     tx.objectStore('savedItems').delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const finish = (error?: unknown) => { closeDb(db); if (error) reject(error); else resolve(); };
+    tx.oncomplete = () => finish();
+    tx.onerror = () => finish(tx.error || new Error('Offline delete failed.'));
+    tx.onabort = () => finish(tx.error || new Error('Offline delete was aborted.'));
   });
 }
 

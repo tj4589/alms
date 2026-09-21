@@ -306,7 +306,8 @@ class FirebaseTokenTests(unittest.TestCase):
         )
         query = MagicMock()
         query.filter.return_value = query
-        query.first.side_effect = [None, existing]
+        # UID lookup, deletion-tombstone lookup, then verified-email lookup.
+        query.first.side_effect = [None, None, existing]
         db = MagicMock()
         db.query.return_value = query
 

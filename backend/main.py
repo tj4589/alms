@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from routers import auth, community, feedback, ingest, mvp, rag, search, sessions, understand
 import models as _models  # noqa: F401 — registers all ORM classes with Base
 from database import Base, engine
+from init_db import seed_courses
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8001"))
@@ -37,11 +38,27 @@ def _prepare_database() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS semester VARCHAR",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS interests JSONB",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_state VARCHAR(20) NOT NULL DEFAULT 'pending'",
+        "UPDATE users SET onboarding_state = 'completed' WHERE onboarding_completed = TRUE AND onboarding_state <> 'completed'",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_updated_at TIMESTAMPTZ",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(24) NOT NULL DEFAULT 'active'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_due_at TIMESTAMPTZ",
+        "CREATE INDEX IF NOT EXISTS ix_users_account_status ON users (account_status)",
+        "CREATE INDEX IF NOT EXISTS ix_users_deletion_due_at ON users (deletion_due_at)",
+        "ALTER TABLE discussion_threads ALTER COLUMN created_by DROP NOT NULL",
+        "ALTER TABLE study_groups ALTER COLUMN created_by DROP NOT NULL",
+        "ALTER TABLE study_group_posts ALTER COLUMN user_id DROP NOT NULL",
+        "ALTER TABLE community_reports ALTER COLUMN reporter_id DROP NOT NULL",
+        "ALTER TABLE study_sessions ALTER COLUMN created_by DROP NOT NULL",
+        "ALTER TABLE study_session_ai_questions ALTER COLUMN asked_by DROP NOT NULL",
         "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS visibility VARCHAR NOT NULL DEFAULT 'public'",
         "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS status VARCHAR NOT NULL DEFAULT 'active'",
         "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS welcome_message TEXT",
         "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ",
+        "ALTER TABLE courses ADD COLUMN IF NOT EXISTS department VARCHAR",
+        "ALTER TABLE courses ADD COLUMN IF NOT EXISTS level VARCHAR",
         "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'member'",
         "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_group_member_group_user ON study_group_members (group_id, user_id)",
@@ -58,6 +75,10 @@ def _prepare_database() -> None:
                 connection.execute(text(statement))
         except Exception as exc:
             print(f"Warning: schema update skipped: {exc}")
+    try:
+        seed_courses()
+    except Exception as exc:
+        print(f"Warning: course catalogue seed skipped: {exc}")
 
 
 @app.on_event("startup")

@@ -11,8 +11,12 @@ import {
 } from 'lucide-react';
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
+  EmailAuthProvider,
   GoogleAuthProvider,
   onAuthStateChanged,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
   reload,
   sendEmailVerification,
   sendPasswordResetEmail,
@@ -26,12 +30,26 @@ import Logo from './Logo';
 import { createFirebaseSession } from '../lib/firebaseAuth';
 import { firebaseAuth, firebaseConfigError, googleProvider } from '../lib/firebase';
 import { forgotPasswordErrorMessage, PASSWORD_RESET_GENERIC_MESSAGE } from '../lib/authErrors';
+import { clearLocalAccountState } from '../lib/session';
+import { attemptDeviceCleanup } from '../lib/deviceCleanup';
+import { apiPost } from '../lib/api';
+import type { User } from '../types';
 
 type AuthProps = {
-  onLogin: (token: string) => void | Promise<void>;
+  onLogin: (token: string, user?: User) => void | Promise<void>;
   onBackToLanding?: () => void;
   onPublicFeedback?: () => void;
   initialMode?: 'login' | 'register';
+  deletionRecoveryPending?: boolean;
+  deletionFirebaseDeleted?: boolean;
+  deletionMessage?: string;
+  onDeletionRecoveryComplete?: (message: string) => void;
+  onDeletionRecoveryPending?: (message: string, firebaseDeleted: boolean) => void;
+  onDismissDeletionRecovery?: () => void;
+  accountLifecycleRecovery?: { kind: 'deactivated' | 'pending_deletion' | 'expired'; deletionDueAt?: string; localCleanupPending?: boolean } | null;
+  onAccountLifecycleState?: (kind: 'deactivated' | 'pending_deletion' | 'expired', deletionDueAt?: string) => void;
+  onAccountLifecycleCleanupComplete?: (kind: 'deactivated' | 'pending_deletion', deletionDueAt?: string) => void;
+  onAccountRecoverySignOut?: () => void;
 };
 
 type PendingProfile = { email: string; name: string; username: string };
@@ -40,6 +58,11 @@ const ALLOWED_SCHOOL_DOMAINS = new Set(['stu.cu.edu.ng', 'covenantuniversity.edu
 const PENDING_PROFILE_KEY = 'exammind-pending-firebase-profile';
 const VERIFICATION_COOLDOWN_SECONDS = 60;
 const VERIFICATION_RESEND_KEY_PREFIX = 'exammind-verification-resend:';
+const ACCOUNT_DELETION_PENDING = 'ACCOUNT_DELETION_PENDING';
+const ACCOUNT_DEACTIVATED = 'ACCOUNT_DEACTIVATED';
+const ACCOUNT_PENDING_DELETION = 'ACCOUNT_PENDING_DELETION:';
+const DELETION_RECOVERY_EXPIRED = 'DELETION_RECOVERY_EXPIRED';
+const FIREBASE_CLEANUP_PENDING_MESSAGE = 'Your ExamMind data was removed, but Firebase account cleanup still needs to finish.';
 
 function normaliseEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -171,7 +194,22 @@ function pruneVerificationCooldowns(): void {
   }
 }
 
-export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode = 'register' }: AuthProps) => {
+export const Auth = ({
+  onLogin,
+  onBackToLanding,
+  onPublicFeedback,
+  initialMode = 'register',
+  deletionRecoveryPending = false,
+  deletionFirebaseDeleted = false,
+  deletionMessage = '',
+  onDeletionRecoveryComplete,
+  onDeletionRecoveryPending,
+  onDismissDeletionRecovery,
+  accountLifecycleRecovery = null,
+  onAccountLifecycleState,
+  onAccountLifecycleCleanupComplete,
+  onAccountRecoverySignOut,
+}: AuthProps) => {
   const [isLogin, setIsLogin] = useState(initialMode === 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -184,6 +222,12 @@ export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode =
   const [cooldown, setCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [recoveryPassword, setRecoveryPassword] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryFirebaseDeleted, setRecoveryFirebaseDeleted] = useState(deletionFirebaseDeleted);
+  const [accountRecoveryBusy, setAccountRecoveryBusy] = useState(false);
+  const [accountRecoveryError, setAccountRecoveryError] = useState('');
   const googleTokenRef = useRef<string | undefined>(undefined);
   const exchangeInFlight = useRef(false);
 
@@ -226,14 +270,30 @@ export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode =
         throw new Error('Sign-in completed, but ExamMind could not start your workspace.');
       }
       clearPendingProfile();
-      await onLogin(response.access_token);
+      await onLogin(response.access_token, response.user);
     } catch (err) {
+      if (err instanceof Error && err.message === ACCOUNT_DELETION_PENDING) {
+        onDeletionRecoveryPending?.(FIREBASE_CLEANUP_PENDING_MESSAGE, false);
+        return;
+      }
+      if (err instanceof Error && err.message === ACCOUNT_DEACTIVATED) {
+        onAccountLifecycleState?.('deactivated');
+        return;
+      }
+      if (err instanceof Error && err.message.startsWith(ACCOUNT_PENDING_DELETION)) {
+        onAccountLifecycleState?.('pending_deletion', err.message.slice(ACCOUNT_PENDING_DELETION.length));
+        return;
+      }
+      if (err instanceof Error && err.message === DELETION_RECOVERY_EXPIRED) {
+        onAccountLifecycleState?.('expired');
+        return;
+      }
       setError(friendlyAuthError(err, 'We could not complete sign-in. Please try again.'));
     } finally {
       exchangeInFlight.current = false;
       setLoading(false);
     }
-  }, [email, onLogin]);
+  }, [email, onAccountLifecycleState, onDeletionRecoveryPending, onLogin]);
 
   useEffect(() => {
     if (!firebaseAuth) return undefined;
@@ -252,6 +312,8 @@ export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode =
         return;
       }
 
+      if (deletionRecoveryPending || accountLifecycleRecovery) return;
+
       const isGoogleUser = nextUser.providerData.some((item) => item.providerId === 'google.com');
       if (isGoogleUser && !googleTokenRef.current) {
         setVerificationOpen(false);
@@ -260,7 +322,15 @@ export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode =
       }
       void completeFirebaseSession(nextUser, isGoogleUser ? 'google' : 'password', googleTokenRef.current);
     });
-  }, [completeFirebaseSession]);
+  }, [accountLifecycleRecovery, completeFirebaseSession, deletionRecoveryPending]);
+
+  useEffect(() => {
+    if (deletionRecoveryPending) {
+      setRecoveryFirebaseDeleted(deletionFirebaseDeleted);
+      setRecoveryError('');
+      setRecoveryPassword('');
+    }
+  }, [deletionFirebaseDeleted, deletionRecoveryPending]);
 
   useEffect(() => {
     pruneVerificationCooldowns();
@@ -424,6 +494,87 @@ export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode =
     }
   };
 
+  const handleRetryAccountCleanup = async () => {
+    setRecoveryBusy(true);
+    setRecoveryError('');
+    try {
+      const currentUser = firebaseAuth?.currentUser || firebaseUser;
+      if (!recoveryFirebaseDeleted) {
+        if (!currentUser) {
+          throw new Error('Sign in again with the same account, then retry account cleanup.');
+        }
+        const isGoogleAccount = currentUser.providerData.some((item) => item.providerId === 'google.com');
+        if (isGoogleAccount) {
+          await reauthenticateWithPopup(currentUser, googleProvider || new GoogleAuthProvider());
+        } else {
+          const accountEmail = currentUser.email || email;
+          if (!accountEmail || !recoveryPassword) {
+            throw new Error('Enter your password to finish account cleanup.');
+          }
+          await reauthenticateWithCredential(
+            currentUser,
+            EmailAuthProvider.credential(accountEmail, recoveryPassword),
+          );
+        }
+        await deleteUser(currentUser);
+        setRecoveryFirebaseDeleted(true);
+      }
+
+      await clearLocalAccountState();
+      onDeletionRecoveryComplete?.('Your ExamMind account and private data have been deleted.');
+    } catch (err) {
+      const code = authErrorCode(err);
+      if (code === 'auth/too-many-requests') {
+        setRecoveryError('Too many attempts. Wait a moment, then try again.');
+      } else if (code === 'auth/requires-recent-login') {
+        setRecoveryError('Please complete the sign-in confirmation, then retry account cleanup.');
+      } else if (err instanceof Error && err.message) {
+        setRecoveryError(err.message);
+      } else {
+        setRecoveryError(FIREBASE_CLEANUP_PENDING_MESSAGE);
+      }
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const handleReactivateAccount = async () => {
+    const currentUser = firebaseAuth?.currentUser || firebaseUser;
+    if (!currentUser) {
+      setAccountRecoveryError('Sign in again with the same account to continue.');
+      return;
+    }
+    setAccountRecoveryBusy(true);
+    setAccountRecoveryError('');
+    try {
+      const response = await apiPost('/auth/account/reactivate', {
+        firebase_id_token: await currentUser.getIdToken(true),
+      }) as { access_token?: string; user?: User };
+      if (!response.access_token) throw new Error('ExamMind could not restore your workspace.');
+      await onLogin(response.access_token, response.user);
+    } catch (err) {
+      setAccountRecoveryError(friendlyAuthError(err, 'We could not reactivate your account. Please try again.'));
+    } finally {
+      setAccountRecoveryBusy(false);
+    }
+  };
+
+  const handleRetryDeviceCleanup = async () => {
+    const recovery = accountLifecycleRecovery;
+    if (!recovery?.localCleanupPending || recovery.kind === 'expired') return;
+    setAccountRecoveryBusy(true);
+    setAccountRecoveryError('');
+    try {
+      if (!await attemptDeviceCleanup(clearLocalAccountState)) {
+        setAccountRecoveryError('Close other ExamMind tabs, then try again. Your account status is already updated, so this retry only removes device data.');
+        return;
+      }
+      onAccountLifecycleCleanupComplete?.(recovery.kind, recovery.deletionDueAt);
+    } finally {
+      setAccountRecoveryBusy(false);
+    }
+  };
+
   const handleChangeEmail = async () => {
     if (firebaseAuth) await signOut(firebaseAuth).catch(() => undefined);
     googleTokenRef.current = undefined;
@@ -467,7 +618,50 @@ export const Auth = ({ onLogin, onBackToLanding, onPublicFeedback, initialMode =
         </div>
 
         <div className="auth-card">
-          {verificationOpen ? (
+          {accountLifecycleRecovery ? (
+            <div className="auth-verification auth-deletion-recovery">
+              <div className="auth-verification-icon" aria-hidden="true"><RefreshCw size={24} /></div>
+              <span className="auth-card-eyebrow">Your account</span>
+              {accountLifecycleRecovery.localCleanupPending ? <>
+                <h2>Your account status was updated, but ExamMind could not remove offline data from this device.</h2>
+                <p>Close other ExamMind tabs or windows, then retry device cleanup. Your account status is already updated; this action will not send another deactivation or deletion request.</p>
+                <button type="button" className="auth-submit" onClick={() => void handleRetryDeviceCleanup()} disabled={accountRecoveryBusy}>{accountRecoveryBusy ? 'Cleaning this device...' : 'Retry device cleanup'}</button>
+              </> : accountLifecycleRecovery.kind === 'expired' ? <>
+                <h2>Your account’s recovery period has ended.</h2>
+                <p>Permanent cleanup is awaiting secure processing.</p>
+                <p>Your workspace remains locked while the account is awaiting processing. You can sign out safely.</p>
+              </> : accountLifecycleRecovery.kind === 'deactivated' ? <>
+                <h2>Your account is deactivated.</h2>
+                <p>Your profile and study data are safe. Reactivate when you’re ready to return to your workspace.</p>
+              </> : <>
+                <h2>Your account is scheduled for deletion.</h2>
+                <p>Your ExamMind account is scheduled for deletion on <strong>{accountLifecycleRecovery.deletionDueAt ? new Date(accountLifecycleRecovery.deletionDueAt).toLocaleDateString() : 'a future date'}</strong>.</p>
+                <p>You can cancel during the recovery period and keep your data.</p>
+              </>}
+              {accountRecoveryError && <div className="upload-alert auth-error" role="alert">{accountRecoveryError}</div>}
+              {accountLifecycleRecovery.localCleanupPending ? null : accountLifecycleRecovery.kind === 'expired' ? (
+                <button type="button" className="auth-text-action" onClick={onAccountRecoverySignOut} disabled={accountRecoveryBusy}>Sign out</button>
+              ) : <>
+                <button type="button" className="auth-submit" onClick={() => void handleReactivateAccount()} disabled={accountRecoveryBusy}>{accountRecoveryBusy ? 'Restoring...' : accountLifecycleRecovery.kind === 'deactivated' ? 'Reactivate account' : 'Cancel deletion and reactivate'}</button>
+                <button type="button" className="auth-text-action" onClick={onAccountRecoverySignOut} disabled={accountRecoveryBusy}>{accountLifecycleRecovery.kind === 'pending_deletion' ? 'Keep account scheduled and sign out' : 'Sign out'}</button>
+              </>}
+            </div>
+          ) : deletionRecoveryPending ? (
+            <div className="auth-verification auth-deletion-recovery">
+              <div className="auth-verification-icon" aria-hidden="true"><RefreshCw size={24} /></div>
+              <span className="auth-card-eyebrow">One last cleanup step</span>
+              <h2>Finish closing your account.</h2>
+              <p>{deletionMessage || FIREBASE_CLEANUP_PENDING_MESSAGE}</p>
+              <p>ExamMind has blocked workspace access while this is resolved. We never recreate the deleted Neon account automatically.</p>
+              {!recoveryFirebaseDeleted && !(firebaseAuth?.currentUser || firebaseUser)?.providerData.some((item) => item.providerId === 'google.com') && (
+                <label className="auth-field"><span>Confirm your password</span><input type="password" value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} autoComplete="current-password" disabled={recoveryBusy} /></label>
+              )}
+              {recoveryError && <div className="upload-alert auth-error" role="alert">{recoveryError}</div>}
+              <button type="button" className="auth-submit" onClick={() => void handleRetryAccountCleanup()} disabled={recoveryBusy}>{recoveryBusy ? 'Finishing cleanup...' : 'Retry account cleanup'}</button>
+              <button type="button" className="auth-text-action" onClick={onDismissDeletionRecovery} disabled={recoveryBusy}>Use a different account</button>
+              <p className="auth-verification-help">If you signed out before finishing, choose an account above and sign in again to continue the recovery check.</p>
+            </div>
+          ) : verificationOpen ? (
             <div className="auth-verification">
               <div className="auth-verification-icon" aria-hidden="true"><MailCheck size={24} /></div>
               <span className="auth-card-eyebrow">One small step</span>

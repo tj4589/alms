@@ -9,6 +9,8 @@
 // Reads check both stores, so a token written under the old behaviour is still
 // found after this shipped and nobody is logged out by the upgrade.
 
+import { clearOfflineAccountData } from '../offline';
+
 export type SessionPreference = 'stay' | 'ask';
 
 const TOKEN_KEY = 'token';
@@ -50,6 +52,18 @@ export function clearToken(): void {
   safe(() => {
     window.localStorage.removeItem(TOKEN_KEY);
     window.sessionStorage.removeItem(TOKEN_KEY);
+  }, undefined);
+}
+
+export async function clearLocalAccountState(): Promise<void> {
+  await clearOfflineAccountData();
+  safe(() => {
+    window.sessionStorage.removeItem('exammind-pending-firebase-profile');
+    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.sessionStorage.key(index);
+      if (key?.startsWith('exammind-discussion-draft:')) window.sessionStorage.removeItem(key);
+    }
+    window.localStorage.removeItem('exammind-profile-nudge-dismissed');
   }, undefined);
 }
 

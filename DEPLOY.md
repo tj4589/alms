@@ -117,7 +117,15 @@ schema is created from the models.
    GOOGLE_CERTS_URL=https://www.googleapis.com/oauth2/v1/certs
    FIREBASE_CLOCK_SKEW_SECONDS=60
    FIREBASE_CERT_FETCH_TIMEOUT_SECONDS=10
+   ACCOUNT_DELETION_ENABLED=false
+   PERMANENT_ACCOUNT_DELETION_ENABLED=false
+   FIREBASE_ADMIN_DELETE_ENABLED=false
    ```
+
+   Account deletion is disabled unless the API environment explicitly sets
+   `ACCOUNT_DELETION_ENABLED=true`. When it is false or missing, the API
+   returns HTTP 503 and the Settings screen keeps the destructive action
+   unavailable. Render is intentionally configured with `false` by default.
 
    The API verifies Firebase ID tokens with Google's published certificates.
    No Firebase service-account JSON file or private key belongs in Render or
@@ -247,3 +255,57 @@ npm run dev
 Pointing local development at the deployed Neon database means local uploads go
 into the same archive the deployed app reads. Create a second Neon branch if
 you want them kept apart — Neon branches are cheap and instant.
+
+## Account lifecycle and deletion
+
+Users have an explicit `account_status`: `active`, `deactivated`, or
+`pending_deletion`. The additive migration also adds `deactivated_at`,
+`deletion_requested_at`, and `deletion_due_at`; existing users remain active.
+
+**Deactivate account** is reversible. It requires recent Firebase
+reauthentication, marks the account inactive, signs the student out, and keeps
+server-side study data. Protected API requests reject the inactive session.
+Signing in again shows the deactivated state and offers verified reactivation.
+For privacy, ExamMind clears offline study files from the device during
+deactivation; server-side files and progress are not deleted.
+
+**Delete account** is a scheduled action, not an immediate deletion. It
+deactivates the account, records server timestamps, and sets
+`deletion_due_at` to 30 days later. During that period, verified sign-in shows
+the scheduled date and offers cancellation/reactivation. No Neon or Firebase
+identity is permanently deleted when the request is made.
+
+This is not a production promise that permanent deletion will occur after 30
+days. Render keeps `ACCOUNT_DELETION_ENABLED=false`, so the Delete account
+action is unavailable there. Do not enable the scheduled action for production
+until secure Firebase identity deletion, a Render Cron schedule, and disposable
+account testing have all been completed.
+
+The daily cleanup entry point is:
+
+```bash
+cd backend
+.venv/Scripts/python.exe run_account_cleanup.py
+```
+
+It processes bounded batches only when `deletion_due_at` has passed, and keeps
+failed rows pending for retry. Permanent cleanup is disabled unless both
+`PERMANENT_ACCOUNT_DELETION_ENABLED=true` and
+`FIREBASE_ADMIN_DELETE_ENABLED=true` are explicitly configured. The current
+repository does not include a Firebase Admin deletion mechanism or private key,
+so the job remains inert until a server-authorized mechanism is securely wired
+in. The safe options are to configure Firebase Admin credentials only in the
+scheduled worker's secret store, or to use another documented server-authorized
+Firebase identity-deletion mechanism. The repository never contains a service-
+account key.
+
+After authorized permanent cleanup runs, the existing transaction service
+deletes private data, anonymizes preserved public content, transfers group and
+reading-room ownership safely, and creates a tombstone containing only the
+Firebase UID and deletion timestamp. It does not store an email, name,
+username, token, or study content in the tombstone.
+
+Restart onboarding is a separate admin/development-only action. It only resets
+onboarding to `pending`; it does not delete Firebase, Neon, uploads, progress,
+groups, discussions, or rooms. The backend enforces this authorization even if
+the frontend control is hidden.

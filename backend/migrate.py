@@ -42,6 +42,7 @@ os.environ.setdefault("SECRET_KEY", SECRET_KEY)
 from sqlalchemy import text
 from database import engine, Base
 import models  # registers all ORM classes with Base.metadata
+from init_db import seed_courses
 
 
 with engine.begin() as conn:
@@ -62,13 +63,29 @@ _ALTER_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS semester VARCHAR;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS interests JSONB;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_state VARCHAR(20) NOT NULL DEFAULT 'pending';",
+    "UPDATE users SET onboarding_state = 'completed' WHERE onboarding_completed = TRUE AND onboarding_state <> 'completed';",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_updated_at TIMESTAMPTZ;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(24) NOT NULL DEFAULT 'active';",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_due_at TIMESTAMPTZ;",
+    "CREATE INDEX IF NOT EXISTS ix_users_account_status ON users (account_status);",
+    "CREATE INDEX IF NOT EXISTS ix_users_deletion_due_at ON users (deletion_due_at);",
+    "ALTER TABLE discussion_threads ALTER COLUMN created_by DROP NOT NULL;",
+    "ALTER TABLE study_groups ALTER COLUMN created_by DROP NOT NULL;",
+    "ALTER TABLE study_group_posts ALTER COLUMN user_id DROP NOT NULL;",
+    "ALTER TABLE community_reports ALTER COLUMN reporter_id DROP NOT NULL;",
+    "ALTER TABLE study_sessions ALTER COLUMN created_by DROP NOT NULL;",
+    "ALTER TABLE study_session_ai_questions ALTER COLUMN asked_by DROP NOT NULL;",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid ON users (firebase_uid) WHERE firebase_uid IS NOT NULL;",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_lower ON users (LOWER(email));",
     "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS visibility VARCHAR NOT NULL DEFAULT 'public';",
     "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS status VARCHAR NOT NULL DEFAULT 'active';",
     "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS welcome_message TEXT;",
     "ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;",
+    "ALTER TABLE courses ADD COLUMN IF NOT EXISTS department VARCHAR;",
+    "ALTER TABLE courses ADD COLUMN IF NOT EXISTS level VARCHAR;",
     "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'member';",
     "ALTER TABLE study_group_members ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE;",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_study_group_member_group_user ON study_group_members (group_id, user_id);",
@@ -105,5 +122,7 @@ print("Creating missing tables...")
 # existing user, material, or community records.
 Base.metadata.create_all(bind=engine)
 print("  Done.")
+seed_courses()
+print("  Seeded initial course catalogue (existing IDs preserved).")
 
 print("\nMigration complete.")

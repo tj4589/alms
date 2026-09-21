@@ -28,6 +28,7 @@ class UserResponse(BaseModel):
     username: Optional[str] = None
     email: EmailStr
     role: str = "student"
+    account_status: str = "active"
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +57,26 @@ class FirebaseSessionRequest(BaseModel):
 
 class FirebaseSessionResponse(Token):
     user: UserResponse
+
+
+class DeleteAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation: Literal["DELETE"]
+    firebase_id_token: str = Field(min_length=1)
+
+
+class AccountLifecycleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation: Literal["DEACTIVATE"]
+    firebase_id_token: str = Field(min_length=1)
+
+
+class FirebaseIdentityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    firebase_id_token: str = Field(min_length=1)
 
 
 FEEDBACK_CATEGORIES = (

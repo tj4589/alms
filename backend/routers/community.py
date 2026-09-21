@@ -6,6 +6,7 @@ profile/onboarding and group-home data needed by the current workspace.
 """
 
 from datetime import datetime, timezone
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,10 +19,54 @@ import models
 from database import get_db
 
 router = APIRouter(prefix="/community", tags=["community"])
+_USERNAME_RE = re.compile(r"^[a-z0-9_]{3,24}$")
+
+# This is intentionally a small, maintainable Covenant University profile
+# catalogue rather than a guessed exhaustive registry. Courses remain driven by
+# the database seed and can grow independently of this display configuration.
+ACADEMIC_DEPARTMENTS = (
+    {"value": "accounting", "label": "Accounting"},
+    {"value": "banking-and-finance", "label": "Banking and Finance"},
+    {"value": "biochemistry", "label": "Biochemistry"},
+    {"value": "business-administration", "label": "Business Administration"},
+    {"value": "computer-engineering", "label": "Computer Engineering"},
+    {"value": "computer-science", "label": "Computer Science"},
+    {"value": "economics", "label": "Economics"},
+    {"value": "electrical-electronics-engineering", "label": "Electrical and Electronics Engineering"},
+    {"value": "industrial-chemistry", "label": "Industrial Chemistry"},
+    {"value": "information-systems", "label": "Information Systems"},
+    {"value": "management-information-systems", "label": "Management Information Systems"},
+    {"value": "mass-communication", "label": "Mass Communication"},
+    {"value": "mechanical-engineering", "label": "Mechanical Engineering"},
+    {"value": "microbiology", "label": "Microbiology"},
+    {"value": "political-science", "label": "Political Science"},
+    {"value": "psychology", "label": "Psychology"},
+    {"value": "software-engineering", "label": "Software Engineering"},
+    {"value": "sociology", "label": "Sociology"},
+    {"value": "other", "label": "Other / not listed"},
+)
+_DEPARTMENT_BY_TEXT = {
+    text: option["value"]
+    for option in ACADEMIC_DEPARTMENTS
+    for text in (option["value"], option["label"].casefold())
+}
+_DEPARTMENT_BY_TEXT.update({
+    "mis": "management-information-systems",
+    "management info systems": "management-information-systems",
+    "computer sci": "computer-science",
+    "software sci": "software-engineering",
+})
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _normalise_department(value: Optional[str]) -> Optional[str]:
+    text = " ".join((value or "").strip().casefold().split())
+    if not text:
+        return None
+    return _DEPARTMENT_BY_TEXT.get(text, "other")
 
 
 def _member(db: Session, group_id: int, user_id: int) -> models.StudyGroupMember | None:
@@ -49,7 +94,9 @@ class AcademicProfileRequest(BaseModel):
     level: Optional[str] = Field(default=None, max_length=40)
     semester: Optional[str] = Field(default=None, max_length=40)
     course_ids: Optional[list[int]] = Field(default=None, max_length=20)
-    interests: list[str] = Field(default_factory=list, max_length=12)
+    # Omitted keeps an existing preference set intact; an explicit empty list
+    # remains the way an editor clears optional preferences.
+    interests: Optional[list[str]] = Field(default=None, max_length=12)
     complete: bool = False
 
 
@@ -61,6 +108,17 @@ def _profile_payload(db: Session, user: models.User) -> dict:
         .order_by(models.Course.code)
         .all()
     )
+    onboarding_state = getattr(user, "onboarding_state", None) or (
+        "completed" if user.onboarding_completed else "pending"
+    )
+    # A few accounts predate the required identity step and can legitimately
+    # have a completed legacy flag while still lacking a public username. Do
+    # not send those users into a blank profile; the client must finish the
+    # identity step before the workspace is considered ready.
+    identity_incomplete = (
+        len((user.name or '').strip()) < 2
+        or not _USERNAME_RE.fullmatch((user.username or '').strip().lower())
+    )
     return {
         "id": user.id,
         "preferred_name": user.name,
@@ -70,12 +128,21 @@ def _profile_payload(db: Session, user: models.User) -> dict:
         "semester": user.semester,
         "interests": user.interests or [],
         "courses": [{"id": c.id, "code": c.code, "name": c.name} for c in course_rows],
-        "onboarding_completed": bool(user.onboarding_completed),
-        "onboarding_required": not bool(user.onboarding_completed),
+        "onboarding_state": onboarding_state,
+        "onboarding_completed": onboarding_state == "completed",
+        "onboarding_required": onboarding_state == "pending" or (
+            onboarding_state == "completed" and identity_incomplete
+        ),
     }
 
 
-def _save_profile(db: Session, user: models.User, req: AcademicProfileRequest) -> None:
+def _save_profile(
+    db: Session,
+    user: models.User,
+    req: AcademicProfileRequest,
+    *,
+    mark_completed: bool = False,
+) -> None:
     if req.preferred_name is not None:
         user.name = req.preferred_name.strip()[:120]
     if req.username is not None:
@@ -88,10 +155,11 @@ def _save_profile(db: Session, user: models.User, req: AcademicProfileRequest) -
         if conflict:
             raise HTTPException(status_code=409, detail="That username is already taken.")
         user.username = username
-    user.department = req.department.strip()[:160] if req.department else None
+    user.department = _normalise_department(req.department)
     user.level = req.level.strip()[:40] if req.level else None
     user.semester = req.semester.strip()[:40] if req.semester else None
-    user.interests = [item.strip()[:80] for item in req.interests if item.strip()][:12]
+    if req.interests is not None:
+        user.interests = [item.strip()[:80] for item in req.interests if item.strip()][:12]
 
     if req.course_ids is not None:
         valid_ids = {
@@ -104,14 +172,19 @@ def _save_profile(db: Session, user: models.User, req: AcademicProfileRequest) -
             db.delete(row)
         for course_id in sorted(valid_ids):
             db.add(models.UserCourse(user_id=user.id, course_id=course_id))
-    elif req.complete:
-        # Completing with no course is allowed for a returning student editing
-        # a profile, but the onboarding UI strongly encourages at least one.
-        pass
-
-    if req.complete:
+    if mark_completed:
         user.onboarding_completed = True
+        user.onboarding_state = "completed"
     user.profile_updated_at = _now()
+
+
+def _validate_completed_profile(req: AcademicProfileRequest) -> None:
+    preferred_name = (req.preferred_name or "").strip()
+    username = (req.username or "").strip().lower()
+    if len(preferred_name) < 2:
+        raise HTTPException(status_code=422, detail="Add the name you want your classmates to see.")
+    if not _USERNAME_RE.fullmatch(username):
+        raise HTTPException(status_code=422, detail="Choose a username with 3-24 lowercase letters, numbers, or underscores.")
 
 
 @router.get("/profile")
@@ -122,12 +195,28 @@ def get_academic_profile(
     return _profile_payload(db, current_user)
 
 
+@router.get("/academic-options")
+def academic_options(
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    """Return stable profile values and friendly labels for the onboarding UI."""
+    return {"departments": list(ACADEMIC_DEPARTMENTS), "levels": [
+        {"value": "100", "label": "100 level"},
+        {"value": "200", "label": "200 level"},
+        {"value": "300", "label": "300 level"},
+        {"value": "400", "label": "400 level"},
+        {"value": "500", "label": "500 level"},
+        {"value": "postgraduate", "label": "Postgraduate"},
+    ]}
+
+
 @router.put("/profile")
 def update_academic_profile(
     req: AcademicProfileRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
+    _validate_completed_profile(req)
     _save_profile(db, current_user, req)
     try:
         db.commit()
@@ -144,13 +233,30 @@ def complete_onboarding(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    req.complete = True
-    _save_profile(db, current_user, req)
+    _validate_completed_profile(req)
+    _save_profile(db, current_user, req, mark_completed=True)
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="That profile could not be saved safely.") from exc
+    db.refresh(current_user)
+    return _profile_payload(db, current_user)
+
+
+@router.post("/onboarding/skip")
+def skip_onboarding(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    current_user.onboarding_completed = False
+    current_user.onboarding_state = "skipped"
+    current_user.profile_updated_at = _now()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="That onboarding choice could not be saved safely.") from exc
     db.refresh(current_user)
     return _profile_payload(db, current_user)
 

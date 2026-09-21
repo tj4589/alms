@@ -353,6 +353,8 @@ def serialize_course(row: models.Course) -> dict:
         "code": row.code,
         "name": row.name,
         "description": row.description,
+        "department": row.department,
+        "level": row.level,
     }
 
 

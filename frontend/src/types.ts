@@ -5,6 +5,8 @@ export type Course = {
   code: string;
   name: string;
   description?: string | null;
+  department?: string | null;
+  level?: string | null;
 };
 
 export type User = {

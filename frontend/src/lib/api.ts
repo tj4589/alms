@@ -145,3 +145,15 @@ export async function apiDownload(path: string, fallbackName: string): Promise<s
   URL.revokeObjectURL(url);
   return filename;
 }
+
+export function apiPut(path: string, body: RequestBody) {
+  return request(
+    path,
+    {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    },
+    'Request failed.',
+  );
+}

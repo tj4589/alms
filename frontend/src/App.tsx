@@ -57,7 +57,7 @@ import { Auth } from './components/Auth';
 import Landing from './components/Landing';
 import Privacy from './components/Privacy';
 import FeedbackPage from './components/FeedbackPage';
-import { apiGet } from './lib/api';
+import { apiGet, apiPost } from './lib/api';
 import { firebaseAuth } from './lib/firebase';
 import { signOut as signOutFirebase } from 'firebase/auth';
 
@@ -68,6 +68,12 @@ type NavigationItem = {
 };
 
 type PublicView = 'landing' | 'auth' | 'privacy' | 'feedback';
+
+type AccountLifecycleRecovery = {
+  kind: 'deactivated' | 'pending_deletion' | 'expired';
+  deletionDueAt?: string;
+  localCleanupPending?: boolean;
+};
 
 function publicViewFromPath(): PublicView {
   const path = window.location.pathname.replace(/\/+$/, '');
@@ -162,8 +168,15 @@ export default function App() {
   const [publicView, setPublicView] = useState<PublicView>(publicViewFromPath);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
+  const [userHydrating, setUserHydrating] = useState(() => Boolean(readStoredToken()));
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
+  const [onboardingReturnScreen, setOnboardingReturnScreen] = useState<ScreenType>('dashboard');
+  const [profileNudgeVisible, setProfileNudgeVisible] = useState(false);
+  const [deletionNotice, setDeletionNotice] = useState('');
+  const [deletionRecoveryPending, setDeletionRecoveryPending] = useState(false);
+  const [deletionFirebaseDeleted, setDeletionFirebaseDeleted] = useState(false);
+  const [accountLifecycleRecovery, setAccountLifecycleRecovery] = useState<AccountLifecycleRecovery | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
@@ -270,39 +283,76 @@ export default function App() {
 
   // Hydrate user info from a stored token on first load
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setUserHydrating(false);
+      return;
+    }
+
+    let cancelled = false;
+    setUserHydrating(true);
 
     apiGet('/auth/me')
-      .then((data) => setUser(data as User))
+      .then((data) => {
+        if (cancelled) return;
+        setUser(data as User);
+        setUserHydrating(false);
+      })
       .catch(() => {
+        if (cancelled) return;
         // Token is expired or invalid — force back to login
         clearStoredToken();
+        setUser(null);
         setToken(null);
+        setUserHydrating(false);
       });
+
+    return () => { cancelled = true; };
   }, [token]);
 
   useEffect(() => {
     if (!token) return;
     apiGet('/community/profile')
       .then((data) => {
-        const required = Boolean((data as { onboarding_required?: boolean }).onboarding_required);
+        const profile = data as { onboarding_required?: boolean; onboarding_state?: string };
+        const identityIncomplete = !user?.username || (user.name || '').trim().length < 2;
+        const required = Boolean(profile.onboarding_required)
+          || (profile.onboarding_state === 'completed' && identityIncomplete);
         setNeedsOnboarding(required);
         if (required) setActiveScreen('onboarding');
+        if (profile.onboarding_state === 'skipped') {
+          const dismissed = localStorage.getItem('exammind-profile-nudge-dismissed') === 'true';
+          setProfileNudgeVisible(!dismissed);
+        } else {
+          setProfileNudgeVisible(false);
+        }
       })
       .catch(() => setNeedsOnboarding(false));
-  }, [token]);
+  }, [token, user]);
 
-  const handleLogin = async (jwt: string) => {
+  const handleLogin = async (jwt: string, authenticatedUser?: User) => {
+    setAccountLifecycleRecovery(null);
     storeToken(jwt);
     setToken(jwt);
 
+    setUserHydrating(true);
+    if (authenticatedUser) setUser(authenticatedUser);
+    setActiveScreen('dashboard');
     try {
       const data = await apiGet('/auth/me') as User;
       setUser(data);
     } catch {
-      // /me failed but login succeeded — proceed without user info
+      // The session response already includes a verified user. Keep that
+      // identity during a short /me network failure instead of rendering a
+      // fake account; only legacy callers without a user response fail closed.
+      if (!authenticatedUser) {
+        clearStoredToken();
+        setToken(null);
+        setUser(null);
+        setUserHydrating(false);
+        throw new Error('ExamMind could not load your account. Please try again.');
+      }
     }
-    setActiveScreen('dashboard');
+    setUserHydrating(false);
   };
 
   const handleLogout = () => {
@@ -310,12 +360,150 @@ export default function App() {
     clearStoredToken();
     setToken(null);
     setUser(null);
+    setUserHydrating(false);
     setNeedsOnboarding(false);
     setEditingProfile(false);
+    setProfileNudgeVisible(false);
+    setDeletionRecoveryPending(false);
+    setDeletionFirebaseDeleted(false);
+    setAccountLifecycleRecovery(null);
+    setDeletionNotice('');
     setActiveScreen('dashboard');
     setPublicView('landing');
     setSidebarOpen(false);
     setMaxeOpen(false);
+  };
+
+  const handleAccountDeleted = (message: string) => {
+    if (firebaseAuth) void signOutFirebase(firebaseAuth).catch(() => undefined);
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setUserHydrating(false);
+    setNeedsOnboarding(false);
+    setEditingProfile(false);
+    setProfileNudgeVisible(false);
+    setDeletionRecoveryPending(false);
+    setDeletionFirebaseDeleted(false);
+    setAccountLifecycleRecovery(null);
+    setDeletionNotice(message);
+    setPublicView('landing');
+    setActiveScreen('dashboard');
+  };
+
+  const handleAccountDeletionPending = (message: string, firebaseDeleted: boolean) => {
+    // Neon has already been removed. Keep Firebase signed in when its delete
+    // step failed so Auth can reauthenticate and retry without workspace access.
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setUserHydrating(false);
+    setNeedsOnboarding(false);
+    setEditingProfile(false);
+    setProfileNudgeVisible(false);
+    setDeletionRecoveryPending(true);
+    setDeletionFirebaseDeleted(firebaseDeleted);
+    setAccountLifecycleRecovery(null);
+    setDeletionNotice(message);
+    setAuthInitialMode('login');
+    setPublicView('auth');
+    setActiveScreen('dashboard');
+  };
+
+  const dismissAccountDeletionRecovery = () => {
+    if (firebaseAuth) void signOutFirebase(firebaseAuth).catch(() => undefined);
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setUserHydrating(false);
+    setNeedsOnboarding(false);
+    setEditingProfile(false);
+    setProfileNudgeVisible(false);
+    setDeletionRecoveryPending(false);
+    setDeletionFirebaseDeleted(false);
+    setAccountLifecycleRecovery(null);
+    setDeletionNotice('');
+    setAuthInitialMode('login');
+    setPublicView('auth');
+  };
+
+  const handleAccountLifecycleState = (kind: AccountLifecycleRecovery['kind'], deletionDueAt?: string) => {
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setUserHydrating(false);
+    setNeedsOnboarding(false);
+    setEditingProfile(false);
+    setProfileNudgeVisible(false);
+    setAccountLifecycleRecovery({ kind, deletionDueAt });
+    setDeletionRecoveryPending(false);
+    setDeletionFirebaseDeleted(false);
+    setAuthInitialMode('login');
+    setPublicView('auth');
+    setActiveScreen('dashboard');
+  };
+
+  const handleAccountLifecycleCleanupPending = (kind: 'deactivated' | 'pending_deletion', deletionDueAt?: string) => {
+    if (firebaseAuth) void signOutFirebase(firebaseAuth).catch(() => undefined);
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setUserHydrating(false);
+    setNeedsOnboarding(false);
+    setEditingProfile(false);
+    setProfileNudgeVisible(false);
+    setDeletionRecoveryPending(false);
+    setDeletionFirebaseDeleted(false);
+    setDeletionNotice('');
+    setAccountLifecycleRecovery({ kind, deletionDueAt, localCleanupPending: true });
+    setAuthInitialMode('login');
+    setPublicView('auth');
+    setActiveScreen('dashboard');
+  };
+
+  const handleAccountLifecycleCleanupComplete = (kind: 'deactivated' | 'pending_deletion', deletionDueAt?: string) => {
+    if (kind === 'deactivated') {
+      handleAccountDeactivated('Your account has been deactivated. Offline device data was removed.');
+    } else if (deletionDueAt) {
+      handleAccountDeletionScheduled(deletionDueAt);
+    }
+  };
+
+  const handleAccountDeactivated = (message: string) => {
+    if (firebaseAuth) void signOutFirebase(firebaseAuth).catch(() => undefined);
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setUserHydrating(false);
+    setAccountLifecycleRecovery(null);
+    setDeletionNotice(message);
+    setPublicView('landing');
+    setActiveScreen('dashboard');
+  };
+
+  const handleAccountDeletionScheduled = (dueAt: string) => {
+    if (firebaseAuth) void signOutFirebase(firebaseAuth).catch(() => undefined);
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setUserHydrating(false);
+    setAccountLifecycleRecovery(null);
+    setDeletionNotice(`Your account is scheduled for deletion on ${new Date(dueAt).toLocaleDateString()}. You can cancel it by signing in before then.`);
+    setPublicView('landing');
+    setActiveScreen('dashboard');
+  };
+
+  const handleRestartOnboarding = async () => {
+    try {
+      await apiPost('/auth/account/restart-onboarding', {});
+      setOnboardingReturnScreen('settings');
+      setNeedsOnboarding(true);
+      setEditingProfile(false);
+      setActiveScreen('onboarding');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Onboarding could not be restarted.');
+      window.setTimeout(() => setToast(''), 3600);
+    }
   };
 
   const navigatePublic = (path: string, view: PublicView) => {
@@ -538,6 +726,7 @@ export default function App() {
           onSignIn={() => openAuth('login')}
           onPrivacy={openPrivacy}
           onFeedback={openFeedback}
+          deletionNotice={deletionNotice}
         />
       );
     }
@@ -549,16 +738,41 @@ export default function App() {
         initialMode={authInitialMode}
         onBackToLanding={returnToLanding}
         onPublicFeedback={openFeedback}
+        deletionRecoveryPending={deletionRecoveryPending}
+        deletionFirebaseDeleted={deletionFirebaseDeleted}
+        deletionMessage={deletionNotice}
+        accountLifecycleRecovery={accountLifecycleRecovery}
+        onDeletionRecoveryComplete={handleAccountDeleted}
+        onDeletionRecoveryPending={handleAccountDeletionPending}
+        onAccountLifecycleState={handleAccountLifecycleState}
+        onAccountLifecycleCleanupComplete={handleAccountLifecycleCleanupComplete}
+        onAccountRecoverySignOut={handleLogout}
+        onDismissDeletionRecovery={dismissAccountDeletionRecovery}
       />
+    );
+  }
+
+  if (userHydrating || !user) {
+    return (
+      <div className="account-bootstrap" role="status" aria-live="polite">
+        <div className="account-bootstrap-card">
+          <div className="account-bootstrap-mark"><Logo size={30} /></div>
+          <p className="account-bootstrap-kicker">EXAMMIND / YOUR WORKSPACE</p>
+          <h1>Loading your desk.</h1>
+          <p>We’re bringing your profile and study space back. This should only take a moment.</p>
+          <span className="account-bootstrap-loader" aria-hidden="true" />
+        </div>
+      </div>
     );
   }
 
   if (needsOnboarding || editingProfile) {
     return (
       <Onboarding
-        userName={user?.name || 'Student'}
+        userName={user.name}
         isEditing={editingProfile}
-        onComplete={() => { setNeedsOnboarding(false); setEditingProfile(false); setActiveScreen('dashboard'); }}
+        onComplete={() => { const wasEditing = editingProfile; setNeedsOnboarding(false); setEditingProfile(false); setProfileNudgeVisible(false); setActiveScreen(onboardingReturnScreen); if (wasEditing) { setToast('Academic profile saved.'); window.setTimeout(() => setToast(''), 3600); } }}
+        onCancel={() => { setEditingProfile(false); setActiveScreen(onboardingReturnScreen); }}
         onLogout={handleLogout}
       />
     );

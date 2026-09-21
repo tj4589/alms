@@ -4,11 +4,14 @@ from database import SessionLocal, engine, Base
 import models
 
 COURSES = [
-    {"code": "CSC204", "name": "Software Engineering", "description": "Software process models, SDLC, Agile, testing and maintenance."},
-    {"code": "CSC205", "name": "Object-Oriented Programming", "description": "Classes, objects, inheritance, polymorphism and design principles."},
-    {"code": "CSC301", "name": "Data Structures and Algorithms", "description": "Sorting, trees, graphs, hashing, recursion and complexity analysis."},
-    {"code": "CSC312", "name": "Operating Systems", "description": "Processes, scheduling, memory management, filesystems and concurrency."},
-    {"code": "CSC401", "name": "Computer Networks", "description": "Network models, routing, transport protocols, addressing and security."},
+    {"code": "CSC317", "name": "System Analysis and Design", "department": "Computer Science", "level": "300", "description": "Requirements, modelling, system design and implementation planning."},
+    {"code": "CSC411", "name": "Software Engineering", "department": "Computer Science", "level": "400", "description": "Software process models, SDLC, Agile, testing and maintenance."},
+    {"code": "CSC415", "name": "Artificial Intelligence", "department": "Computer Science", "level": "400", "description": "Foundations of intelligent systems, search, learning and reasoning."},
+    {"code": "MIS316", "name": "Research Methods", "department": "Management Information Systems", "level": "300", "description": "Research design, evidence, data collection and academic reporting."},
+    {"code": "MIS412", "name": "Knowledge Management", "department": "Management Information Systems", "level": "400", "description": "How organisations create, share and apply knowledge."},
+    {"code": "MIS413", "name": "System Accounting", "department": "Management Information Systems", "level": "400", "description": "Information systems and accounting processes, controls and reporting."},
+    {"code": "MIS415", "name": "Project Management", "department": "Management Information Systems", "level": "400", "description": "Project planning, scope, risk, cost, schedule and delivery."},
+    {"code": "MIS418", "name": "E-Commerce Technology", "department": "Management Information Systems", "level": "400", "description": "Digital commerce platforms, transactions, security and operations."},
 ]
 
 def seed_courses():
@@ -18,6 +21,13 @@ def seed_courses():
             exists = db.query(models.Course).filter(models.Course.code == item["code"]).first()
             if not exists:
                 db.add(models.Course(**item))
+            else:
+                # Keep existing primary keys and linked material intact while
+                # allowing this small catalogue to improve over time.
+                for field in ("name", "description", "department", "level"):
+                    value = item.get(field)
+                    if value and not getattr(exists, field, None):
+                        setattr(exists, field, value)
         db.commit()
     finally:
         db.close()
