@@ -72,6 +72,24 @@ OCR_CONFIGS = [
     "--oem 3 --psm 12 -c preserve_interword_spaces=1",
 ]
 
+# Keep this deliberately explicit. Extraction also carries the uploaded bytes
+# and other fields used only while indexing; none of those belong in JSON.
+PUBLIC_EXTRACTION_FIELDS = (
+    "method",
+    "page_count",
+    "text_char_count",
+    "cleaned_text_char_count",
+    "ocr_used",
+    "extraction_confidence",
+    "failure_reason",
+    "indexed_status",
+    "searchable",
+    "needs_review",
+    "ocr_score",
+    "ocr_useful_words",
+    "warnings",
+)
+
 OCR_ACADEMIC_KEYWORDS = {
     "COVENANT",
     "UNIVERSITY",
@@ -1767,6 +1785,15 @@ def extraction_message(extraction: Dict[str, Any]) -> str:
     return "ExamMind could not read this scan clearly. Try a clearer PDF or enter metadata manually."
 
 
+def public_extraction_payload(extraction: Dict[str, Any]) -> Dict[str, Any]:
+    """Return only extraction fields that are safe and useful to API clients."""
+    return {
+        key: extraction[key]
+        for key in PUBLIC_EXTRACTION_FIELDS
+        if key in extraction
+    }
+
+
 @router.post("/upload")
 def upload_document(
     file: UploadFile = File(...),
@@ -1829,11 +1856,7 @@ def upload_document(
         if item.get("text")
     ]
     preview_text = cleaned_text[:5000]
-    response_extraction = {
-        key: value
-        for key, value in extraction.items()
-        if key not in {"text", "raw_extracted_text", "cleaned_text"}
-    }
+    response_extraction = public_extraction_payload(extraction)
 
     duplicate = find_duplicate(db, metadata)
     if duplicate:
