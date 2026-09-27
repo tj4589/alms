@@ -5,12 +5,12 @@
   width: 100%;
   max-width: 1240px;
   margin-inline: auto;
-  padding: clamp(32px, 4.2vw, 60px) clamp(20px, 3.5vw, 54px) 88px;
+  padding: clamp(40px, 4vw, 56px) clamp(20px, 3.5vw, 54px) 88px;
 }
 
 .workspace-page .pg-head {
   max-width: 72ch;
-  margin-bottom: clamp(28px, 4vw, 46px);
+  margin-bottom: clamp(24px, 2.5vw, 36px);
 }
 
 .workspace-page .pg-title {

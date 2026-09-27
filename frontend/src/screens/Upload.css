@@ -18,14 +18,14 @@
   width: min(1280px, calc(100% - 72px));
   max-width: none;
   margin-inline: auto;
-  padding: clamp(44px, 6vw, 78px) 0 110px;
+  padding: clamp(40px, 4vw, 56px) 0 110px;
   color: var(--upload-ink);
   font-family: 'Outfit Variable', var(--font), sans-serif;
 }
 
 #s-upload .pg-head {
   max-width: 780px;
-  margin: 0 0 44px;
+  margin: 0 0 clamp(24px, 2.5vw, 36px);
 }
 
 #s-upload .pg-title {
@@ -769,11 +769,11 @@
 @media (max-width: 900px) {
   #s-upload {
     width: min(100% - 40px, 720px);
-    padding-top: 40px;
+    padding-top: 32px;
   }
 
   #s-upload .pg-head {
-    margin-bottom: 32px;
+    margin-bottom: 28px;
   }
 
   #s-upload .upload-grid {
@@ -811,7 +811,7 @@
 @media (max-width: 620px) {
   #s-upload {
     width: calc(100% - 32px);
-    padding: 34px 0 88px;
+    padding: 28px 0 88px;
   }
 
   #s-upload .pg-title {

@@ -269,7 +269,8 @@ export default function Practice({
             <dl className="margin-facts">
               <div><dt>Course</dt><dd>{selectedCourse ? selectedCourse.code : 'Not chosen'}</dd></div>
               <div><dt>Topic</dt><dd>{selectedTopic}</dd></div>
-              <div><dt>Questions</dt><dd className="is-num">{generatedQuestions.length || qCount}</dd></div>
+              <div><dt>Questions</dt><dd className="is-num">{qCount}</dd></div>
+              <div><dt>Estimated time</dt><dd className="is-num">~{Math.max(1, Math.round(qCount * 1.5))} min</dd></div>
               {generatedQuestions.length > 0 && (
                 <div><dt>Marked</dt><dd className="is-num">{markedCount}/{generatedQuestions.length}</dd></div>
               )}
@@ -279,8 +280,12 @@ export default function Practice({
           {generatedQuestions.length === 0 && !result && (
             <section className="margin-block margin-block--end">
               <h2 className="margin-label">How it works</h2>
-              <p className="margin-lede">Build from <em>past questions</em></p>
-              <p className="margin-note">Pick a course and topic, sit the paper, then mark yourself honestly. Your readiness score updates after every submission.</p>
+              <ol className="margin-steps">
+                <li><span className="margin-step-no">01</span><span>Choose a course and topic.</span></li>
+                <li><span className="margin-step-no">02</span><span>Select the number of questions.</span></li>
+                <li><span className="margin-step-no">03</span><span>Complete the paper and mark honestly.</span></li>
+                <li><span className="margin-step-no">04</span><span>Readiness updates after submission.</span></li>
+              </ol>
             </section>
           )}
         </aside>

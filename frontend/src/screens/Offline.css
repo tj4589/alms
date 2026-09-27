@@ -5,7 +5,7 @@
    Styled from the workspace aliases so the accent stays clay, not amber. */
 
 /* ---- Offline Library --------------------------------------------------- */
-#s-offline .pg-head{max-width:66ch;margin-bottom:var(--space-10)}
+#s-offline .pg-head{max-width:66ch;margin-bottom:clamp(24px,2.5vw,36px)}
 #s-offline .pg-sub{color:var(--text2);line-height:1.6}
 
 #s-offline .shelf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}

@@ -4,7 +4,7 @@
    every value from the tokens in index.css. Teal is source-verified, coral is
    the correction, per MASTER.md's accent semantics. */
 
-#s-practice .pg-head{max-width:66ch;margin-bottom:var(--space-10)}
+#s-practice .pg-head{max-width:66ch;margin-bottom:clamp(24px,2.5vw,36px)}
 #s-practice .pg-sub{color:var(--text2);line-height:1.6}
 
 #s-practice .practice-layout{display:grid;grid-template-columns:minmax(0,1fr) 292px;align-items:start}
@@ -126,4 +126,37 @@
   #s-practice .margin-block--end{padding:0;border-bottom:0}
   #s-practice .paper-setup{padding:26px 20px 32px}
   #s-practice .paper-head,#s-practice .paper-foot{padding-inline:20px}
+}
+
+/* The setup and its live context are one practice workspace. At desktop the
+   form leads and the compact support panel stays beside it; below the point
+   where those columns lose useful reading width, the DOM order becomes the
+   visual order again. */
+#s-practice .practice-layout{grid-template-columns:minmax(0,1.9fr) minmax(260px,.9fr);max-width:1240px;gap:clamp(24px,2.5vw,32px)}
+#s-practice .paper-setup{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px;row-gap:0;padding:30px 32px 32px}
+#s-practice .paper-setup>.setup-heading,#s-practice .paper-setup>.setup-lede,#s-practice .paper-setup>.setup-blocked,#s-practice .paper-setup>.practice-primary{grid-column:1/-1}
+#s-practice .paper-setup>.setup-lede{margin-bottom:22px}
+#s-practice .paper-setup>.setup-field{margin-bottom:20px}
+#s-practice .paper-setup>.setup-field:nth-of-type(3){grid-column:1/-1}
+#s-practice .paper-setup>.practice-primary{margin-top:4px}
+#s-practice .practice-margin{display:block;align-self:start;margin:0;padding:24px;border:1px solid var(--border);border-radius:16px;background:rgba(234,220,199,.48)}
+#s-practice .margin-block{margin:0 0 22px;padding:0 0 22px;border-right:0;border-bottom:1px solid rgba(108,62,46,.2)}
+#s-practice .margin-block--end{margin:0;padding:0;border-bottom:0}
+#s-practice .margin-steps{list-style:none;margin:0;padding:0}
+#s-practice .margin-steps li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding:9px 0;border-top:1px solid rgba(108,62,46,.16);color:var(--text2);font-size:12px;line-height:1.45}
+#s-practice .margin-steps li:first-child{padding-top:0;border-top:0}
+#s-practice .margin-step-no{color:var(--highlighter);font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums}
+
+@media(max-width:1024px){
+  #s-practice .practice-layout{grid-template-columns:minmax(0,1fr);max-width:900px}
+  #s-practice .paper-setup{display:block;padding:28px 28px 32px}
+  #s-practice .paper-setup>.setup-field{margin-bottom:var(--space-6)}
+  #s-practice .practice-margin{margin:0;padding:22px 0 0;border:0;border-top:1px solid var(--border);border-radius:0;background:transparent}
+  #s-practice .margin-block{margin:0 0 20px;padding:0 0 20px;border-bottom:1px solid var(--border)}
+  #s-practice .margin-block--end{margin:0;padding:0;border-bottom:0}
+}
+
+@media(max-width:640px){
+  #s-practice .practice-margin{padding-top:20px}
+  #s-practice .paper-setup{padding:26px 20px 32px}
 }
