@@ -1,4 +1,5 @@
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -7,7 +8,7 @@ from typing import Any, Dict, Optional
 
 import PyPDF2
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import auth
@@ -56,6 +57,7 @@ if pytesseract:
         pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
 router = APIRouter(prefix="/ingest", tags=["ingestion"])
+logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "40"))
@@ -145,9 +147,13 @@ WEAK_METADATA_VALUES = {
 
 
 class DeleteDocumentRequest(BaseModel):
+    class Config:
+        extra = "forbid"
+
     source_file: str | None = None
     document_type: str
     document_title: str | None = None
+    document_id: int | None = Field(default=None, gt=0)
 
 
 def missing_ai_error(feature: str):
@@ -179,32 +185,58 @@ def ocr_health():
 def delete_uploaded_document(
     req: DeleteDocumentRequest,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.require_role("student")),
+    current_user: models.User = Depends(auth.get_current_user),
 ):
     document_type = (req.document_type or "").strip().lower()
     source_file = (req.source_file or "").strip()
     document_title = (req.document_title or "").strip()
     if document_type not in {"past_question", "lecture_note"}:
         raise HTTPException(status_code=400, detail="document_type must be past_question or lecture_note.")
-    if not source_file and not document_title:
-        raise HTTPException(status_code=400, detail="source_file or document_title is required.")
+    if req.document_id is not None and (source_file or document_title):
+        raise HTTPException(status_code=400, detail="Use document_id or filename/title, not both.")
+    if req.document_id is None and not source_file and not document_title:
+        raise HTTPException(status_code=400, detail="document_id, source_file or document_title is required.")
 
-    if document_type == "past_question":
-        rows = [
-            row
-            for row in db.query(models.PastQuestion).all()
-            if _metadata_matches(row.metadata_json, source_file, document_title)
-        ]
-        summary = _delete_past_questions(db, rows)
-    else:
-        rows = [
-            row
-            for row in db.query(models.LectureNote).all()
-            if _metadata_matches(row.metadata_json, source_file, document_title)
-        ]
-        summary = _delete_lecture_notes(db, rows)
+    model = models.PastQuestion if document_type == "past_question" else models.LectureNote
+    rows = _select_authorized_material_rows(
+        db,
+        model,
+        current_user,
+        document_id=req.document_id,
+        source_file=source_file,
+        document_title=document_title,
+    )
+    if not rows:
+        _audit_material_deletion(
+            current_user,
+            action="delete_material",
+            document_type=document_type,
+            resource_ids=[req.document_id] if req.document_id is not None else [],
+            result="not_found_or_forbidden",
+        )
+        raise HTTPException(status_code=404, detail="That material does not exist.")
 
-    db.commit()
+    try:
+        summary = _delete_past_questions(db, rows) if document_type == "past_question" else _delete_lecture_notes(db, rows)
+        db.commit()
+    except Exception:
+        db.rollback()
+        _audit_material_deletion(
+            current_user,
+            action="delete_material",
+            document_type=document_type,
+            resource_ids=[row.id for row in rows],
+            result="failed",
+        )
+        raise
+
+    _audit_material_deletion(
+        current_user,
+        action="delete_material",
+        document_type=document_type,
+        resource_ids=[row.id for row in rows],
+        result="deleted",
+    )
     return summary
 
 
@@ -212,23 +244,57 @@ def delete_uploaded_document(
 def clear_uploaded_materials(
     prune_empty_courses: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.require_role("student")),
+    current_user: models.User = Depends(auth.get_current_user),
 ):
+    if current_user.role != "admin":
+        _audit_material_deletion(
+            current_user,
+            action="clear_materials",
+            document_type="all",
+            resource_ids=[],
+            result="forbidden",
+        )
+        raise HTTPException(status_code=403, detail="Administrator access is required.")
+
     summary = _empty_delete_summary()
+    material_count = 0
 
-    past_questions = db.query(models.PastQuestion).all()
-    _merge_delete_summary(summary, _delete_past_questions(db, past_questions))
+    try:
+        past_questions = db.query(models.PastQuestion).all()
+        material_count += len(past_questions)
+        _merge_delete_summary(summary, _delete_past_questions(db, past_questions))
 
-    lecture_notes = db.query(models.LectureNote).all()
-    _merge_delete_summary(summary, _delete_lecture_notes(db, lecture_notes))
+        lecture_notes = db.query(models.LectureNote).all()
+        material_count += len(lecture_notes)
+        _merge_delete_summary(summary, _delete_lecture_notes(db, lecture_notes))
 
-    orphan_chunks = db.query(models.LectureNoteChunk).delete(synchronize_session=False)
-    summary["lecture_note_chunks_deleted"] += orphan_chunks
+        orphan_chunks = db.query(models.LectureNoteChunk).delete(synchronize_session=False)
+        summary["lecture_note_chunks_deleted"] += orphan_chunks
 
-    if prune_empty_courses:
-        summary["courses_pruned"] = _prune_empty_auto_courses(db)
+        if prune_empty_courses:
+            summary["courses_pruned"] = _prune_empty_auto_courses(db)
 
-    db.commit()
+        db.commit()
+    except Exception:
+        db.rollback()
+        _audit_material_deletion(
+            current_user,
+            action="clear_materials",
+            document_type="all",
+            resource_ids=[],
+            resource_count=material_count,
+            result="failed",
+        )
+        raise
+
+    _audit_material_deletion(
+        current_user,
+        action="clear_materials",
+        document_type="all",
+        resource_ids=[],
+        resource_count=material_count,
+        result="deleted",
+    )
     return summary
 
 
@@ -1686,6 +1752,82 @@ def _metadata_matches(metadata: Optional[Dict[str, Any]], source_file: str = "",
     wanted_file = source_file.strip().lower()
     wanted_title = document_title.strip().lower()
     return bool((wanted_file and existing_file == wanted_file) or (wanted_title and existing_title == wanted_title))
+
+
+def _authorized_material_query(db: Session, model: Any, current_user: models.User, owner_id: int | None = None):
+    """Build the material query with the ownership boundary applied in SQL."""
+    query = db.query(model)
+    if current_user.role == "admin":
+        if owner_id is not None:
+            query = query.filter(model.uploaded_by == owner_id)
+    else:
+        query = query.filter(model.uploaded_by == current_user.id)
+    return query
+
+
+def _select_authorized_material_rows(
+    db: Session,
+    model: Any,
+    current_user: models.User,
+    *,
+    document_id: int | None,
+    source_file: str,
+    document_title: str,
+) -> list[Any]:
+    if document_id is not None:
+        selected = _authorized_material_query(db, model, current_user).filter(model.id == document_id).first()
+        if selected is None:
+            return []
+
+        # Past questions are stored one row per retrieval chunk. Once an
+        # authorized row identifies a document, delete only that uploader's
+        # matching chunks, never same-named material owned by someone else.
+        metadata = selected.metadata_json or {}
+        selected_file = str(metadata.get("source_file") or "").strip()
+        selected_title = str(metadata.get("document_title") or "").strip()
+        if (not selected_file and not selected_title) or selected.uploaded_by is None:
+            return [selected]
+        candidates = _authorized_material_query(
+            db,
+            model,
+            current_user,
+            owner_id=selected.uploaded_by,
+        ).all()
+        return [
+            row
+            for row in candidates
+            if _metadata_matches(row.metadata_json, selected_file, selected_title)
+        ]
+
+    candidates = _authorized_material_query(db, model, current_user).all()
+    return [
+        row
+        for row in candidates
+        if _metadata_matches(row.metadata_json, source_file, document_title)
+    ]
+
+
+def _audit_material_deletion(
+    current_user: models.User,
+    *,
+    action: str,
+    document_type: str,
+    resource_ids: list[int],
+    resource_count: int | None = None,
+    result: str,
+) -> None:
+    """Log deletion metadata without filenames, contents, tokens, or secrets."""
+    logger.info(
+        "material_deletion actor_user_id=%s actor_role=%s action=%s document_type=%s "
+        "resource_count=%s resource_ids=%s result=%s",
+        current_user.id,
+        current_user.role,
+        action,
+        document_type,
+        len(resource_ids) if resource_count is None else resource_count,
+        ",".join(str(resource_id) for resource_id in resource_ids) if resource_ids else "none",
+        result,
+    )
 
 
 def _prune_empty_auto_courses(db: Session) -> int:
