@@ -18,7 +18,7 @@
   width: min(1280px, calc(100% - 72px));
   max-width: none;
   margin-inline: auto;
-  padding: clamp(40px, 4vw, 56px) 0 110px;
+  padding: clamp(40px, 3vw, 48px) 0 110px;
   color: var(--upload-ink);
   font-family: 'Outfit Variable', var(--font), sans-serif;
 }

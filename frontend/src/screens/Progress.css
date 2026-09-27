@@ -1,4 +1,4 @@
-.progress-report{width:100%;max-width:1240px;margin-inline:auto;padding-top:38px;padding-bottom:72px;}
+.progress-report{width:100%;max-width:1240px;margin-inline:auto;padding-bottom:72px;}
 .progress-report .progress-report-head{display:flex;align-items:flex-end;justify-content:space-between;gap:32px;margin-bottom:clamp(24px,2.5vw,36px);}
 .progress-report .progress-report-kicker,.progress-report .progress-section-label,.progress-report .progress-state-label{margin:0 0 7px;color:var(--highlighter);font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;}
 .progress-report .progress-report-head h1{margin:0;color:var(--paper-ink);font-family:var(--serif);font-size:42px;font-weight:400;line-height:1;}
@@ -78,7 +78,7 @@
 @keyframes progressSkeleton{0%,100%{opacity:.34}50%{opacity:.62}}
 
 @media(max-width:768px){
-  .progress-report{padding-top:26px;padding-bottom:96px;}
+  .progress-report{padding-bottom:96px;}
   .progress-report .progress-report-head{align-items:flex-start;flex-direction:column;gap:18px;margin-bottom:26px;}
   .progress-report .progress-report-head h1{font-size:38px;}
   .progress-report .progress-decision{grid-template-columns:1fr;}

@@ -204,13 +204,14 @@ export default function Practice({
       {notice && <div className="upload-alert" style={{ borderColor: result ? 'rgba(62,207,178,0.35)' : 'rgba(232,162,58,0.35)', color: 'var(--text2)' }}>{notice}</div>}
       {error && <div className="upload-alert">{error}</div>}
 
-      <div className="practice-layout">
-        <div className="paper-setup">
+      <div className="practice-workspace">
+        <section className="practice-setup-column" aria-labelledby="practice-setup-heading">
+          <div className="paper-setup">
           <span className="paper-marks" aria-hidden="true"><i /><i /><i /><i /></span>
 
           {courses.length === 0 ? (
             <div className="setup-blocked">
-              <h2 className="setup-heading">Nothing to practise from yet</h2>
+              <h2 className="setup-heading" id="practice-setup-heading">Nothing to practise from yet</h2>
               <p className="setup-blocked-body">
                 Practice tests are built from past questions and materials in the shared archive.
                 Add some, or wait for a coursemate to, and ExamMind will set the questions.
@@ -219,7 +220,7 @@ export default function Practice({
             </div>
           ) : (
             <>
-              <h2 className="setup-heading">Set a paper</h2>
+              <h2 className="setup-heading" id="practice-setup-heading">Set a paper</h2>
               <p className="setup-lede">Choose what to be tested on. Questions come from the shared archive.</p>
 
               <div className="setup-field">
@@ -261,9 +262,10 @@ export default function Practice({
               </button>
             </>
           )}
-        </div>
+          </div>
+        </section>
 
-        <aside className="practice-margin">
+        <aside className="practice-support" aria-label="Practice setup guide">
           <section className="margin-block">
             <h2 className="margin-label">This attempt</h2>
             <dl className="margin-facts">

@@ -5,7 +5,7 @@
   width: 100%;
   max-width: 1240px;
   margin-inline: auto;
-  padding: clamp(40px, 4vw, 56px) clamp(20px, 3.5vw, 54px) 88px;
+  padding: clamp(40px, 3vw, 48px) clamp(20px, 3.5vw, 54px) 88px;
 }
 
 .workspace-page .pg-head {
