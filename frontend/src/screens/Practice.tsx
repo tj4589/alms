@@ -5,6 +5,7 @@ import { apiGet, apiPost } from '../lib/api';
 import { queuePracticeAttempt } from '../offline';
 
 import './Practice.css';
+import './WorkspacePage.css';
 
 const QUESTION_COUNTS = [5, 10, 15, 20, 30];
 
@@ -194,7 +195,7 @@ export default function Practice({
   };
 
   return (
-    <div className="page" id="s-practice">
+    <div className="page workspace-page" id="s-practice">
       <div className="pg-head">
         <div className="pg-title">Practice <em>Tests</em></div>
         <div className="pg-sub">Built from past questions and materials in the shared archive · self-marked · readiness updated after submission</div>

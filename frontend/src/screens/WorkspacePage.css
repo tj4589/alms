@@ -1,0 +1,47 @@
+/* Shared geometry for the study workspace screens. The shell owns the rail
+   offset; these pages only own the width available after that offset. */
+.page.workspace-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+  padding: clamp(32px, 4.2vw, 60px) clamp(20px, 3.5vw, 54px) 88px;
+}
+
+.workspace-page .pg-head {
+  max-width: 72ch;
+  margin-bottom: clamp(28px, 4vw, 46px);
+}
+
+.workspace-page .pg-title {
+  font-size: clamp(40px, 5vw, 64px);
+  line-height: .98;
+  letter-spacing: -.055em;
+}
+
+.workspace-page .pg-sub {
+  max-width: 68ch;
+  margin-top: 14px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+@media (max-width: 768px) {
+  .page.workspace-page {
+    padding: 32px 20px 88px;
+  }
+
+  .workspace-page .pg-head {
+    margin-bottom: 32px;
+  }
+
+  .workspace-page .pg-title {
+    font-size: clamp(38px, 11vw, 52px);
+  }
+}
+
+@media (max-width: 420px) {
+  .page.workspace-page {
+    padding-inline: 16px;
+  }
+}

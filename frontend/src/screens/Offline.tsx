@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChatMessage, ScreenType } from '../types';
 import type { OfflineStudyPack, PendingUpload, SavedItem } from '../offline';
 import { listItems, listRecords, removeItem, removePendingUpload, removeStudyPack } from '../offline';
 import './Offline.css';
+import './WorkspacePage.css';
 
 type MaterialsProps = {
   go: (s: ScreenType, arg?: string | number | null) => void;
@@ -10,6 +11,8 @@ type MaterialsProps = {
 };
 
 const DOCUMENT_TYPES: SavedItem['itemType'][] = ['lecture_note', 'past_question'];
+type MaterialFilter = 'all' | 'documents' | 'conversations' | 'results' | 'offline';
+type MaterialSort = 'recent' | 'title';
 
 function savedDate(iso: string): string {
   const when = new Date(iso);
@@ -28,6 +31,9 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
   const [packs, setPacks] = useState<OfflineStudyPack[]>([]);
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const [openPack, setOpenPack] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<MaterialFilter>('all');
+  const [sort, setSort] = useState<MaterialSort>('recent');
 
   const load = useCallback(() => {
     listItems().then(setSaved).catch(() => setSaved([]));
@@ -37,9 +43,37 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
 
   useEffect(load, [load]);
 
-  const documents = saved.filter((item) => DOCUMENT_TYPES.includes(item.itemType));
-  const conversations = saved.filter((item) => item.itemType === 'maxe_conversation');
-  const results = saved.filter((item) => item.itemType === 'practice_result');
+  const matchesQuery = useCallback((value: string) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return !normalizedQuery || value.toLowerCase().includes(normalizedQuery);
+  }, [query]);
+
+  const sortSaved = useCallback((items: SavedItem[]) => [...items].sort((a, b) => {
+    if (sort === 'title') return a.title.localeCompare(b.title);
+    return new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime();
+  }), [sort]);
+
+  const offlineOnly = filter === 'offline';
+  const documents = useMemo(() => sortSaved(saved.filter((item) => DOCUMENT_TYPES.includes(item.itemType) && (!offlineOnly || item.cachedOffline) && matchesQuery(`${item.title} ${item.meta}`))), [matchesQuery, offlineOnly, saved, sortSaved]);
+  const conversations = useMemo(() => sortSaved(saved.filter((item) => item.itemType === 'maxe_conversation' && (!offlineOnly || item.cachedOffline) && matchesQuery(`${item.title} ${item.meta}`))), [matchesQuery, offlineOnly, saved, sortSaved]);
+  const results = useMemo(() => sortSaved(saved.filter((item) => item.itemType === 'practice_result' && (!offlineOnly || item.cachedOffline) && matchesQuery(`${item.title} ${item.meta}`))), [matchesQuery, offlineOnly, saved, sortSaved]);
+  const visibleSections = {
+    documents: filter === 'all' || filter === 'documents' || offlineOnly,
+    conversations: filter === 'all' || filter === 'conversations' || offlineOnly,
+    results: filter === 'all' || filter === 'results' || offlineOnly,
+    offline: filter === 'all' || filter === 'offline',
+  };
+
+  const visiblePacks = useMemo(() => [...packs]
+    .filter((pack) => matchesQuery(`${pack.title} ${pack.courseCode}`))
+    .sort((a, b) => sort === 'title'
+      ? a.title.localeCompare(b.title)
+      : new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()), [matchesQuery, packs, sort]);
+  const visibleUploads = useMemo(() => [...uploads]
+    .filter((upload) => matchesQuery(upload.fileName))
+    .sort((a, b) => sort === 'title'
+      ? a.fileName.localeCompare(b.fileName)
+      : new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime()), [matchesQuery, sort, uploads]);
 
   const forget = useCallback(async (id: string) => {
     await removeItem(id).catch(() => undefined);
@@ -54,14 +88,38 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
   }, [go]);
 
   return (
-    <div className="page" id="s-offline">
+    <div className="page workspace-page" id="s-offline">
       <div className="pg-head">
         <div className="pg-title">My <em>Materials</em></div>
         <div className="pg-sub">Everything you have saved, in one place. Anything marked offline opens with no connection.</div>
       </div>
 
+      <div className="materials-toolbar" role="search" aria-label="Material filters">
+        <label className="materials-search">
+          <span>Search your materials</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search saved materials" />
+        </label>
+        <label className="materials-control">
+          <span>Show</span>
+          <select value={filter} onChange={(event) => setFilter(event.target.value as MaterialFilter)}>
+            <option value="all">Everything</option>
+            <option value="documents">Documents</option>
+            <option value="conversations">Conversations</option>
+            <option value="results">Practice results</option>
+            <option value="offline">Offline items</option>
+          </select>
+        </label>
+        <label className="materials-control">
+          <span>Sort</span>
+          <select value={sort} onChange={(event) => setSort(event.target.value as MaterialSort)}>
+            <option value="recent">Most recent</option>
+            <option value="title">Title A–Z</option>
+          </select>
+        </label>
+      </div>
+
       <div className="shelf-grid">
-        <section className="shelf" aria-labelledby="mat-docs-title">
+        {visibleSections.documents && <section className="shelf" aria-labelledby="mat-docs-title">
           <div className="shelf-head">
             <p className="shelf-label">Saved</p>
             <span className="shelf-count">{documents.length}</span>
@@ -91,9 +149,9 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
           )}
 
           <button className="shelf-action" onClick={() => go('questions')}>Find more materials</button>
-        </section>
+        </section>}
 
-        <section className="shelf" aria-labelledby="mat-convos-title">
+        {visibleSections.conversations && <section className="shelf" aria-labelledby="mat-convos-title">
           <div className="shelf-head">
             <p className="shelf-label">Saved</p>
             <span className="shelf-count">{conversations.length}</span>
@@ -127,9 +185,9 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
               })}
             </ul>
           )}
-        </section>
+        </section>}
 
-        <section className="shelf" aria-labelledby="mat-results-title">
+        {visibleSections.results && <section className="shelf" aria-labelledby="mat-results-title">
           <div className="shelf-head">
             <p className="shelf-label">Saved</p>
             <span className="shelf-count">{results.length}</span>
@@ -159,20 +217,20 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
           )}
 
           <button className="shelf-action" onClick={() => go('practice')}>Practise again</button>
-        </section>
+        </section>}
 
-        <section className="shelf" aria-labelledby="mat-packs-title">
+        {visibleSections.offline && <section className="shelf" aria-labelledby="mat-packs-title">
           <div className="shelf-head">
             <p className="shelf-label">Available offline</p>
-            <span className="shelf-count">{packs.length}</span>
+            <span className="shelf-count">{visiblePacks.length}</span>
           </div>
           <h2 className="shelf-title" id="mat-packs-title">Study packs</h2>
 
-          {packs.length === 0 ? (
+          {visiblePacks.length === 0 ? (
             <p className="shelf-empty">Nothing saved yet. Save a pack from Past Questions and it stays readable with no connection.</p>
           ) : (
             <ul className="shelf-list">
-              {packs.map((pack) => (
+              {visiblePacks.map((pack) => (
                 <li key={pack.id} className="is-stacked">
                   <div className="shelf-item-row">
                     <div className="shelf-item-body">
@@ -215,20 +273,20 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
           )}
 
           <button className="shelf-action" onClick={() => go('questions')}>Save more packs</button>
-        </section>
+        </section>}
 
-        <section className="shelf" aria-labelledby="mat-queue-title">
+        {visibleSections.offline && <section className="shelf" aria-labelledby="mat-queue-title">
           <div className="shelf-head">
             <p className="shelf-label">Waiting to sync</p>
-            <span className="shelf-count">{uploads.length}</span>
+            <span className="shelf-count">{visibleUploads.length}</span>
           </div>
           <h2 className="shelf-title" id="mat-queue-title">Upload queue</h2>
 
-          {uploads.length === 0 ? (
+          {visibleUploads.length === 0 ? (
             <p className="shelf-empty">Nothing queued. Files added without a connection wait here until sync is possible.</p>
           ) : (
             <ul className="shelf-list">
-              {uploads.map((upload) => (
+              {visibleUploads.map((upload) => (
                 <li key={upload.id}>
                   <div className="shelf-item-body">
                     <div className="shelf-item-title">{upload.fileName}</div>
@@ -250,7 +308,7 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
           )}
 
           <button className="shelf-action" onClick={() => go('upload')}>Add materials</button>
-        </section>
+        </section>}
       </div>
     </div>
   );

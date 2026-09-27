@@ -9,6 +9,7 @@ import {
 import type { ScreenType } from '../types';
 import { apiGet } from '../lib/api';
 import './Progress.css';
+import './WorkspacePage.css';
 
 type ReadinessEntry = {
   id: number;
@@ -140,7 +141,7 @@ export default function Progress({ go, userId }: { go: (screen: ScreenType) => v
   };
 
   return (
-    <div className="page progress-report" id="s-progress">
+    <div className="page workspace-page progress-report" id="s-progress">
       <header className="progress-report-head">
         <div>
           <p className="progress-report-kicker">Personal study record</p>

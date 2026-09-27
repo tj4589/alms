@@ -1,4 +1,4 @@
-.progress-report{width:min(1080px,100%);padding-top:38px;padding-bottom:72px;}
+.progress-report{width:100%;max-width:1240px;margin-inline:auto;padding-top:38px;padding-bottom:72px;}
 .progress-report .progress-report-head{display:flex;align-items:flex-end;justify-content:space-between;gap:32px;margin-bottom:34px;}
 .progress-report .progress-report-kicker,.progress-report .progress-section-label,.progress-report .progress-state-label{margin:0 0 7px;color:var(--highlighter);font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;}
 .progress-report .progress-report-head h1{margin:0;color:var(--paper-ink);font-family:var(--serif);font-size:42px;font-weight:400;line-height:1;}
@@ -107,3 +107,12 @@
   .progress-report .progress-state h2{font-size:27px;}
   .progress-report .progress-inline-empty{align-items:flex-start;flex-direction:column;}
 }
+
+/* Keep the report on the same warm, centred workspace grid as Materials and
+   Practice while preserving its deliberate narrative order. */
+.progress-report .progress-report-head h1{font-size:clamp(40px,5vw,58px);letter-spacing:-.055em;}
+.progress-report .progress-decision{border-radius:16px;background:rgba(255,253,248,.62);overflow:hidden;}
+.progress-report .progress-primary-measure{background:rgba(234,220,199,.48);}
+.progress-report .progress-section{max-width:980px;margin-inline:auto;}
+.progress-report .progress-evidence{max-width:980px;margin-inline:auto;margin-bottom:48px;}
+.progress-report .progress-report-note{max-width:980px;margin-inline:auto;}

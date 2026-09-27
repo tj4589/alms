@@ -108,3 +108,22 @@
 @media(prefers-reduced-motion:reduce){
   #s-practice .setup-select,#s-practice .count-option,#s-practice .practice-primary,#s-practice .mark,#s-practice .question{transition:none}
 }
+
+/* Practice stays a single focused workspace. The setup context sits directly
+   under the form, while the paper below uses the same readable column. */
+#s-practice .practice-layout{grid-template-columns:minmax(0,1fr);max-width:900px;margin-inline:auto;gap:26px}
+#s-practice .paper-setup{padding:clamp(28px,4vw,48px);border-radius:16px;background:var(--surface);box-shadow:0 20px 48px -38px rgba(9,10,10,.5)}
+#s-practice .practice-margin{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:32px;margin:0;padding:22px 0 0;border-top:1px solid var(--border);border-left:0}
+#s-practice .margin-block{margin:0;padding:0 32px 0 0;border-bottom:0;border-right:1px solid var(--border)}
+#s-practice .margin-block--end{padding:0;border-right:0}
+#s-practice .paper{max-width:900px;margin-inline:auto;border-radius:16px;overflow:hidden}
+#s-practice .paper-head{padding:28px 32px 22px}
+#s-practice .paper-foot{padding:24px 32px}
+
+@media(max-width:640px){
+  #s-practice .practice-margin{grid-template-columns:1fr;gap:24px}
+  #s-practice .margin-block{padding:0 0 24px;border-right:0;border-bottom:1px solid var(--border)}
+  #s-practice .margin-block--end{padding:0;border-bottom:0}
+  #s-practice .paper-setup{padding:26px 20px 32px}
+  #s-practice .paper-head,#s-practice .paper-foot{padding-inline:20px}
+}
