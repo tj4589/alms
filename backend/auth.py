@@ -176,6 +176,11 @@ def get_or_create_firebase_user(
     if user is not None:
         if user.firebase_uid and user.firebase_uid != firebase_uid:
             raise ValueError("That email is already linked to another account.")
+        if (
+            user.firebase_uid == firebase_uid
+            and _normalise_email(str(user.email or "")) != normalised_email
+        ):
+            raise ValueError("The verified email does not match this account.")
         user.firebase_uid = firebase_uid
         # Existing name, username, password hash, and all study data remain
         # untouched. Only the missing external identity link is added.

@@ -120,9 +120,23 @@ class FirebaseTokenTests(unittest.TestCase):
             "https://",
             "https://[malformed",
             "https://user:password@www.googleapis.com/certs",
+            "https://attacker.example/certs",
+            "https://www.googleapis.com:8443/certs",
         ):
             with self.subTest(url=url), self.assertRaises(firebase_tokens.FirebaseTokenError):
                 firebase_tokens.validate_certificate_url(url)
+
+    def test_certificate_redirect_to_non_google_host_is_rejected(self) -> None:
+        certificate_url = "https://www.googleapis.com/oauth2/v1/certs"
+        response = FakeCertificateResponse(
+            json.dumps({"test-key": CERTIFICATE_PEM}).encode("utf-8"),
+            "https://attacker.example/certs",
+        )
+        cache = firebase_tokens._CertificateCache()
+        with patch.object(firebase_tokens, "_certificate_cache", cache):
+            with patch.object(firebase_tokens, "urlopen", return_value=response):
+                with self.assertRaises(firebase_tokens.FirebaseTokenError):
+                    cache.get(certificate_url)
 
     def test_google_x509_certificate_response_is_parsed_and_used(self) -> None:
         certificate_url = "https://www.googleapis.com/oauth2/v1/certs"
@@ -201,8 +215,11 @@ class FirebaseTokenTests(unittest.TestCase):
     def test_supported_and_unsupported_school_domains(self) -> None:
         self.assertTrue(firebase_tokens.is_allowed_school_email("student@stu.cu.edu.ng"))
         self.assertTrue(firebase_tokens.is_allowed_school_email("student@covenantuniversity.edu.ng"))
+        self.assertTrue(firebase_tokens.is_allowed_school_email(" Student@STU.CU.EDU.NG "))
         self.assertFalse(firebase_tokens.is_allowed_school_email("student@gmail.com"))
         self.assertFalse(firebase_tokens.is_allowed_school_email("student@evil-stu.cu.edu.ng"))
+        self.assertFalse(firebase_tokens.is_allowed_school_email("student@stu.cu.edu.ng.attacker.com"))
+        self.assertFalse(firebase_tokens.is_allowed_school_email("student@covenantuniversity.edu.ng.attacker.com"))
 
     def test_successful_email_verification(self) -> None:
         claims = firebase_tokens.verify_firebase_id_token(signed_token(firebase_claims()))
@@ -326,6 +343,31 @@ class FirebaseTokenTests(unittest.TestCase):
         self.assertEqual(existing.username, "existing_student")
         self.assertEqual(existing.password_hash, "legacy-hash")
         db.commit.assert_called_once()
+
+    def test_firebase_uid_cannot_change_the_linked_account_email(self) -> None:
+        existing = models.User(
+            name="Existing Student",
+            username="existing_student",
+            email="student@stu.cu.edu.ng",
+            firebase_uid="firebase-user-123",
+            role="student",
+        )
+        query = MagicMock()
+        query.filter.return_value = query
+        query.first.return_value = existing
+        db = MagicMock()
+        db.query.return_value = query
+
+        with self.assertRaises(ValueError):
+            auth.get_or_create_firebase_user(
+                db,
+                firebase_uid="firebase-user-123",
+                email="other@stu.cu.edu.ng",
+                claims=firebase_claims(email="other@stu.cu.edu.ng"),
+            )
+
+        self.assertEqual(existing.email, "student@stu.cu.edu.ng")
+        db.commit.assert_not_called()
 
 
 if __name__ == "__main__":

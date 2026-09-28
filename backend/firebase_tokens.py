@@ -48,6 +48,7 @@ CLOCK_SKEW_SECONDS = max(0, int(os.getenv("FIREBASE_CLOCK_SKEW_SECONDS", "60")))
 CERT_FETCH_TIMEOUT_SECONDS = max(
     1, int(os.getenv("FIREBASE_CERT_FETCH_TIMEOUT_SECONDS", "10"))
 )
+ALLOWED_CERTIFICATE_HOSTS = frozenset({"www.googleapis.com"})
 
 
 class FirebaseTokenError(ValueError):
@@ -169,6 +170,8 @@ def validate_certificate_url(value: str) -> str:
         parsed.scheme != "https"
         or not parsed.netloc
         or not hostname
+        or hostname.rstrip(".").lower() not in ALLOWED_CERTIFICATE_HOSTS
+        or parsed.port not in (None, 443)
         or parsed.username is not None
         or parsed.password is not None
         or parsed.fragment
