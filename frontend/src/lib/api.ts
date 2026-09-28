@@ -146,6 +146,14 @@ export async function apiDownload(path: string, fallbackName: string): Promise<s
   return filename;
 }
 
+export async function apiBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'GET', headers: authHeaders() });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'That preview could not be opened.'));
+  }
+  return response.blob();
+}
+
 export function apiPut(path: string, body: RequestBody) {
   return request(
     path,

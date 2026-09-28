@@ -9,7 +9,10 @@
 #s-dashboard .desk-space-kicker{display:block;margin-bottom:6px;color:#ac401e;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
 #s-dashboard .desk-space-door h2{margin:0;color:#30372a;font:600 21px/1.2 'Outfit Variable',sans-serif;letter-spacing:-.35px}
 #s-dashboard .desk-space-door p{max-width:66ch;margin:7px 0 0;color:#687062;font-size:12px;line-height:1.5}
+#s-dashboard .desk-space-actions{display:flex;align-items:center;gap:15px;flex-wrap:wrap;justify-content:flex-end}
 #s-dashboard .desk-space-door button{display:inline-flex;align-items:center;gap:8px;flex:none;padding:10px 0;background:transparent;color:#445037;font-size:12px;font-weight:600}
+#s-dashboard .desk-space-door .desk-space-primary{padding:10px 14px;border-radius:22px;background:#34452e;color:#fffdf5}
+#s-dashboard .desk-space-door .desk-space-primary:hover{background:#48613e;color:#fffdf5}
 #s-dashboard .desk-space-door button:hover{color:#ac401e}
 #s-dashboard .desk-layout{display:grid;grid-template-columns:minmax(0,1fr) 286px;gap:32px;align-items:start}
 #s-dashboard .desk-main,#s-dashboard .desk-aside{min-width:0}

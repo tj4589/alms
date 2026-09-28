@@ -49,6 +49,7 @@ import SearchResults from './screens/SearchResults';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
 import Reader from './screens/Reader';
+import Workspace from './screens/Workspace';
 import Onboarding from './screens/Onboarding';
 import LearningSpaces from './screens/LearningSpaces';
 import Logo from './components/Logo';
@@ -105,7 +106,7 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
     items: [
       { label: 'My desk', screen: 'dashboard', icon: SquaresFourIcon },
       { label: 'Add material', screen: 'upload', icon: UploadSimpleIcon },
-      { label: 'My Materials', screen: 'offline', icon: BooksIcon },
+      { label: 'My Materials', screen: 'workspace', icon: BooksIcon },
       { label: 'Practice', screen: 'practice', icon: ExamIcon },
     ],
   },
@@ -1151,6 +1152,7 @@ export default function App() {
             user={user}
             learningSpace={learningSpaces?.active_space || null}
             onOpenSpaces={() => go('spaces')}
+            onOpenWorkspace={() => go('workspace')}
             onOpenSearch={(query) => { void openSearchResults(query); }}
           />
         )}
@@ -1187,6 +1189,7 @@ export default function App() {
         {activeScreen === 'settings' && <Settings go={go} user={user} onEditProfile={() => { setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
+        {activeScreen === 'workspace' && <Workspace go={go} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}

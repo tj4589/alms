@@ -162,12 +162,14 @@ export default function Dashboard({
   user,
   learningSpace,
   onOpenSpaces,
+  onOpenWorkspace,
   onOpenSearch,
 }: {
   go: (screen: ScreenType) => void;
   user: User | null;
   learningSpace: LearningSpace | null;
   onOpenSpaces: () => void;
+  onOpenWorkspace: () => void;
   onOpenSearch: (query: string) => void;
 }) {
   const [analytics, setAnalytics] = useState<StudentAnalytics | null>(null);
@@ -394,7 +396,7 @@ export default function Dashboard({
           <h2 id="desk-space-title">{learningSpace.name}</h2>
           <p>{learningSpace.description || 'Your organised place to learn, practise and keep moving.'}</p>
         </div>
-        <button type="button" onClick={onOpenSpaces}>Switch learning space <ArrowRight size={16} aria-hidden="true" /></button>
+        <div className="desk-space-actions"><button type="button" className="desk-space-primary" onClick={onOpenWorkspace}>Open workspace <ArrowRight size={16} aria-hidden="true" /></button><button type="button" onClick={onOpenSpaces}>Switch learning space <ArrowRight size={16} aria-hidden="true" /></button></div>
       </section>}
 
       {loadError && !loading && (
