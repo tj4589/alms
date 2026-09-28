@@ -32,6 +32,7 @@ const INITIAL_CHAT: ChatMessage[] = [
   },
 ];
 const AUTH_RESET_KEY = 'exammind-first-upload-auth-reset-v1';
+const NAV_COLLAPSE_TIMER_MS = 240;
 import Dashboard from './screens/Dashboard';
 import Questions from './screens/Questions';
 import Assistant from './screens/Assistant';
@@ -57,6 +58,7 @@ import { Auth } from './components/Auth';
 import Landing from './components/Landing';
 import Privacy from './components/Privacy';
 import FeedbackPage from './components/FeedbackPage';
+import GroupInvite from './components/GroupInvite';
 import { apiGet, apiPost } from './lib/api';
 import { firebaseAuth } from './lib/firebase';
 import { signOut as signOutFirebase } from 'firebase/auth';
@@ -67,8 +69,7 @@ type NavigationItem = {
   icon: PhosphorIcon;
 };
 
-type PublicView = 'landing' | 'auth' | 'privacy' | 'feedback';
-
+type PublicView = 'landing' | 'auth' | 'privacy' | 'feedback' | 'invite';
 type AccountLifecycleRecovery = {
   kind: 'deactivated' | 'pending_deletion' | 'expired';
   deletionDueAt?: string;
@@ -79,7 +80,20 @@ function publicViewFromPath(): PublicView {
   const path = window.location.pathname.replace(/\/+$/, '');
   if (path === '/privacy') return 'privacy';
   if (path === '/feedback') return 'feedback';
+  if (/^\/groups\/invite\/[A-Za-z0-9_-]+$/.test(path)) return 'invite';
   return 'landing';
+}
+
+function inviteTokenFromPath(): string | null {
+  const match = window.location.pathname.match(/^\/groups\/invite\/([A-Za-z0-9_-]+)$/);
+  return match?.[1] || null;
+}
+
+function sharedThreadIdFromPath(): number | null {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('screen') !== 'discussions') return null;
+  const value = Number(params.get('thread'));
+  return Number.isInteger(value) && value > 0 ? value : null;
 }
 
 const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
@@ -177,12 +191,13 @@ export default function App() {
   const [deletionRecoveryPending, setDeletionRecoveryPending] = useState(false);
   const [deletionFirebaseDeleted, setDeletionFirebaseDeleted] = useState(false);
   const [accountLifecycleRecovery, setAccountLifecycleRecovery] = useState<AccountLifecycleRecovery | null>(null);
-  const [activeScreen, setActiveScreen] = useState<ScreenType>('dashboard');
+  const [activeScreen, setActiveScreen] = useState<ScreenType>(() => sharedThreadIdFromPath() ? 'collab' : 'dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
+  const [navWindowFocused, setNavWindowFocused] = useState(true);
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [toast, setToast] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
@@ -200,6 +215,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<GlobalSearchResult | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const searchOpenRef = useRef(false);
+  searchOpenRef.current = searchOpen;
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [searchGuidance, setSearchGuidance] = useState('');
@@ -250,8 +267,9 @@ export default function App() {
   const scheduleNavCollapse = () => {
     if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
     navCollapseTimer.current = setTimeout(() => {
-      if (!navPointerInside.current && !navFocusInside.current) setNavExpanded(false);
-    }, 220);
+      navCollapseTimer.current = null;
+      if (!navPointerInside.current && !navFocusInside.current && !searchOpenRef.current) setNavExpanded(false);
+    }, NAV_COLLAPSE_TIMER_MS);
   };
 
   const handleNavPointerEnter = () => {
@@ -277,8 +295,23 @@ export default function App() {
     }
   };
 
-  useEffect(() => () => {
-    if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
+  useEffect(() => {
+    const resetNavigationOnWindowBlur = () => {
+      navPointerInside.current = false;
+      navFocusInside.current = false;
+      if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
+      navCollapseTimer.current = null;
+      setNavExpanded(false);
+      setNavWindowFocused(false);
+    };
+    const restoreNavigationOnWindowFocus = () => setNavWindowFocused(true);
+    window.addEventListener('blur', resetNavigationOnWindowBlur);
+    window.addEventListener('focus', restoreNavigationOnWindowFocus);
+    return () => {
+      window.removeEventListener('blur', resetNavigationOnWindowBlur);
+      window.removeEventListener('focus', restoreNavigationOnWindowFocus);
+      if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
+    };
   }, []);
 
   // Hydrate user info from a stored token on first load
@@ -333,10 +366,11 @@ export default function App() {
     setAccountLifecycleRecovery(null);
     storeToken(jwt);
     setToken(jwt);
-
     setUserHydrating(true);
     if (authenticatedUser) setUser(authenticatedUser);
-    setActiveScreen('dashboard');
+    setActiveScreen(sharedThreadIdFromPath() ? 'collab' : 'dashboard');
+    if (inviteTokenFromPath()) setPublicView('invite');
+
     try {
       const data = await apiGet('/auth/me') as User;
       setUser(data);
@@ -517,7 +551,16 @@ export default function App() {
   const returnToLanding = () => navigatePublic('/', 'landing');
   const openAuth = (mode: 'login' | 'register') => {
     setAuthInitialMode(mode);
-    navigatePublic('/', 'auth');
+    const sharedThreadId = sharedThreadIdFromPath();
+    navigatePublic(sharedThreadId ? `/?screen=discussions&thread=${sharedThreadId}` : '/', 'auth');
+  };
+
+  const clearSharedThreadUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    params.delete('screen');
+    params.delete('thread');
+    const query = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
   };
 
   // A second argument names what the screen should open: whose profile, or
@@ -616,6 +659,8 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setSearchOpen(false);
+        setSearchQuery('');
+        scheduleNavCollapse();
       }
     };
     document.addEventListener('mousedown', onPointerDown);
@@ -640,6 +685,7 @@ export default function App() {
   const closeSearch = () => {
     setSearchOpen(false);
     setSearchQuery('');
+    scheduleNavCollapse();
   };
 
   const askAIFromSearch = (question: string) => {
@@ -682,22 +728,6 @@ export default function App() {
     await openSearchResults(searchQuery);
   };
 
-  const refreshSubmittedSearchAfterDelete = async () => {
-    const query = submittedQuery.trim();
-    setToast('Material removed. You can upload it again.');
-    window.setTimeout(() => setToast(''), 3600);
-    if (!query) return;
-    setSubmittedLoading(true);
-    try {
-      const data = await apiGet(`/search?q=${encodeURIComponent(query)}`) as GlobalSearchResult;
-      setSubmittedResult(data);
-    } catch {
-      setSubmittedResult(null);
-    } finally {
-      setSubmittedLoading(false);
-    }
-  };
-
   if (publicView === 'privacy') {
     return (
       <Privacy
@@ -714,6 +744,18 @@ export default function App() {
         onBackToHome={returnToLanding}
         onGetStarted={() => openAuth('register')}
         onSignIn={() => openAuth('login')}
+      />
+    );
+  }
+
+  if (publicView === 'invite' && inviteTokenFromPath()) {
+    return (
+      <GroupInvite
+        token={inviteTokenFromPath()!}
+        authenticated={Boolean(token)}
+        onBack={returnToLanding}
+        onSignIn={() => openAuth('login')}
+        onOpenGroups={() => { setPublicView('landing'); go('groups'); }}
       />
     );
   }
@@ -794,7 +836,7 @@ export default function App() {
   const compactSidebar = true;
 
   return (
-    <div className={`shell workspace-shell${compactSidebar ? ' is-compact-nav' : ''}${navExpanded ? ' is-nav-expanded' : ''}`}>
+    <div className={`shell workspace-shell${compactSidebar ? ' is-compact-nav' : ''}${navExpanded ? ' is-nav-expanded' : ''}${navWindowFocused ? '' : ' nav-window-blurred'}`}>
       <aside className="sidebar" id="sidebar" aria-label="Primary navigation" onPointerEnter={handleNavPointerEnter} onPointerLeave={handleNavPointerLeave} onFocusCapture={handleNavFocus} onBlurCapture={handleNavBlur}>
         <div className="logo" aria-label="ExamMind">
           <div className="logo-mark"><Logo size={24} /></div>
@@ -911,7 +953,7 @@ export default function App() {
                 }
                 if (e.key === 'Escape') {
                   e.preventDefault();
-                  setSearchOpen(false);
+                  closeSearch();
                 }
               }}
             />
@@ -1057,7 +1099,7 @@ export default function App() {
             onOpenConversation={(saved) => { setChatMessages(saved); setMaxeOpen(true); }}
           />
         )}
-        {activeScreen === 'collab' && <Collab go={go} user={user} notifyUnavailable={notifyUnavailable} initialContext={discussionContext} />}
+        {activeScreen === 'collab' && <Collab go={go} user={user} initialContext={discussionContext} initialThreadId={sharedThreadIdFromPath()} onClearSharedThread={clearSharedThreadUrl} />}
         {activeScreen === 'practice' && <Practice go={go} initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
@@ -1075,7 +1117,6 @@ export default function App() {
             onUpload={() => go('upload')}
             onPractice={(topic, context) => { handleGoToPractice(topic, context); }}
             onCommunityAction={handleCommunityAction}
-            onMaterialDeleted={() => void refreshSubmittedSearchAfterDelete()}
             go={go}
           />
         )}

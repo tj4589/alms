@@ -123,8 +123,10 @@
 .offline-pill{height:40px;display:flex;align-items:center;gap:7px;border-radius:7px;border:1px solid var(--border);background:var(--bg3);padding:0 11px;font-size:11px;color:var(--text2);white-space:nowrap;}
 .topbar-avatar{width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.1);background:linear-gradient(135deg,var(--gold),var(--teal));color:#0c0d11;font-size:11px;font-weight:700;cursor:pointer;}
 .offline-pill.offline{border-color:rgba(240,115,90,0.35);background:var(--coral2);color:var(--coral);}
+.offline-pill.waking,.offline-pill.connecting{border-color:rgba(232,162,58,0.35);background:rgba(232,162,58,.08);color:var(--gold);}
 .offline-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 6px var(--teal);}
 .offline-pill.offline .offline-dot{background:var(--coral);box-shadow:0 0 6px var(--coral);}
+.offline-pill.waking .offline-dot,.offline-pill.connecting .offline-dot{background:var(--gold);box-shadow:0 0 6px var(--gold);}
 .offline-meta{font-family:var(--mono);color:var(--text3);}
 
 /* PAGE */

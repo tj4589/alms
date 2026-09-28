@@ -6,6 +6,8 @@ profile/onboarding and group-home data needed by the current workspace.
 """
 
 from datetime import datetime, timezone
+from datetime import timedelta
+import secrets
 import re
 from typing import Optional
 
@@ -292,13 +294,18 @@ class GroupPostRequest(BaseModel):
 
 
 class GroupUpdateRequest(BaseModel):
-    visibility: Optional[str] = Field(default=None, pattern="^(public|private)$")
+    visibility: Optional[str] = Field(default=None, pattern="^(public|unlisted|private)$")
     welcome_message: Optional[str] = Field(default=None, max_length=1000)
     archive: bool = False
 
 
 class GroupInviteRequest(BaseModel):
     username: str = Field(min_length=3, max_length=24)
+
+
+class GroupLinkInviteRequest(BaseModel):
+    expires_in_days: int = Field(default=30, ge=1, le=90)
+    max_uses: Optional[int] = Field(default=None, ge=1, le=500)
 
 
 class CommunityReportRequest(BaseModel):
@@ -324,6 +331,24 @@ def _serialize_post(post: models.StudyGroupPost, username: str | None) -> dict:
         "content": post.content,
         "post_type": post.post_type,
         "created_at": post.created_at,
+    }
+
+
+def _invite_expired(invite: models.StudyGroupInvite, now: datetime | None = None) -> bool:
+    now = now or _now()
+    return bool(invite.expires_at and invite.expires_at <= now)
+
+
+def _group_preview(db: Session, group: models.StudyGroup) -> dict:
+    course = db.query(models.Course).filter(models.Course.id == group.course_id).first() if group.course_id else None
+    return {
+        "id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "topic": group.topic,
+        "visibility": group.visibility,
+        "course": {"code": course.code, "name": course.name} if course else None,
+        "member_count": db.query(models.StudyGroupMember).filter(models.StudyGroupMember.group_id == group.id).count(),
     }
 
 
@@ -449,6 +474,89 @@ def invite_to_group(
         db.add(invite)
         db.commit()
     return {"status": "invited"}
+
+
+@router.post("/groups/{group_id}/invites")
+def create_group_link_invite(
+    group_id: int,
+    req: GroupLinkInviteRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    group = _group_or_404(db, group_id)
+    _require_group_admin(db, group_id, current_user.id)
+    if group.status != "active":
+        raise HTTPException(status_code=409, detail="This study group is archived.")
+
+    invite = models.StudyGroupInvite(
+        group_id=group.id,
+        invited_user_id=None,
+        invited_by=current_user.id,
+        token=secrets.token_urlsafe(32),
+        status="active",
+        expires_at=_now() + timedelta(days=req.expires_in_days),
+        max_uses=req.max_uses,
+        use_count=0,
+    )
+    db.add(invite)
+    db.commit()
+    db.refresh(invite)
+    return {
+        "token": invite.token,
+        "url_path": f"/groups/invite/{invite.token}",
+        "expires_at": invite.expires_at,
+        "max_uses": invite.max_uses,
+    }
+
+
+@router.get("/group-invites/{token}")
+def preview_group_link_invite(token: str, db: Session = Depends(get_db)):
+    invite = db.query(models.StudyGroupInvite).filter(models.StudyGroupInvite.token == token).first()
+    if not invite or invite.revoked_at or invite.status == "revoked" or _invite_expired(invite):
+        raise HTTPException(status_code=404, detail="This invitation is no longer available.")
+    if invite.max_uses is not None and invite.use_count >= invite.max_uses:
+        raise HTTPException(status_code=404, detail="This invitation is no longer available.")
+    group = _group_or_404(db, invite.group_id)
+    if group.status != "active":
+        raise HTTPException(status_code=404, detail="This invitation is no longer available.")
+    return {"invite": {"expires_at": invite.expires_at, "remaining_uses": max(0, invite.max_uses - invite.use_count) if invite.max_uses else None}, "group": _group_preview(db, group)}
+
+
+@router.post("/group-invites/{token}/accept")
+def accept_group_link_invite(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    invite = db.query(models.StudyGroupInvite).filter(models.StudyGroupInvite.token == token).first()
+    if not invite or invite.revoked_at or invite.status == "revoked" or _invite_expired(invite):
+        raise HTTPException(status_code=404, detail="This invitation is no longer available.")
+    if invite.max_uses is not None and invite.use_count >= invite.max_uses:
+        raise HTTPException(status_code=409, detail="This invitation has reached its use limit.")
+    group = _group_or_404(db, invite.group_id)
+    if group.status != "active":
+        raise HTTPException(status_code=409, detail="This study group is archived.")
+    if not _member(db, group.id, current_user.id):
+        db.add(models.StudyGroupMember(group_id=group.id, user_id=current_user.id, role="member"))
+    invite.use_count = (invite.use_count or 0) + 1
+    db.commit()
+    return {"status": "joined", "group": _group_preview(db, group)}
+
+
+@router.post("/group-invites/{token}/revoke")
+def revoke_group_link_invite(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    invite = db.query(models.StudyGroupInvite).filter(models.StudyGroupInvite.token == token).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invitation not found.")
+    _require_group_admin(db, invite.group_id, current_user.id)
+    invite.status = "revoked"
+    invite.revoked_at = _now()
+    db.commit()
+    return {"status": "revoked"}
 
 
 @router.post("/groups/{group_id}/invite/accept")

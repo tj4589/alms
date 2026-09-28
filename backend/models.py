@@ -198,6 +198,7 @@ class DiscussionThread(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
+    content = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     past_question_id = Column(Integer, ForeignKey("past_questions.id"), nullable=True)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
@@ -206,6 +207,12 @@ class DiscussionThread(Base):
     group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
+    __table_args__ = (
+        Index("ix_discussion_threads_created_id", "created_at", "id"),
+        Index("ix_discussion_threads_course_created", "course_id", "created_at", "id"),
+        Index("ix_discussion_threads_group_created", "group_id", "created_at", "id"),
+    )
+
 class ThreadMessage(Base):
     __tablename__ = "thread_messages"
 
@@ -213,6 +220,7 @@ class ThreadMessage(Base):
     thread_id = Column(Integer, ForeignKey("discussion_threads.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     content = Column(Text)
+    client_message_id = Column(String(96), nullable=True, index=True)
     is_ai_response = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
@@ -300,9 +308,14 @@ class StudyGroupInvite(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("study_groups.id"), index=True)
-    invited_user_id = Column(Integer, ForeignKey("users.id"), index=True)
-    invited_by = Column(Integer, ForeignKey("users.id"), index=True)
+    invited_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    invited_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    token = Column(String(96), unique=True, nullable=True, index=True)
     status = Column(String, nullable=False, default="pending", server_default="pending")
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    max_uses = Column(Integer, nullable=True)
+    use_count = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
     __table_args__ = (
@@ -360,8 +373,8 @@ class StudySession(Base):
     group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     school_name = Column(String, nullable=True)
-    starts_at = Column(DateTime(timezone=True), nullable=True)
-    ends_at = Column(DateTime(timezone=True), nullable=True)
+    starts_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    ends_at = Column(DateTime(timezone=True), nullable=False)
     status = Column(String, default="active")  # active, ended
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
@@ -375,6 +388,7 @@ class StudySessionParticipant(Base):
     joined_at = Column(DateTime(timezone=True), default=utc_now)
     last_seen_at = Column(DateTime(timezone=True), default=utc_now)
     status = Column(String, default="studying")  # studying, on_break, left
+    break_until = Column(DateTime(timezone=True), nullable=True)
     left_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (

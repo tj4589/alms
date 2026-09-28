@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarDays, ChevronRight, Clock3, Link2, MessageCircle, Plus, Search, Share2, Sparkles, Users, Video } from 'lucide-react';
 import type { ScreenType, SearchActionContext, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 import './StudyGroups.css';
@@ -29,7 +30,7 @@ type StudyGroup = {
   created_at: string;
   member_count: number;
   is_member: boolean;
-  visibility?: 'public' | 'private';
+  visibility?: 'public' | 'unlisted' | 'private';
   status?: string;
   welcome_message?: string | null;
 };
@@ -77,6 +78,7 @@ type SessionParticipant = {
   joined_at: string;
   last_seen_at: string;
   status: string;
+  break_until?: string | null;
   is_active: boolean;
 };
 
@@ -117,6 +119,18 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function localDateTimeValue(date: Date): string {
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 16);
+}
+
+function formatDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
 
 
 
@@ -133,7 +147,7 @@ function RoomDetail({
   onBack: () => void;
   go: (s: ScreenType, username?: string | null) => void;
 }) {
-  const [roomTab, setRoomTab] = useState<'board' | 'chat' | 'people'>('board');
+  const [roomTab, setRoomTab] = useState<'focus' | 'board' | 'chat' | 'people'>('focus');
   const [detail, setDetail] = useState<StudySession>(session);
   const [msgs, setMsgs] = useState<RoomMessage[]>([]);
   const [board, setBoard] = useState<AICard[]>([]);
@@ -142,8 +156,11 @@ function RoomDetail({
   const [sending, setSending] = useState(false);
   const [aiAsking, setAiAsking] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [breakMenuOpen, setBreakMenuOpen] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [aiError, setAiError] = useState('');
+  const [roomShareNote, setRoomShareNote] = useState('');
+  const [clockNow, setClockNow] = useState(() => Date.now());
 
   const msgsEndRef = useRef<HTMLDivElement>(null);
 
@@ -183,12 +200,18 @@ function RoomDetail({
     }
   }, [msgs, roomTab]);
 
-  const takeBreak = async () => {
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const takeBreak = async (duration = 5) => {
     if (actionLoading) return;
     setActionLoading(true);
     try {
-      await apiPost(`/study-sessions/${session.id}/break`, {});
+      await apiPost(`/study-sessions/${session.id}/break`, { duration_minutes: duration });
       setDetail((d) => ({ ...d, my_status: 'on_break' }));
+      setBreakMenuOpen(false);
       void refresh();
     } finally { setActionLoading(false); }
   };
@@ -209,6 +232,21 @@ function RoomDetail({
     try { await apiPost(`/study-sessions/${session.id}/leave`, {}); }
     finally { setActionLoading(false); }
     onBack();
+  };
+
+  const shareRoom = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: detail.title, text: 'Join this ExamMind reading room', url });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+      }
+      setRoomShareNote('Room link copied.');
+    } catch {
+      // A cancelled native share is not an error worth surfacing.
+    }
+    window.setTimeout(() => setRoomShareNote(''), 2400);
   };
 
   const sendChat = async () => {
@@ -243,12 +281,21 @@ function RoomDetail({
 
   const myStatus = detail.my_status;
   const isOnBreak = myStatus === 'on_break';
+  const startsAt = detail.starts_at ? new Date(detail.starts_at).getTime() : clockNow;
+  const endsAt = detail.ends_at ? new Date(detail.ends_at).getTime() : startsAt + 25 * 60000;
+  const totalSeconds = Math.max(1, Math.round((endsAt - startsAt) / 1000));
+  const elapsedSeconds = Math.min(totalSeconds, Math.max(0, Math.round((clockNow - startsAt) / 1000)));
+  const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
+  const progress = Math.min(100, Math.max(0, (elapsedSeconds / totalSeconds) * 100));
+  const myParticipant = detail.participants?.find((participant) => participant.user_id === user?.id);
+  const breakUntil = myParticipant?.break_until ? new Date(myParticipant.break_until).getTime() : null;
+  const breakRemainingSeconds = breakUntil ? Math.max(0, Math.round((breakUntil - clockNow) / 1000)) : 0;
 
   // ── Room header ──────────────────────────────────────────────────────────
 
   const roomHeader = (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+    <div className="card room-header-card" style={{ marginBottom: 16 }}>
+      <div className="room-header-inner" style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 200 }}>
           <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>{detail.title}</div>
           <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.55 }}>
@@ -286,7 +333,7 @@ function RoomDetail({
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+        <div className="room-header-actions" style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
           {detail.status === 'scheduled' ? null : isOnBreak ? (
             <button
               className="cta"
@@ -297,15 +344,25 @@ function RoomDetail({
               Back to Study
             </button>
           ) : (
+            <div className="room-break-control">
             <button
               className="cta cta-ghost"
               style={{ marginTop: 0, fontSize: 12, padding: '7px 14px' }}
-              onClick={() => void takeBreak()}
+              onClick={() => setBreakMenuOpen((current) => !current)}
               disabled={actionLoading}
             >
               Take Break
             </button>
+            {breakMenuOpen && <div className="room-break-menu" role="menu" aria-label="Choose break duration"><span>Take a break for</span>{[5, 10, 15].map((minutes) => <button type="button" role="menuitem" key={minutes} onClick={() => void takeBreak(minutes)}>{minutes} min</button>)}</div>}
+            </div>
           )}
+          <button
+            className="cta cta-ghost"
+            style={{ marginTop: 0, fontSize: 12, padding: '7px 14px' }}
+            onClick={() => void shareRoom()}
+          >
+            <Share2 size={14} aria-hidden="true" /> Share room
+          </button>
           <button
             className="cta cta-ghost"
             style={{ marginTop: 0, fontSize: 12, padding: '7px 14px', color: 'var(--text3)' }}
@@ -316,19 +373,46 @@ function RoomDetail({
           </button>
         </div>
       </div>
+      {roomShareNote && <div className="room-share-note" role="status">{roomShareNote}</div>}
     </div>
   );
 
   // ── AI Board ─────────────────────────────────────────────────────────────
 
+  const focusPanel = (
+    <div className="room-focus-layout">
+      <section className="card room-focus-card" aria-labelledby="room-focus-title">
+        <div className="room-focus-kicker">Focus window</div>
+        <h2 id="room-focus-title">Keep the next 25 minutes simple.</h2>
+        <p className="room-focus-copy">The room timer follows the server session. Your break time is kept separate from study time.</p>
+        <div className={`room-timer${isOnBreak ? ' is-break' : ''}`} aria-live="polite">
+          <span>{isOnBreak ? 'Break remaining' : detail.status === 'scheduled' ? 'Starts in' : 'Time left'}</span>
+          <strong>{formatDuration(isOnBreak ? breakRemainingSeconds : detail.status === 'scheduled' ? Math.max(0, Math.round((startsAt - clockNow) / 1000)) : remainingSeconds)}</strong>
+        </div>
+        <div className="room-progress" aria-label={`${Math.round(progress)} percent of the room elapsed`}><span style={{ width: `${progress}%` }} /></div>
+        <div className="room-focus-meta">
+          <span>{detail.topic || 'Open study session'}</span>
+          <span>{detail.participant_count} present</span>
+        </div>
+        {isOnBreak && <p className="room-break-note">Take the pause. Resume when you are ready to get back in.</p>}
+      </section>
+      <section className="card room-activity-card" aria-labelledby="room-activity-title">
+        <div className="card-hd"><div id="room-activity-title" className="card-ttl">Room pulse</div><Clock3 size={16} aria-hidden="true" /></div>
+        <div className="room-pulse-row"><strong>{detail.studying_count}</strong><span>studying now</span></div>
+        <div className="room-pulse-row"><strong>{detail.on_break_count}</strong><span>on a short break</span></div>
+        <div className="room-pulse-row"><strong>{msgs.filter((message) => message.message_type === 'chat').length}</strong><span>messages shared</span></div>
+      </section>
+    </div>
+  );
+
   const aiBoard = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Ask AI input */}
-      <div className="card" style={{ background: 'linear-gradient(135deg, var(--bg2), rgba(62,207,178,0.025))', borderColor: 'rgba(62,207,178,0.18)' }}>
+      <div className="card room-ai-card" style={{ background: 'linear-gradient(135deg, var(--bg2), rgba(62,207,178,0.025))', borderColor: 'rgba(62,207,178,0.18)' }}>
         <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: .8, color: 'var(--teal)', marginBottom: 8 }}>
           Ask ExamMind AI
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="room-ai-row" style={{ display: 'flex', gap: 8 }}>
           <input
             className="ai-inp"
             type="text"
@@ -468,7 +552,7 @@ function RoomDetail({
   // ── Discussion Chat ──────────────────────────────────────────────────────
 
   const chatPanel = (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="room-chat-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ flex: 1, overflowY: 'auto', maxHeight: 480, paddingBottom: 4 }}>
         {msgs.length === 0 && (
           <div style={{ fontSize: 13, color: 'var(--text3)', padding: '12px 0' }}>
@@ -513,7 +597,7 @@ function RoomDetail({
         <div ref={msgsEndRef} />
       </div>
 
-      <div className="ai-foot" style={{ marginTop: 10 }}>
+      <div className="ai-foot room-chat-composer" style={{ marginTop: 10 }}>
         <input
           className="ai-inp"
           type="text"
@@ -537,14 +621,15 @@ function RoomDetail({
   // ── People ───────────────────────────────────────────────────────────────
 
   const peoplePanel = (
-    <div>
-      {(!detail.participants || detail.participants.length === 0) && (
+    <div className="room-people-list">
+      {detail.participant_count === 0 && (!detail.participants || detail.participants.length === 0) && (
         <div style={{ fontSize: 13, color: 'var(--text3)', padding: '8px 0' }}>
           No active participants right now.
         </div>
       )}
+      {detail.participant_count > 0 && (!detail.participants || detail.participants.length === 0) && <div className="room-people-sync-note">{detail.participant_count} participant{detail.participant_count === 1 ? '' : 's'} active. Refreshing the people list…</div>}
       {detail.participants?.map((p) => (
-        <div key={p.user_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+        <div className="room-person" key={p.user_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
           <div
             className="ava"
             style={{
@@ -579,9 +664,9 @@ function RoomDetail({
 
   return (
     <div className="page" id="s-room">
-      <div style={{ marginBottom: 12 }}>
+      <div className="room-back-row" style={{ marginBottom: 12 }}>
         <button
-          className="cta cta-ghost"
+          className="cta cta-ghost room-back-button"
           style={{ fontSize: 12, padding: '6px 12px', marginTop: 0 }}
           onClick={onBack}
         >
@@ -594,20 +679,25 @@ function RoomDetail({
       {roomHeader}
 
       {/* Tabs */}
-      <div className="gs-tabs">
+      <div className="gs-tabs room-tabs" role="tablist" aria-label="Reading room workspace">
+        <button className={`gs-tab${roomTab === 'focus' ? ' is-on' : ''}`} aria-current={roomTab === 'focus' ? 'page' : undefined} onClick={() => setRoomTab('focus')}>
+          <Clock3 size={15} aria-hidden="true" /> Focus
+        </button>
         <button className={`gs-tab${roomTab === 'board' ? ' is-on' : ''}`} aria-current={roomTab === 'board' ? 'page' : undefined} onClick={() => setRoomTab('board')}>
-          AI Study Board {board.length > 0 ? `(${board.length})` : ''}
+          <Sparkles size={15} aria-hidden="true" /> AI Board {board.length > 0 ? `(${board.length})` : ''}
         </button>
         <button className={`gs-tab${roomTab === 'chat' ? ' is-on' : ''}`} aria-current={roomTab === 'chat' ? 'page' : undefined} onClick={() => setRoomTab('chat')}>
-          Discussion {msgs.filter(m => m.message_type === 'chat').length > 0 ? `(${msgs.filter(m => m.message_type === 'chat').length})` : ''}
+          <MessageCircle size={15} aria-hidden="true" /> Discussion {msgs.filter(m => m.message_type === 'chat').length > 0 ? `(${msgs.filter(m => m.message_type === 'chat').length})` : ''}
         </button>
         <button className={`gs-tab${roomTab === 'people' ? ' is-on' : ''}`} aria-current={roomTab === 'people' ? 'page' : undefined} onClick={() => setRoomTab('people')}>
-          People ({detail.participant_count})
+          <Users size={15} aria-hidden="true" /> People ({detail.participant_count})
         </button>
       </div>
 
       {/* Desktop two-col for board tab; full width for others */}
-      {roomTab === 'board' ? (
+      {roomTab === 'focus' ? (
+        focusPanel
+      ) : roomTab === 'board' ? (
         <div className="two-col" style={{ alignItems: 'flex-start' }}>
           <div>{aiBoard}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -675,7 +765,18 @@ export default function StudyGroups({
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [groupsError, setGroupsError] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
+  const [courseState, setCourseState] = useState<'loading' | 'ready' | 'empty' | 'unavailable'>('loading');
   const courseMap = new Map(courses.map((c) => [c.id, c]));
+  const [groupView, setGroupView] = useState<'discover' | 'mine' | 'recommended'>('discover');
+  const [groupCourseFilter, setGroupCourseFilter] = useState<number | ''>('');
+  const [groupSearch, setGroupSearch] = useState('');
+  const [showJoinLink, setShowJoinLink] = useState(false);
+  const [joinLinkValue, setJoinLinkValue] = useState('');
+  const [joinLinkError, setJoinLinkError] = useState('');
+  const [joiningLink, setJoiningLink] = useState(false);
+  const [profileCourseIds, setProfileCourseIds] = useState<number[]>([]);
+  const [shareNote, setShareNote] = useState('');
+  const [shareUrl, setShareUrl] = useState('');
   const [groupActionPending, setGroupActionPending] = useState<number | null>(null);
   const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
   const [openGroup, setOpenGroup] = useState<StudyGroup | null>(null);
@@ -685,6 +786,7 @@ export default function StudyGroups({
   const [formDesc, setFormDesc] = useState('');
   const [formTopic, setFormTopic] = useState('');
   const [formCourseId, setFormCourseId] = useState<number | ''>('');
+  const [formVisibility, setFormVisibility] = useState<'public' | 'unlisted' | 'private'>('public');
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupFormError, setGroupFormError] = useState('');
   const [groupTab, setGroupTab] = useState<'home' | 'discussions' | 'rooms' | 'materials' | 'members' | 'lounge'>('home');
@@ -705,6 +807,8 @@ export default function StudyGroups({
   const [roomGoal, setRoomGoal] = useState('');
   const [roomStartsAt, setRoomStartsAt] = useState('');
   const [roomEndsAt, setRoomEndsAt] = useState('');
+  const [roomStartMode, setRoomStartMode] = useState<'now' | 'scheduled'>('now');
+  const [roomDuration, setRoomDuration] = useState('25');
   const [roomCourseId, setRoomCourseId] = useState<number | ''>('');
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [roomFormError, setRoomFormError] = useState('');
@@ -740,9 +844,17 @@ export default function StudyGroups({
 
   useEffect(() => {
     void loadGroups();
+    setCourseState('loading');
     apiGet('/courses')
-      .then((data) => setCourses(data as Course[]))
-      .catch(() => {});
+      .then((data) => {
+        const rows = data as Course[];
+        setCourses(rows);
+        setCourseState(rows.length > 0 ? 'ready' : 'empty');
+      })
+      .catch(() => setCourseState('unavailable'));
+    apiGet('/community/profile')
+      .then((data) => setProfileCourseIds(((data as { courses?: Course[] }).courses || []).map((course) => course.id)))
+      .catch(() => setProfileCourseIds([]));
   }, [loadGroups]);
 
   useEffect(() => {
@@ -750,6 +862,14 @@ export default function StudyGroups({
     // so waiting for the rooms tab would show an empty section.
     if (mainTab === 'rooms' || openGroup) void loadSessions();
   }, [mainTab, openGroup, loadSessions]);
+
+  useEffect(() => {
+    if (!showRoomForm || roomStartMode !== 'now' || roomDuration === 'custom') return;
+    const start = new Date();
+    const end = new Date(start.getTime() + Number(roomDuration || 25) * 60000);
+    setRoomStartsAt(localDateTimeValue(start));
+    setRoomEndsAt(localDateTimeValue(end));
+  }, [roomDuration, roomStartMode, showRoomForm]);
 
   useEffect(() => {
     if (!openGroup) return;
@@ -834,10 +954,11 @@ export default function StudyGroups({
         description: formDesc.trim() || null,
         course_id: formCourseId || null,
         topic: formTopic.trim() || null,
+        visibility: formVisibility,
       }) as StudyGroup;
       setGroups((prev) => [newGroup, ...prev]);
       setShowGroupForm(false);
-      setFormName(''); setFormDesc(''); setFormTopic(''); setFormCourseId('');
+      setFormName(''); setFormDesc(''); setFormTopic(''); setFormCourseId(''); setFormVisibility('public');
       setOpenGroup(newGroup);
     } catch (err) {
       setGroupFormError(err instanceof Error ? err.message : 'Could not create group.');
@@ -848,6 +969,10 @@ export default function StudyGroups({
   const createRoom = async () => {
     const title = roomTitle.trim();
     if (!title) { setRoomFormError('Room title is required.'); return; }
+    if (!roomStartsAt || !roomEndsAt) { setRoomFormError('Choose when the room starts and ends so everyone knows what to expect.'); return; }
+    const start = new Date(roomStartsAt);
+    const end = new Date(roomEndsAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) { setRoomFormError('The end time must be after the start time.'); return; }
     setCreatingRoom(true);
     setRoomFormError('');
     try {
@@ -858,17 +983,36 @@ export default function StudyGroups({
         exam_goal: roomGoal.trim() || null,
         course_id: roomCourseId || null,
         group_id: roomGroupId,
-        starts_at: roomStartsAt ? new Date(roomStartsAt).toISOString() : null,
-        ends_at: roomEndsAt ? new Date(roomEndsAt).toISOString() : null,
+        starts_at: start.toISOString(),
+        ends_at: end.toISOString(),
       }) as StudySession;
       setSessions((prev) => [newRoom, ...prev]);
       setShowRoomForm(false);
-      setRoomTitle(''); setRoomTopic(''); setRoomPurpose(''); setRoomGoal(''); setRoomCourseId(''); setRoomStartsAt(''); setRoomEndsAt('');
+      setRoomTitle(''); setRoomTopic(''); setRoomPurpose(''); setRoomGoal(''); setRoomCourseId(''); setRoomStartsAt(''); setRoomEndsAt(''); setRoomStartMode('now'); setRoomDuration('25');
       setRoomGroupId(null);
       if (newRoom.status === 'active') setSelectedSession(newRoom);
     } catch (err) {
       setRoomFormError(err instanceof Error ? err.message : 'Could not create room.');
     } finally { setCreatingRoom(false); }
+  };
+
+  const joinWithLink = async () => {
+    const value = joinLinkValue.trim();
+    const token = value.match(/\/groups\/invite\/([^/?#]+)/)?.[1] || value;
+    if (!token) { setJoinLinkError('Paste an ExamMind invitation link or token.'); return; }
+    setJoiningLink(true);
+    setJoinLinkError('');
+    try {
+      await apiPost(`/community/group-invites/${encodeURIComponent(token)}/accept`, {});
+      setJoinLinkValue('');
+      setShowJoinLink(false);
+      setShareNote('You joined the study group.');
+      await loadGroups();
+    } catch (err) {
+      setJoinLinkError(err instanceof Error ? err.message : 'That invitation could not be accepted.');
+    } finally {
+      setJoiningLink(false);
+    }
   };
 
   const createGroupPost = async () => {
@@ -901,6 +1045,43 @@ export default function StudyGroups({
 
   const myGroups = groups.filter((g) => g.is_member);
   const liveRooms = sessions.filter((room) => room.status === 'active');
+  const visibleGroups = useMemo(() => {
+    const query = groupSearch.trim().toLowerCase();
+    return [...groups]
+      .filter((group) => groupView === 'discover' || (groupView === 'mine' ? group.is_member : (!group.is_member && group.course_id !== null && (profileCourseIds.length === 0 || profileCourseIds.includes(group.course_id)))))
+      .filter((group) => !groupCourseFilter || group.course_id === groupCourseFilter)
+      .filter((group) => !query || [group.name, group.topic, group.description].filter(Boolean).join(' ').toLowerCase().includes(query))
+      .sort((a, b) => Number(b.is_member) - Number(a.is_member));
+  }, [groupCourseFilter, groupSearch, groupView, groups, profileCourseIds]);
+
+  const shareGroup = async (group: StudyGroup) => {
+    try {
+      const invite = await apiPost(`/community/groups/${group.id}/invites`, { expires_in_days: 30 }) as { token: string };
+      const url = `${window.location.origin}/groups/invite/${invite.token}`;
+      setShareUrl(url);
+      if (navigator.share) {
+        await navigator.share({ title: group.name, text: 'Join this ExamMind study group', url });
+      } else {
+        await navigator.clipboard?.writeText(url);
+      }
+      setShareNote('Group link copied — send it to a classmate.');
+    } catch {
+      notifyUnavailable('Sharing');
+    }
+    window.setTimeout(() => setShareNote(''), 2600);
+  };
+
+  const revokeShare = async () => {
+    const token = shareUrl.split('/').pop();
+    if (!token) return;
+    try {
+      await apiPost(`/community/group-invites/${encodeURIComponent(token)}/revoke`, {});
+      setShareUrl('');
+      setShareNote('Invite revoked.');
+    } catch {
+      setShareNote('We could not revoke that invite. Try again.');
+    }
+  };
 
   // ── If room is selected, show detail ─────────────────────────────────────
   if (selectedSession) {
@@ -917,74 +1098,59 @@ export default function StudyGroups({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="page" id="s-groups">
-      <div className="pg-head">
-        <div className="pg-title">Study <em>Community</em></div>
-        <div className="pg-sub">Study Groups are long-term course communities. Reading Rooms are live revision sessions for a course or topic.</div>
+      <div className="gs-page-head">
+        <div><div className="pg-title">Study <em>Community</em></div><div className="pg-sub">Find your people, make a plan, and keep the hard parts moving.</div></div>
+        <div className="gs-head-actions"><span className="gs-head-stat"><strong>{myGroups.length}</strong> joined</span><span className="gs-head-stat"><strong>{liveRooms.length}</strong> live now</span></div>
       </div>
 
       {/* Tabs */}
-      <div className="gs-tabs">
-        
+      <div className="gs-tabs gs-main-tabs">
         <button
           className={`gs-tab${mainTab === 'groups' ? ' is-on' : ''}`}
           aria-current={mainTab === 'groups' ? 'page' : undefined}
           onClick={() => { setMainTab('groups'); setOpenGroup(null); }}
         >
-          Study Groups {groups.length > 0 ? `(${groups.length})` : ''}
+          <Users size={16} aria-hidden="true" /> Study Groups {groups.length > 0 ? `(${groups.length})` : ''}
         </button>
         <button
           className={`gs-tab${mainTab === 'rooms' ? ' is-on' : ''}`}
           aria-current={mainTab === 'rooms' ? 'page' : undefined}
           onClick={() => setMainTab('rooms')}
         >
-          Reading Rooms {liveRooms.length > 0 ? `(${liveRooms.length} live)` : ''}
+          <Video size={16} aria-hidden="true" /> Reading Rooms {liveRooms.length > 0 ? `(${liveRooms.length} live)` : ''}
         </button>
       </div>
 
       {/* ── Study Groups panel ─────────────────────────────── */}
       {mainTab === 'groups' && !openGroup && (
-        <div className="gs-layout">
+        <div className="gs-layout gs-layout--browse">
           <div>
             <div className="gs-bar">
-              <p className="gs-bar-label">
+              <div>
+                <p className="gs-bar-label">Your circles</p>
+                <p className="gs-bar-caption">
                 {groups.length === 0
                   ? 'Study groups'
                   : myGroups.length > 0
                     ? `${groups.length} groups - you are in ${myGroups.length}`
                     : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
-              </p>
-              <button className="gs-primary" onClick={() => { setShowGroupForm((v) => !v); setGroupFormError(''); }}>
-                {showGroupForm ? 'Cancel' : 'New group'}
-              </button>
+                </p>
+              </div>
+              <div className="gs-bar-actions"><label className="gs-search"><Search size={15} aria-hidden="true" /><span className="sr-only">Search groups</span><input value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} placeholder="Search groups" /></label><button className="gs-ghost gs-join-link-button" onClick={() => { setShowJoinLink((value) => !value); setJoinLinkError(''); }}><Link2 size={15} aria-hidden="true" /> Join with link</button><button className="gs-primary" onClick={() => { setShowGroupForm((v) => !v); setGroupFormError(''); }}><Plus size={16} aria-hidden="true" /> {showGroupForm ? 'Cancel' : 'New group'}</button></div>
             </div>
 
+            {showJoinLink && <div className="gs-join-link-panel"><div><strong>Have an invitation?</strong><p>Paste the secure link your classmate shared with you.</p></div><div className="gs-join-link-form"><input aria-label="Study group invitation link" value={joinLinkValue} onChange={(event) => setJoinLinkValue(event.target.value)} placeholder="https://.../groups/invite/..." onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void joinWithLink(); } }} /><button type="button" className="gs-primary" onClick={() => void joinWithLink()} disabled={joiningLink}>{joiningLink ? 'Joining...' : 'Join group'}</button></div>{joinLinkError && <p className="gs-field-note gs-join-link-error" role="alert">{joinLinkError}</p>}</div>}
+
             {showGroupForm && (
-              <div className="gs-form">
-                <p className="gs-form-title">New study group</p>
+              <div className="gs-form gs-create-panel">
+                <div className="gs-form-heading"><div><p className="gs-form-title">New study group</p><h2>Make a place to keep showing up.</h2><p>Give classmates enough context to know if this is their kind of study space.</p></div><span className="gs-form-art"><Users size={22} aria-hidden="true" /></span></div>
                 {groupFormError && <div className="upload-alert">{groupFormError}</div>}
-                <div className="gs-field">
-                  <label htmlFor="group-name">Name</label>
-                  <input id="group-name" type="text" placeholder="CSC 301 Finals Squad" value={formName} onChange={(e) => setFormName(e.target.value)} autoFocus />
-                </div>
-                <div className="gs-field">
-                  <label htmlFor="group-course">Course</label>
-                  <select id="group-course" value={formCourseId} onChange={(e) => setFormCourseId(e.target.value ? Number(e.target.value) : '')}>
-                    <option value="">No specific course</option>
-                    {courses.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
-                  </select>
-                </div>
-                <div className="gs-field">
-                  <label htmlFor="group-topic">Topic focus (optional)</label>
-                  <input id="group-topic" type="text" placeholder="Dynamic programming" value={formTopic} onChange={(e) => setFormTopic(e.target.value)} />
-                </div>
-                <div className="gs-field">
-                  <label htmlFor="group-desc">Description (optional)</label>
-                  <input id="group-desc" type="text" placeholder="What this group is for" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void createGroup(); }} />
-                </div>
+                <div className="gs-form-grid"><div className="gs-field"><label htmlFor="group-name">Group name</label><input id="group-name" type="text" placeholder="CSC 301 Finals Squad" value={formName} onChange={(e) => setFormName(e.target.value)} autoFocus /></div><div className="gs-field"><label htmlFor="group-course">Course <span>optional</span></label><select id="group-course" value={formCourseId} onChange={(e) => setFormCourseId(e.target.value ? Number(e.target.value) : '')}><option value="">No specific course</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select>{courseState === 'empty' && <small className="gs-field-note">No course catalogue is set up yet. Topic-based groups still work.</small>}{courseState === 'unavailable' && <small className="gs-field-note">Course list is unavailable while offline. You can still create the group.</small>}</div></div>
+                <div className="gs-field"><label htmlFor="group-topic">What are you working through? <span>optional</span></label><input id="group-topic" type="text" placeholder="Dynamic programming, MIS 415, exam prep" value={formTopic} onChange={(e) => setFormTopic(e.target.value)} /></div>
+                <div className="gs-field"><label htmlFor="group-desc">A short description <span>optional</span></label><textarea id="group-desc" placeholder="What should a new member know before joining?" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void createGroup(); } }} rows={2} /></div>
+                <div className="gs-field gs-visibility-field"><label htmlFor="group-visibility">Who can join?</label><select id="group-visibility" value={formVisibility} onChange={(event) => setFormVisibility(event.target.value as 'public' | 'unlisted' | 'private')}><option value="public">Public — discoverable and open</option><option value="unlisted">Unlisted — invite link only</option><option value="private">Private — invite or approval required</option></select><small className="gs-field-note">{formVisibility === 'public' ? 'Classmates can discover this group.' : formVisibility === 'unlisted' ? 'Only people with the secure link can find it.' : 'Keep the group closed and share invitations selectively.'}</small></div>
                 <div className="gs-form-actions">
-                  <button className="gs-primary" onClick={() => void createGroup()} disabled={creatingGroup || !formName.trim()}>
-                    {creatingGroup ? 'Creating...' : 'Create group'}
-                  </button>
+                  <button className="gs-primary" onClick={() => void createGroup()} disabled={creatingGroup || !formName.trim()}>{creatingGroup ? 'Creating...' : 'Create group'} <ChevronRight size={15} aria-hidden="true" /></button>
                   <button className="gs-ghost" onClick={() => { setShowGroupForm(false); setGroupFormError(''); }}>Cancel</button>
                 </div>
               </div>
@@ -996,8 +1162,18 @@ export default function StudyGroups({
               <p className="gs-state">No study groups yet. Create one for a course and your coursemates can join it.</p>
             )}
 
+            <div className="gs-discovery-controls" aria-label="Group discovery filters">
+              <div className="gs-discovery-tabs" role="tablist" aria-label="Group view">
+                {([['discover', 'Discover'], ['mine', 'My groups'], ['recommended', 'Recommended']] as const).map(([value, label]) => (
+                  <button type="button" role="tab" aria-selected={groupView === value} className={groupView === value ? 'is-active' : ''} key={value} onClick={() => setGroupView(value)}>{label}</button>
+                ))}
+              </div>
+              <label className="gs-course-filter"><span className="sr-only">Filter groups by course</span><select value={groupCourseFilter} onChange={(event) => setGroupCourseFilter(event.target.value ? Number(event.target.value) : '')}><option value="">All courses</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.code}</option>)}</select></label>
+            </div>
+            {!groupsLoading && !groupsError && groups.length > 0 && visibleGroups.length === 0 && <p className="gs-state">Nothing in this view yet. Try Discover or clear the course filter.</p>}
+
             <ul className="gs-list">
-              {!groupsLoading && [...groups].sort((a, b) => Number(b.is_member) - Number(a.is_member)).map((group) => {
+              {!groupsLoading && visibleGroups.map((group) => {
                 const course = group.course_id ? courseMap.get(group.course_id) : null;
                 return (
                   <li key={group.id}>
@@ -1006,9 +1182,10 @@ export default function StudyGroups({
                       <span>
                         <span className="gs-name">{group.name}</span>
                         <span className="gs-sub">
-                          {course ? `${course.code} - ` : ''}
+                          {course ? `${course.code} · ` : ''}
                           {group.member_count} member{group.member_count === 1 ? '' : 's'}
-                          {group.topic ? ` - ${group.topic}` : ''}
+                          {liveRooms.some((room) => room.group_id === group.id) && <span className="gs-live-note">Live room</span>}
+                          {group.topic ? ` · ${group.topic}` : ''}
                         </span>
                       </span>
                       <span className="gs-right">
@@ -1022,21 +1199,9 @@ export default function StudyGroups({
             </ul>
           </div>
 
-          <aside className="gs-margin">
-            <section className="margin-block">
-              <p className="margin-label">How it works</p>
-              <h2 className="margin-title">Groups last, rooms do not</h2>
-              <p className="margin-note">
-                A study group is the standing community for a course. A reading room is one
-                live session inside it, for tonight.
-              </p>
-            </section>
-            <section className="margin-block margin-block--end">
-              <p className="margin-label">Inside a group</p>
-              <p className="margin-note">
-                Open a group to see who is in it and start or join its reading rooms.
-              </p>
-            </section>
+          <aside className="gs-margin gs-side-rail">
+            <section className="gs-side-card gs-side-card--accent"><Sparkles size={17} aria-hidden="true" /><h2>Groups last. Rooms are for tonight.</h2><p>A group is your standing course community. A reading room is the focused session you open inside it.</p></section>
+            <section className="gs-side-card"><div className="gs-side-card-title"><Users size={16} aria-hidden="true" /> Make it easy to join</div><p>Use the share button inside a group to send its link to a classmate.</p></section>
           </aside>
         </div>
       )}
@@ -1068,8 +1233,11 @@ export default function StudyGroups({
                   {groupActionPending === openGroup.id ? '...' : 'Join group'}
                 </button>
               )}
-              <button className="gs-ghost" onClick={() => { setRoomGroupId(openGroup.id); setMainTab('rooms'); setOpenGroup(null); setShowRoomForm(true); }}>Start a reading room</button>
+              <button className="gs-ghost" onClick={() => { setRoomGroupId(openGroup.id); setMainTab('rooms'); setOpenGroup(null); setShowRoomForm(true); }}><Video size={16} aria-hidden="true" /> Start a reading room</button>
+              {groupHome?.my_role && ['owner', 'admin'].includes(groupHome.my_role) && <button className="gs-ghost" onClick={() => void shareGroup(openGroup)}><Share2 size={16} aria-hidden="true" /> Invite classmates</button>}
             </div>
+            {shareNote && <div className="gs-share-note" role="status"><Link2 size={15} aria-hidden="true" /> {shareNote}</div>}
+            {shareUrl && <div className="gs-share-actions" aria-label="Share invite link"><a href={`https://wa.me/?text=${encodeURIComponent(`Join ${openGroup.name} on ExamMind: ${shareUrl}`)}`} target="_blank" rel="noreferrer">WhatsApp</a><a href={`mailto:?subject=${encodeURIComponent(`Join ${openGroup.name} on ExamMind`)}&body=${encodeURIComponent(shareUrl)}`}>Email</a><button type="button" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setShareNote('Invite link copied.'); }}>Copy again</button><button type="button" onClick={() => void revokeShare()}>Revoke</button></div>}
 
             <div className="group-home-tabs" role="tablist" aria-label="Group home">
               {(['home', 'discussions', 'rooms', 'materials', 'members', 'lounge'] as const).map((tab) => (
@@ -1201,57 +1369,24 @@ export default function StudyGroups({
       )}
 
       {mainTab === 'rooms' && (
-        <div className="gs-layout">
+        <div className="gs-layout gs-layout--rooms">
           <div>
             <div className="gs-bar">
-              <p className="gs-bar-label">
-                {liveRooms.length > 0
-                  ? `${liveRooms.length} live now`
-                  : sessions.length > 0 ? `${sessions.length} room${sessions.length === 1 ? '' : 's'}` : 'Reading rooms'}
-              </p>
-              <button className="gs-primary" onClick={() => { setShowRoomForm((v) => !v); setRoomFormError(''); }}>
-                {showRoomForm ? 'Cancel' : 'Start a room'}
-              </button>
+              <div><p className="gs-bar-label">Reading rooms</p><p className="gs-bar-caption">{liveRooms.length > 0 ? `${liveRooms.length} live now` : sessions.length > 0 ? `${sessions.length} room${sessions.length === 1 ? '' : 's'}` : 'One focused session at a time'}</p></div>
+              <button className="gs-primary" onClick={() => { setShowRoomForm((v) => !v); setRoomFormError(''); }}><Plus size={16} aria-hidden="true" /> {showRoomForm ? 'Cancel' : 'Start a room'}</button>
             </div>
 
             {showRoomForm && (
-              <div className="gs-form">
-                <p className="gs-form-title">Start a reading room</p>
+              <div className="gs-form gs-create-panel gs-room-form">
+                <div className="gs-form-heading"><div><p className="gs-form-title">Start a reading room</p><h2>Give tonight a shape.</h2><p>Every room has a clear start and finish, so joining never feels awkward.</p></div><span className="gs-form-art gs-form-art--teal"><Clock3 size={22} aria-hidden="true" /></span></div>
                 {roomFormError && <div className="upload-alert">{roomFormError}</div>}
-                <div className="gs-field">
-                  <label htmlFor="room-title">What are you revising?</label>
-                  <input id="room-title" type="text" placeholder="MIS 415 project management revision" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus />
-                </div>
-                <div className="gs-field">
-                  <label htmlFor="room-course">Course</label>
-                  <select id="room-course" value={roomCourseId} onChange={(e) => setRoomCourseId(e.target.value ? Number(e.target.value) : '')}>
-                    <option value="">No specific course</option>
-                    {courses.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
-                  </select>
-                </div>
-                <div className="gs-field">
-                  <label htmlFor="room-topic">Topic focus (optional)</label>
-                  <input id="room-topic" type="text" placeholder="Critical path, cost variance" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} />
-                </div>
-                <div className="gs-field">
-                  <label htmlFor="room-purpose">Purpose (optional)</label>
-                  <input id="room-purpose" type="text" placeholder="Work through the paper together" value={roomPurpose} onChange={(e) => setRoomPurpose(e.target.value)} />
-                </div>
-                <div className="gs-field">
-                  <label htmlFor="room-goal">Goal for tonight (optional)</label>
-                  <input id="room-goal" type="text" placeholder="Get through the 2023 paper" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} />
-                </div>
-                <div className="gs-field gs-datetime-row">
-                  <label htmlFor="room-starts">Starts (optional)</label>
-                  <input id="room-starts" type="datetime-local" value={roomStartsAt} onChange={(e) => setRoomStartsAt(e.target.value)} />
-                  <label htmlFor="room-ends">Ends (optional)</label>
-                  <input id="room-ends" type="datetime-local" value={roomEndsAt} onChange={(e) => setRoomEndsAt(e.target.value)} />
-                </div>
+                <div className="gs-form-grid"><div className="gs-field"><label htmlFor="room-title">Room name</label><input id="room-title" type="text" placeholder="MIS 415 project management revision" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus /></div><div className="gs-field"><label htmlFor="room-course">Course <span>optional</span></label><select id="room-course" value={roomCourseId} onChange={(e) => setRoomCourseId(e.target.value ? Number(e.target.value) : '')}><option value="">No specific course</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select>{courseState === 'empty' && <small className="gs-field-note">No course catalogue is set up yet. A topic-based room is still okay.</small>}{courseState === 'unavailable' && <small className="gs-field-note">Course list is unavailable while offline. You can still start by topic.</small>}</div></div>
+                <div className="gs-field"><label htmlFor="room-topic">What are you working through? <span>optional</span></label><input id="room-topic" type="text" placeholder="Critical path, cost variance" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} /></div>
+                <div className="gs-schedule-block"><div className="gs-schedule-title"><CalendarDays size={16} aria-hidden="true" /><div><strong>When should people arrive?</strong><span>Start and end time are required for every room.</span></div></div><div className="room-start-modes" role="group" aria-label="Room start mode"><button type="button" className={roomStartMode === 'now' ? 'is-active' : ''} onClick={() => setRoomStartMode('now')}>Start now</button><button type="button" className={roomStartMode === 'scheduled' ? 'is-active' : ''} onClick={() => setRoomStartMode('scheduled')}>Schedule it</button></div>{roomStartMode === 'now' && <div className="room-duration-chips" role="group" aria-label="Room duration"><span>How long?</span>{['25', '50', '90', 'custom'].map((duration) => <button type="button" key={duration} className={roomDuration === duration ? 'is-active' : ''} onClick={() => setRoomDuration(duration)}>{duration === 'custom' ? 'Custom' : `${duration} min`}</button>)}</div>}<div className="gs-form-grid"><div className="gs-field"><label htmlFor="room-starts">Starts</label><input id="room-starts" type="datetime-local" value={roomStartsAt} onChange={(e) => { setRoomStartMode('scheduled'); setRoomStartsAt(e.target.value); }} required /></div><div className="gs-field"><label htmlFor="room-ends">Ends</label><input id="room-ends" type="datetime-local" value={roomEndsAt} onChange={(e) => { setRoomStartMode('scheduled'); setRoomEndsAt(e.target.value); }} required /></div></div></div>
+                <details className="gs-form-optional"><summary>Add a little context <span>optional</span></summary><div className="gs-form-grid"><div className="gs-field"><label htmlFor="room-purpose">What is the purpose?</label><input id="room-purpose" type="text" placeholder="Work through the paper together" value={roomPurpose} onChange={(e) => setRoomPurpose(e.target.value)} /></div><div className="gs-field"><label htmlFor="room-goal">A small goal for tonight</label><input id="room-goal" type="text" placeholder="Get through the 2023 paper" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} /></div></div></details>
                 {roomGroupId && <p className="gs-form-context">This room will open inside {groups.find((group) => group.id === roomGroupId)?.name || 'your group'}.</p>}
                 <div className="gs-form-actions">
-                  <button className="gs-primary" onClick={() => void createRoom()} disabled={creatingRoom || !roomTitle.trim()}>
-                    {creatingRoom ? 'Starting...' : 'Start room'}
-                  </button>
+                  <button className="gs-primary" onClick={() => void createRoom()} disabled={creatingRoom || !roomTitle.trim() || !roomStartsAt || !roomEndsAt}>{creatingRoom ? 'Starting...' : 'Start room'} <ChevronRight size={15} aria-hidden="true" /></button>
                   <button className="gs-ghost" onClick={() => { setShowRoomForm(false); setRoomFormError(''); }}>Cancel</button>
                 </div>
               </div>

@@ -4,24 +4,27 @@ import {
   ArrowUpRight,
   BookOpen,
   ChevronRight,
+  Check,
   Flag,
   MessageCircle,
   MoreHorizontal,
   Plus,
+  Pencil,
   RefreshCw,
   Share2,
   Sparkles,
   Users,
+  X,
 } from 'lucide-react';
 import type { ScreenType, SearchActionContext, User } from '../types';
-import { apiGet, apiPost } from '../lib/api';
+import { apiGet, apiPatch, apiPost } from '../lib/api';
 import './Collab.css';
 
 type Thread = {
   id: number;
   title: string;
   content?: string | null;
-  created_by: number;
+  created_by: number | null;
   created_by_username: string | null;
   created_by_name?: string | null;
   course_id: number | null;
@@ -35,7 +38,7 @@ type Thread = {
 };
 
 type Course = { id: number; code: string; name: string };
-type StudyGroupRef = { id: number; is_member?: boolean };
+type StudyGroupRef = { id: number; name?: string; is_member?: boolean };
 type PastQuestionRef = { id: number; title: string; course_id: number | null; year: number | null };
 type ThreadMessage = {
   id: number;
@@ -45,6 +48,11 @@ type ThreadMessage = {
   content: string;
   is_ai_response: boolean;
   created_at: string;
+};
+
+type ThreadPage = {
+  items: Thread[];
+  next_cursor: string | null;
 };
 
 function threadInitials(value: string): string {
@@ -62,42 +70,50 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-async function shareThread(thread: Thread): Promise<void> {
-  const url = `${window.location.origin}/?discussion=${thread.id}`;
+async function shareThread(thread: Thread): Promise<'shared' | 'copied'> {
+  const url = `${window.location.origin}/?screen=discussions&thread=${thread.id}`;
   if (navigator.share) {
     await navigator.share({ title: thread.title, text: 'Join this ExamMind discussion', url });
-    return;
+    return 'shared';
   }
-  await navigator.clipboard?.writeText(url);
+  if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.');
+  await navigator.clipboard.writeText(url);
+  return 'copied';
 }
 
 export default function Collab({
   go,
   user,
-  notifyUnavailable,
   initialContext = null,
+  initialThreadId = null,
+  onClearSharedThread,
 }: {
   go: (s: ScreenType, username?: string | null) => void;
   user: User | null;
-  notifyUnavailable: (feature: string) => void;
   initialContext?: (SearchActionContext & { action?: 'discussion' }) | null;
+  initialThreadId?: number | null;
+  onClearSharedThread?: () => void;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [myCourseIds, setMyCourseIds] = useState<number[]>([]);
-  const [myGroupIds, setMyGroupIds] = useState<number[]>([]);
+  const [myGroups, setMyGroups] = useState<StudyGroupRef[]>([]);
   const [pastQuestions, setPastQuestions] = useState<PastQuestionRef[]>([]);
   const [formCourseId, setFormCourseId] = useState<number | ''>('');
   const [formQuestionId, setFormQuestionId] = useState<number | ''>('');
   const [threadsLoading, setThreadsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [threadsError, setThreadsError] = useState('');
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageInput, setMessageInput] = useState('');
   const [posting, setPosting] = useState(false);
+  const [messageError, setMessageError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [composerFocused, setComposerFocused] = useState(false);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [feedMode, setFeedMode] = useState<'for-you' | 'latest' | 'my-courses' | 'my-groups'>('for-you');
@@ -105,29 +121,87 @@ export default function Collab({
   const [showContext, setShowContext] = useState(false);
   const [reportOpenId, setReportOpenId] = useState<number | null>(null);
   const [messagesError, setMessagesError] = useState('');
+  const [contextOpen, setContextOpen] = useState(false);
+  const [contextSaving, setContextSaving] = useState(false);
+  const [contextError, setContextError] = useState('');
+  const [contextCourseId, setContextCourseId] = useState<number | ''>('');
+  const [contextQuestionId, setContextQuestionId] = useState<number | ''>('');
+  const [contextGroupId, setContextGroupId] = useState<number | ''>('');
   const msgsEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const requestSeq = useRef(0);
+  const sharedThreadAttempt = useRef<number | null>(null);
+  const clientMessageId = useRef<string | null>(null);
 
-  const loadThreads = useCallback(async () => {
-    setThreadsLoading(true);
-    setThreadsError('');
+  const draftKey = `exammind-discussion-draft:${user?.id ?? 'anonymous'}`;
+
+  useEffect(() => {
     try {
-      setThreads(await apiGet('/threads') as Thread[]);
+      const saved = window.sessionStorage.getItem(draftKey);
+      if (saved && !newTitle) setNewTitle(saved);
+    } catch {
+      // Session storage can be unavailable in private browsing contexts.
+    }
+  }, [draftKey, newTitle]);
+
+  useEffect(() => {
+    try {
+      if (newTitle) window.sessionStorage.setItem(draftKey, newTitle);
+      else window.sessionStorage.removeItem(draftKey);
+    } catch {
+      // The in-memory draft remains available for the current page.
+    }
+  }, [draftKey, newTitle]);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 190)}px`;
+  }, [newTitle, showForm]);
+
+  const loadThreads = useCallback(async (mode: typeof feedMode, cursor: string | null = null) => {
+    const seq = ++requestSeq.current;
+    if (cursor) setLoadingMore(true);
+    else {
+      setThreadsLoading(true);
+      setThreadsError('');
+      setNextCursor(null);
+    }
+    try {
+      const params = new URLSearchParams({ feed: mode, limit: String(24) });
+      if (cursor) params.set('cursor', cursor);
+      const response = await apiGet(`/threads?${params.toString()}`) as ThreadPage | Thread[];
+      if (seq !== requestSeq.current) return;
+      const page = Array.isArray(response) ? { items: response, next_cursor: null } : response;
+      setThreads((current) => {
+        const combined = cursor ? [...current, ...page.items] : page.items;
+        return Array.from(new Map(combined.map((thread) => [thread.id, thread])).values());
+      });
+      setNextCursor(page.next_cursor);
     } catch (err) {
-      setThreadsError(err instanceof Error ? err.message : 'Could not load discussions.');
+      if (seq === requestSeq.current) {
+        if (cursor) setThreadsError(err instanceof Error ? err.message : 'More discussions could not be loaded.');
+        else setThreadsError(err instanceof Error ? err.message : 'Could not load discussions.');
+      }
     } finally {
-      setThreadsLoading(false);
+      if (seq === requestSeq.current) {
+        setThreadsLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, []);
 
-  useEffect(() => { void loadThreads(); }, [loadThreads]);
+  useEffect(() => { void loadThreads(feedMode); }, [feedMode, loadThreads]);
 
   useEffect(() => {
     apiGet('/courses').then((data) => setCourses(data as Course[])).catch(() => setCourses([]));
     apiGet('/past-questions').then((data) => setPastQuestions(data as PastQuestionRef[])).catch(() => setPastQuestions([]));
     apiGet('/community/profile').then((data) => setMyCourseIds(((data as { courses?: { id: number }[] }).courses || []).map((course) => course.id))).catch(() => setMyCourseIds([]));
-    apiGet('/study-groups').then((data) => setMyGroupIds((data as StudyGroupRef[]).filter((group) => group.is_member).map((group) => group.id))).catch(() => setMyGroupIds([]));
+    apiGet('/study-groups').then((data) => setMyGroups((data as StudyGroupRef[]).filter((group) => group.is_member))).catch(() => setMyGroups([]));
   }, []);
+
+  const myGroupIds = useMemo(() => myGroups.map((group) => group.id), [myGroups]);
 
   useEffect(() => {
     if (!initialContext) return;
@@ -144,11 +218,16 @@ export default function Collab({
     if (showForm) composerRef.current?.focus();
   }, [showForm]);
 
-  const openThread = async (thread: Thread) => {
+  const openThread = useCallback(async (thread: Thread) => {
     setSelectedThread(thread);
     setMessages([]);
     setMessagesError('');
+    setMessageError('');
+    setContextCourseId(thread.course_id ?? '');
+    setContextQuestionId(thread.past_question_id ?? '');
+    setContextGroupId(thread.group_id ?? '');
     setMessagesLoading(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     try {
       setMessages(await apiGet(`/threads/${thread.id}/messages`) as ThreadMessage[]);
     } catch (err) {
@@ -156,22 +235,37 @@ export default function Collab({
     } finally {
       setMessagesLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (selectedThread) msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, selectedThread]);
+    if (!initialThreadId || selectedThread || threadsLoading || sharedThreadAttempt.current === initialThreadId) return;
+    sharedThreadAttempt.current = initialThreadId;
+    const match = threads.find((thread) => thread.id === initialThreadId);
+    if (match) {
+      void openThread(match);
+      return;
+    }
+    void apiGet(`/threads/${initialThreadId}`)
+      .then((thread) => void openThread(thread as Thread))
+      .catch((err) => setThreadsError(err instanceof Error ? err.message : 'That discussion is not available.'));
+  }, [initialThreadId, openThread, selectedThread, threads, threadsLoading]);
 
   const postMessage = async () => {
     const content = messageInput.trim();
     if (!content || !selectedThread || posting) return;
     setPosting(true);
+    setMessageError('');
     setMessageInput('');
+    const messageId = clientMessageId.current || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    clientMessageId.current = messageId;
     try {
-      await apiPost(`/threads/${selectedThread.id}/message`, { content });
+      await apiPost(`/threads/${selectedThread.id}/message`, { content, client_message_id: messageId });
       setMessages(await apiGet(`/threads/${selectedThread.id}/messages`) as ThreadMessage[]);
+      clientMessageId.current = null;
+      window.requestAnimationFrame(() => msgsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }));
     } catch {
       setMessageInput(content);
+      setMessageError('Your reply was not sent. Try again; your text is still here.');
     } finally {
       setPosting(false);
     }
@@ -195,12 +289,33 @@ export default function Collab({
       setNewTitle('');
       setFormQuestionId('');
       setShowForm(false);
-      await loadThreads();
+      try { window.sessionStorage.removeItem(draftKey); } catch { /* keep posting independent of storage */ }
+      await loadThreads(feedMode);
       await openThread({ ...created, created_by_username: user?.username ?? null });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not create discussion.');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const saveThreadContext = async () => {
+    if (!selectedThread || contextSaving) return;
+    setContextSaving(true);
+    setContextError('');
+    try {
+      const updated = await apiPatch(`/threads/${selectedThread.id}`, {
+        course_id: contextCourseId || null,
+        past_question_id: contextQuestionId || null,
+        group_id: contextGroupId || null,
+      }) as Thread;
+      setSelectedThread(updated);
+      setThreads((current) => current.map((thread) => thread.id === updated.id ? updated : thread));
+      setContextOpen(false);
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : 'That context could not be updated.');
+    } finally {
+      setContextSaving(false);
     }
   };
 
@@ -224,14 +339,14 @@ export default function Collab({
   }, [feedMode, myCourseIds, myGroupIds, threads]);
 
   const meInitials = threadInitials(user?.name || user?.username || 'You');
-  const mentionsAI = messageInput.toLowerCase().includes('@ai');
+  const mentionsMaxe = /(^|[^A-Za-z0-9_])@(maxe|ai)\b/i.test(messageInput);
 
   const copyOrShare = async (thread: Thread) => {
     try {
-      await shareThread(thread);
-      setShareNote('Discussion link ready to share.');
-    } catch {
-      notifyUnavailable('Sharing');
+      const result = await shareThread(thread);
+      setShareNote(result === 'copied' ? 'Discussion link copied.' : 'Discussion shared.');
+    } catch (err) {
+      setShareNote(err instanceof Error ? err.message : 'Could not share this discussion.');
     }
     window.setTimeout(() => setShareNote(''), 2600);
   };
@@ -250,7 +365,7 @@ export default function Collab({
           <p>{selectedThread.group_name ? `Shared in ${selectedThread.group_name}.` : 'Keep replies close to the question so the next student can follow the thinking.'}</p>
         </> : <>
           <h2>Ask, then build on it.</h2>
-          <p>Type <strong>@AI</strong> in a thread and the answer stays with the conversation for everyone.</p>
+          <p>Mention <strong>@Maxe</strong> when you want a grounded study explanation to stay with the conversation.</p>
         </>}
       </section>
       <section className="collab-aside-card">
@@ -263,8 +378,8 @@ export default function Collab({
         <button type="button" className="collab-aside-link" onClick={() => go('groups')}>Find a study group <ArrowUpRight size={15} aria-hidden="true" /></button>
       </section>
       <section className="collab-aside-card collab-aside-card--quiet">
-        <span className="collab-aside-stat">{threads.length}</span>
-        <div><strong>open conversations</strong><p>Give a question enough detail that someone else can pick it up.</p></div>
+        <span className="collab-aside-stat">Live</span>
+        <div><strong>discussion feed</strong><p>Give a question enough detail that someone else can pick it up.</p></div>
       </section>
     </aside>
   );
@@ -274,44 +389,59 @@ export default function Collab({
       <div className="page" id="s-collab">
         <div className="collab-layout collab-layout--thread">
           <main className="collab-feed-column">
-            <button type="button" className="collab-back" onClick={() => { setSelectedThread(null); setMessages([]); }}><ArrowLeft size={16} aria-hidden="true" /> Back to discussions</button>
+            <button type="button" className="collab-back" onClick={() => { setSelectedThread(null); setMessages([]); setContextOpen(false); onClearSharedThread?.(); }}><ArrowLeft size={16} aria-hidden="true" /> Back to discussions</button>
             <article className="thread-view">
               <header className="thread-view-head">
                 <div className="thread-view-avatar">{threadInitials(selectedThread.created_by_username || selectedThread.title)}</div>
                 <div className="thread-view-heading">
-                  <div className="thread-author-line"><strong>{selectedThread.created_by_name || selectedThread.created_by_username || 'Student'}</strong><span>@{selectedThread.created_by_username || 'student'}</span><span>{timeAgo(selectedThread.created_at)}</span></div>
+                  <div className="thread-author-line"><strong>{selectedThread.created_by_name || selectedThread.created_by_username || 'Student'}</strong>{selectedThread.created_by === null ? <span>Deleted student</span> : <span>@{selectedThread.created_by_username || 'student'}</span>}<span>{timeAgo(selectedThread.created_at)}</span></div>
                   <h1>{selectedThread.title}</h1>
                   <div className="thread-anchor">
                     {courseMap.get(selectedThread.course_id ?? -1) && <span className="anchor-course">{courseMap.get(selectedThread.course_id ?? -1)}</span>}
                     {questionMap.get(selectedThread.past_question_id ?? -1) && <span className="anchor-question">{questionMap.get(selectedThread.past_question_id ?? -1)}</span>}
                   </div>
                 </div>
-                <button type="button" className="icon-action" onClick={() => void copyOrShare(selectedThread)} aria-label="Share discussion" title="Share discussion"><Share2 size={17} aria-hidden="true" /></button>
+                <div className="thread-head-actions">
+                  {selectedThread.created_by === user?.id && <button type="button" className="icon-action" onClick={() => { setContextOpen((open) => !open); setContextError(''); }} aria-label="Edit discussion context" title="Edit discussion context"><Pencil size={16} aria-hidden="true" /></button>}
+                  <button type="button" className="icon-action" onClick={() => void copyOrShare(selectedThread)} aria-label="Share discussion" title="Share discussion"><Share2 size={17} aria-hidden="true" /></button>
+                </div>
               </header>
               <div className="thread-parent-content">{selectedThread.content || selectedThread.title}</div>
-              <div className="thread-view-intro">Reply in your own words, or mention <strong>@AI</strong> when you want help grounding the question in ExamMind materials.</div>
+              {contextOpen && selectedThread.created_by === user?.id && <div className="context-editor">
+                <div className="context-editor-head"><strong>Keep the context useful</strong><button type="button" className="icon-action" onClick={() => setContextOpen(false)} aria-label="Close context editor" title="Close context editor"><X size={15} aria-hidden="true" /></button></div>
+                <div className="context-editor-fields">
+                  <label>Course<select className="anchor-select" value={contextCourseId} onChange={(event) => setContextCourseId(event.target.value ? Number(event.target.value) : '')}><option value="">No course</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.code} · {course.name}</option>)}</select></label>
+                  <label>Past question<select className="anchor-select" value={contextQuestionId} onChange={(event) => setContextQuestionId(event.target.value ? Number(event.target.value) : '')}><option value="">No past question</option>{pastQuestions.filter((question) => !contextCourseId || question.course_id === contextCourseId).map((question) => <option key={question.id} value={question.id}>{question.year ? `${question.year} · ` : ''}{question.title}</option>)}</select></label>
+                  <label>Study group<select className="anchor-select" value={contextGroupId} onChange={(event) => setContextGroupId(event.target.value ? Number(event.target.value) : '')}><option value="">No group</option>{selectedThread.group_id && !myGroups.some((group) => group.id === selectedThread.group_id) && <option value={selectedThread.group_id}>{selectedThread.group_name || 'Current group'}</option>}{myGroups.map((group) => <option key={group.id} value={group.id}>{group.name || `Study group ${group.id}`}</option>)}</select></label>
+                </div>
+                {contextError && <div className="thread-error" role="alert"><span>{contextError}</span></div>}
+                <div className="context-editor-actions"><button type="button" className="btn-quiet" onClick={() => setContextOpen(false)}>Cancel</button><button type="button" className="btn-post" onClick={() => void saveThreadContext()} disabled={contextSaving}>{contextSaving ? 'Saving...' : 'Save context'} <Check size={15} aria-hidden="true" /></button></div>
+              </div>}
+              <div className="thread-view-intro">Reply in your own words, or mention <strong>@Maxe</strong> when you want a grounded explanation using the study material in this conversation.</div>
               {messagesLoading && <div className="thread-loading"><RefreshCw size={16} className="spin" aria-hidden="true" /> Loading replies</div>}
               {messagesError && <div className="thread-error" role="alert"><strong>Replies are taking a moment.</strong><span>{messagesError}</span><button type="button" onClick={() => void openThread(selectedThread)}>Try again</button></div>}
               {!messagesLoading && !messagesError && messages.length === 0 && <div className="thread-empty"><MessageCircle size={22} aria-hidden="true" /><strong>Be the first voice here.</strong><span>Give this question a useful next step.</span></div>}
-              <ul className="messages">
+              <ul className="messages" aria-live="polite">
                 {messages.map((msg) => {
                   const isAI = msg.is_ai_response;
                   const isMe = !isAI && msg.user_id === user?.id;
-                  const name = isAI ? 'ExamMind AI' : isMe ? 'You' : `@${msg.user_username || 'student'}`;
+                  const name = isAI ? 'Maxe' : isMe ? 'You' : msg.user_id === null ? 'Deleted student' : `@${msg.user_username || 'student'}`;
                   return (
                     <li className={`message${isAI ? ' is-ai' : ''}`} key={msg.id}>
-                      <span className="message-avatar" aria-hidden="true">{isAI ? 'AI' : isMe ? meInitials : threadInitials(msg.user_username || 'Student')}</span>
+                      <span className="message-avatar" aria-hidden="true">{isAI ? 'M' : isMe ? meInitials : threadInitials(msg.user_username || 'Student')}</span>
                       <div><p className="message-head"><span className="message-who">{name}</span><span className="message-when">{timeAgo(msg.created_at)}</span></p><p className="message-body">{msg.content}</p></div>
                     </li>
                   );
                 })}
               </ul>
+              <div ref={msgsEndRef} />
+              {messageError && <div className="thread-error" role="alert"><strong>Reply not sent.</strong><span>{messageError}</span></div>}
               <div className="reply-box">
                 <span className="composer-avatar" aria-hidden="true">{meInitials}</span>
                 <div className="reply-composer">
                   <label className="sr-only" htmlFor="thread-reply">Reply to this thread</label>
-                  <textarea id="thread-reply" className="composer-input" rows={2} placeholder="Reply, or type @AI to ask the assistant..." value={messageInput} onChange={(e) => setMessageInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void postMessage(); } }} disabled={posting} />
-                  <div className="composer-foot"><span className="composer-hint">{mentionsAI ? 'ExamMind AI will answer in the thread' : 'Everyone in this conversation can build on your reply'}</span><button type="button" className="btn-post" onClick={() => void postMessage()} disabled={posting || !messageInput.trim()}>{posting ? 'Sending...' : 'Reply'} <ChevronRight size={15} aria-hidden="true" /></button></div>
+                  <textarea id="thread-reply" className="composer-input" rows={2} maxLength={2000} placeholder="Reply, or mention @Maxe for a grounded explanation..." value={messageInput} onChange={(e) => setMessageInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void postMessage(); } }} disabled={posting} />
+                  <div className="composer-foot"><span className="composer-hint">{mentionsMaxe ? 'Maxe will answer in the thread' : 'Everyone in this conversation can build on your reply'}</span><span className="composer-count">{messageInput.length}/2000</span><button type="button" className="btn-post" onClick={() => void postMessage()} disabled={posting || !messageInput.trim()}>{posting ? 'Sending...' : 'Reply'} <ChevronRight size={15} aria-hidden="true" /></button></div>
                 </div>
               </div>
             </article>
@@ -326,21 +456,20 @@ export default function Collab({
     <div className="page" id="s-collab">
       <div className="collab-page-head">
         <div><div className="pg-title">Discussions</div><p className="pg-sub">Questions, explanations and useful conversations from your study world.</p></div>
-        <button type="button" className="collab-new-button" onClick={() => { setShowForm(true); setFormError(''); }}><Plus size={17} aria-hidden="true" /> Start a discussion</button>
       </div>
 
       <div className="collab-layout">
         <main className="collab-feed-column">
           <div className="collab-feed-tabs" role="tablist" aria-label="Discussion feed view">
             {(['for-you', 'latest', 'my-courses', 'my-groups'] as const).map((mode) => <button type="button" role="tab" key={mode} aria-selected={feedMode === mode} className={feedMode === mode ? 'is-active' : ''} onClick={() => setFeedMode(mode)}>{mode === 'for-you' ? 'For You' : mode === 'latest' ? 'Latest' : mode === 'my-courses' ? 'My Courses' : 'My Groups'}</button>)}
-            <span className="collab-feed-count">{threads.length} conversations</span>
+            <span className="collab-feed-count">{visibleThreads.length}{nextCursor ? '+' : ''} shown</span>
           </div>
 
           <section className={`collab-composer${showForm || newTitle ? ' is-open' : ''}`}>
             <span className="composer-avatar" aria-hidden="true">{meInitials}</span>
             <div className="collab-composer-body">
               <label className="sr-only" htmlFor="new-thread">Start a discussion</label>
-              <textarea ref={composerRef} id="new-thread" className="composer-input" rows={showForm || newTitle ? 3 : 1} maxLength={2000} placeholder="What are you working through?" value={newTitle} onFocus={() => setShowForm(true)} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void createThread(); } }} />
+              <textarea ref={composerRef} id="new-thread" className="composer-input" rows={showForm || newTitle ? 3 : 1} maxLength={2000} placeholder="What are you working through?" value={newTitle} onFocus={() => { setShowForm(true); setComposerFocused(true); }} onBlur={() => setComposerFocused(false)} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void createThread(); } }} />
               {showContext && <>
                 <div className="composer-anchor">
                   <select aria-label="Course this discussion is about" className="anchor-select" value={formCourseId} onChange={(e) => { setFormCourseId(e.target.value ? Number(e.target.value) : ''); setFormQuestionId(''); }}>
@@ -355,14 +484,15 @@ export default function Collab({
                 {courses.length === 0 && <p className="composer-note">Your course catalogue is empty or unavailable right now. You can still post this conversation and add context in the text.</p>}
               </>}
               {formError && <div className="upload-alert">{formError}</div>}
-              <div className="composer-foot"><div className="composer-tools"><button type="button" className="btn-context" aria-expanded={showContext} onClick={() => setShowContext((current) => !current)}><BookOpen size={14} aria-hidden="true" /> {showContext ? 'Hide context' : 'Add context'}</button><span className="composer-count">{newTitle.length}/2000</span><span className="composer-hint">A clear question helps a classmate help.</span></div><div className="composer-actions">{(showForm || newTitle) && <button type="button" className="btn-quiet" onClick={() => { setShowForm(false); setShowContext(false); setNewTitle(''); setFormError(''); }}>Cancel</button>}<button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim()}>{creating ? 'Posting...' : 'Post'} <ChevronRight size={15} aria-hidden="true" /></button></div></div>
+              <div className="composer-foot"><div className="composer-tools"><button type="button" className="btn-context" aria-expanded={showContext} onClick={() => setShowContext((current) => !current)}><BookOpen size={14} aria-hidden="true" /> {showContext ? 'Hide context' : 'Add context'}</button>{(composerFocused || newTitle.length > 0) && <span className="composer-count">{newTitle.length}/2000</span>}<span className="composer-hint">A clear question helps a classmate help.</span></div><div className="composer-actions">{(showForm || newTitle) && <button type="button" className="btn-quiet" onClick={() => { setShowForm(false); setShowContext(false); setNewTitle(''); setFormError(''); }}>Cancel</button>}<button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim()}>{creating ? 'Posting...' : 'Post'} <ChevronRight size={15} aria-hidden="true" /></button></div></div>
             </div>
           </section>
 
           {threadsLoading && <div className="feed-state feed-state--loading"><RefreshCw size={17} className="spin" aria-hidden="true" /> Finding conversations</div>}
-          {threadsError && <div className="feed-error"><strong>Discussions are taking a moment.</strong><span>{threadsError}</span><button type="button" onClick={() => void loadThreads()}>Try again</button></div>}
-          {!threadsLoading && !threadsError && threads.length === 0 && <div className="feed-empty"><div className="feed-empty-icon"><MessageCircle size={23} aria-hidden="true" /></div><strong>Start the first conversation.</strong><p>Ask the question you wish someone had asked before the exam.</p><button type="button" className="btn-post" onClick={() => setShowForm(true)}>Write a question <Plus size={15} aria-hidden="true" /></button></div>}
-          {!threadsLoading && !threadsError && threads.length > 0 && visibleThreads.length === 0 && <div className="feed-empty"><div className="feed-empty-icon"><BookOpen size={23} aria-hidden="true" /></div><strong>Nothing here yet.</strong><p>{feedMode === 'my-courses' ? 'Choose a course during onboarding or add context to a discussion.' : 'Join a study group to bring its conversations into this feed.'}</p><button type="button" className="btn-quiet" onClick={() => setFeedMode('for-you')}>Back to For You</button></div>}
+          {threadsError && <div className="feed-error"><strong>Discussions are taking a moment.</strong><span>{threadsError}</span><button type="button" onClick={() => void loadThreads(feedMode)}>Try again</button></div>}
+          {!threadsLoading && !threadsError && threads.length === 0 && feedMode !== 'my-courses' && feedMode !== 'my-groups' && <div className="feed-empty"><div className="feed-empty-icon"><MessageCircle size={23} aria-hidden="true" /></div><strong>Start the first conversation.</strong><p>Ask the question you wish someone had asked before the exam.</p><button type="button" className="btn-post" onClick={() => setShowForm(true)}>Write a question <Plus size={15} aria-hidden="true" /></button></div>}
+          {!threadsLoading && !threadsError && visibleThreads.length === 0 && threads.length > 0 && feedMode !== 'my-courses' && feedMode !== 'my-groups' && <div className="feed-empty"><div className="feed-empty-icon"><BookOpen size={23} aria-hidden="true" /></div><strong>No academic conversations here yet.</strong><p>Try Latest for the newest campus conversations, or start a study question.</p><button type="button" className="btn-quiet" onClick={() => setFeedMode('latest')}>View Latest</button></div>}
+          {!threadsLoading && !threadsError && visibleThreads.length === 0 && (feedMode === 'my-courses' || feedMode === 'my-groups') && <div className="feed-empty"><div className="feed-empty-icon"><BookOpen size={23} aria-hidden="true" /></div><strong>{feedMode === 'my-groups' ? 'Your groups are quiet for now.' : 'Your course feed is ready when you are.'}</strong><p>{feedMode === 'my-courses' ? 'Add courses to your academic profile so relevant discussions can find you.' : 'Discussions from joined study groups will appear here.'}</p><button type="button" className="btn-quiet" onClick={() => feedMode === 'my-groups' ? go('groups') : go('profile')}>{feedMode === 'my-groups' ? 'Explore study groups' : 'Edit academic profile'}</button></div>}
 
           <ul className="feed">
             {!threadsLoading && visibleThreads.map((thread) => (
@@ -370,7 +500,7 @@ export default function Collab({
                 <button type="button" className="feed-post-body" onClick={() => void openThread(thread)}>
                   <span className="thread-avatar" aria-hidden="true">{threadInitials(thread.created_by_username || thread.title)}</span>
                   <span className="feed-post-content">
-                    <span className="feed-post-author"><strong>{thread.created_by_name || thread.created_by_username || 'Student'}</strong><span>@{thread.created_by_username || 'student'}</span><span>{timeAgo(thread.created_at)}</span><ChevronRight size={13} aria-hidden="true" /></span>
+                    <span className="feed-post-author"><strong>{thread.created_by_name || thread.created_by_username || 'Student'}</strong>{thread.created_by === null ? <span>Deleted student</span> : <span>@{thread.created_by_username || 'student'}</span>}<span>{timeAgo(thread.created_at)}</span><ChevronRight size={13} aria-hidden="true" /></span>
                     <span className="thread-title">{thread.title}</span>
                     {thread.content && thread.content !== thread.title && <span className="thread-preview">{thread.content}</span>}
                     <span className="thread-anchor">{courseMap.get(thread.course_id ?? -1) ? <span className="anchor-course">{courseMap.get(thread.course_id ?? -1)}</span> : <span className="anchor-none">Open topic</span>}{questionMap.get(thread.past_question_id ?? -1) && <span className="anchor-question">{questionMap.get(thread.past_question_id ?? -1)}</span>}{thread.group_name && <span className="anchor-group">{thread.group_name}</span>}{thread.category === 'academic' && <span className="anchor-study">Study</span>}{thread.category === 'casual' && <span className="anchor-lounge">Lounge</span>}{thread.mood === 'stuck' && <span className="anchor-stuck">Needs a hand</span>}</span>
@@ -380,6 +510,8 @@ export default function Collab({
               </li>
             ))}
           </ul>
+          {nextCursor && !threadsLoading && !loadingMore && <button type="button" className="load-more" onClick={() => void loadThreads(feedMode, nextCursor)}>Load more discussions <ChevronRight size={15} aria-hidden="true" /></button>}
+          {loadingMore && <div className="feed-state feed-state--loading"><RefreshCw size={15} className="spin" aria-hidden="true" /> Loading more</div>}
           {shareNote && <div className="share-note" role="status">{shareNote}</div>}
         </main>
         {communityAside}

@@ -7,6 +7,18 @@ ACADEMIC_TERMS = {
     "define", "explain", "formula", "theory", "deadline", "quiz", "test",
 }
 
+MAXE_MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])@(maxe|ai)\b", re.IGNORECASE)
+
+
+def contains_maxe_mention(text: str) -> bool:
+    """Return true only for a standalone Maxe mention or legacy @AI mention."""
+    return bool(MAXE_MENTION_RE.search(text or ""))
+
+
+def strip_maxe_mentions(text: str) -> str:
+    """Remove Maxe's public invocation while preserving the student's wording."""
+    return MAXE_MENTION_RE.sub("", text or "").strip()
+
 
 def classify_discussion(text: str) -> tuple[str, str]:
     value = text.lower()

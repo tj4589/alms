@@ -1,10 +1,13 @@
+import base64
+import binascii
 from collections import defaultdict
+from datetime import datetime, timezone
 import json
 import re
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Text, func, or_
 from sqlalchemy.exc import IntegrityError
@@ -14,10 +17,9 @@ import auth
 import models
 from ai_clients import AIProviderError, generate_ai_response
 from database import get_db
-from community_rules import classify_discussion
+from community_rules import classify_discussion, contains_maxe_mention, strip_maxe_mentions
 from routers.rag import run_rag_query
 from routers.search import _document_key
-
 from material_access import (
     GROUP,
     PRIVATE,
@@ -32,6 +34,7 @@ from material_access import (
     sharing_payload,
     validate_share_groups,
 )
+
 router = APIRouter(tags=["mvp"])
 
 
@@ -394,11 +397,11 @@ def serialize_past_question(row: models.PastQuestion) -> dict:
         # UI hides the download rather than offering one that cannot work.
         "has_file": bool(row.file_size),
         "has_text": bool(row.content_text),
-        "created_at": row.created_at,
         "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
         "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
         "contributor_label": "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP} else None,
-        "metadata_json": row.metadata_json or {},
+        "created_at": row.created_at,
+        "metadata_json": metadata,
     }
 
 
@@ -439,38 +442,50 @@ def serialize_lecture_note(row: models.LectureNote) -> dict:
         "year": row.year,
         "semester": row.semester,
         "file_url": row.file_url,
+        "has_file": bool(row.file_size),
+        "file_name": row.file_name,
+        "file_size": row.file_size,
         "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
         "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
         "contributor_label": "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP} else None,
         "created_at": row.created_at,
-        "metadata_json": row.metadata_json or {},
+        "metadata_json": metadata,
     }
 
 
-def serialize_thread(row: models.DiscussionThread) -> dict:
+def serialize_thread(row: models.DiscussionThread, reply_count: int = 0) -> dict:
     return {
         "id": row.id,
         "title": row.title,
+        "content": row.content or row.title,
         "course_id": row.course_id,
         "past_question_id": row.past_question_id,
         "created_by": row.created_by,
         "category": row.category,
         "mood": row.mood,
         "group_id": row.group_id,
+        "reply_count": reply_count,
         "created_at": row.created_at,
     }
 
 
 class ThreadCreateRequest(BaseModel):
     title: str = ""
-    content: Optional[str] = None
+    content: Optional[str] = Field(default=None, max_length=2000)
+    course_id: Optional[int] = None
+    past_question_id: Optional[int] = None
+    group_id: Optional[int] = None
+
+
+class ThreadUpdateRequest(BaseModel):
     course_id: Optional[int] = None
     past_question_id: Optional[int] = None
     group_id: Optional[int] = None
 
 
 class ThreadMessageRequest(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=2000)
+    client_message_id: Optional[str] = Field(default=None, min_length=8, max_length=96, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class StudyGroupCreateRequest(BaseModel):
@@ -478,7 +493,7 @@ class StudyGroupCreateRequest(BaseModel):
     description: Optional[str] = None
     course_id: Optional[int] = None
     topic: Optional[str] = None
-    visibility: str = "public"
+    visibility: str = Field(default="public", pattern="^(public|unlisted|private)$")
     welcome_message: Optional[str] = None
 
 
@@ -558,9 +573,9 @@ def read_lecture_note(
     note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="That material does not exist.")
-
     if not can_view_material(db, note, current_user):
         raise HTTPException(status_code=404, detail="That material does not exist.")
+
     sections = (
         db.query(models.LectureNoteSection)
         .filter(models.LectureNoteSection.lecture_note_id == note.id)
@@ -1019,38 +1034,168 @@ def submit_practice(
     return {"attempt_id": attempt.id, "readiness_score": readiness.score, "debrief": debrief}
 
 
+THREAD_FEEDS = {"for-you", "latest", "my-courses", "my-groups"}
+THREAD_PAGE_SIZE = 24
+
+
+def _thread_cursor(row: models.DiscussionThread) -> str:
+    created_at = row.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    raw = f"{created_at.isoformat()}|{row.id}"
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _parse_thread_cursor(value: str) -> tuple[datetime, int]:
+    try:
+        padded = value + ("=" * (-len(value) % 4))
+        timestamp, raw_id = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8").split("|", 1)
+        parsed = datetime.fromisoformat(timestamp)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        thread_id = int(raw_id)
+        if thread_id < 1:
+            raise ValueError
+        return parsed, thread_id
+    except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail="That discussion page cursor is invalid.") from exc
+
+
+def _private_thread_filter(db: Session, current_user: models.User):
+    member_group_ids = db.query(models.StudyGroupMember.group_id).filter(
+        models.StudyGroupMember.user_id == current_user.id,
+    ).subquery()
+    private_group_ids = db.query(models.StudyGroup.id).filter(
+        models.StudyGroup.visibility == "private",
+    ).subquery()
+    return or_(
+        models.DiscussionThread.group_id.is_(None),
+        ~models.DiscussionThread.group_id.in_(private_group_ids),
+        models.DiscussionThread.created_by == current_user.id,
+        models.DiscussionThread.group_id.in_(member_group_ids),
+    )
+
+
+def _can_view_thread(db: Session, thread: models.DiscussionThread, current_user: models.User) -> bool:
+    if thread.group_id is None:
+        return True
+    group = db.query(models.StudyGroup).filter(models.StudyGroup.id == thread.group_id).first()
+    if group is None:
+        return False
+    if group.visibility != "private" or thread.created_by == current_user.id:
+        return True
+    return db.query(models.StudyGroupMember.id).filter(
+        models.StudyGroupMember.group_id == thread.group_id,
+        models.StudyGroupMember.user_id == current_user.id,
+    ).first() is not None
+
+
+def _validate_thread_context(
+    db: Session,
+    course_id: int | None,
+    past_question_id: int | None,
+    group_id: int | None,
+    current_user: models.User,
+) -> None:
+    if course_id is not None and not db.query(models.Course.id).filter(models.Course.id == course_id).first():
+        raise HTTPException(status_code=400, detail="That course could not be found.")
+    if past_question_id is not None:
+        past_question = db.query(models.PastQuestion).filter(models.PastQuestion.id == past_question_id).first()
+        if not past_question or not can_view_material(db, past_question, current_user):
+            raise HTTPException(status_code=400, detail="That past question could not be found.")
+    if group_id is None:
+        return
+    group = db.query(models.StudyGroup).filter(models.StudyGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=400, detail="That study group could not be found.")
+    if group.visibility == "private" and not db.query(models.StudyGroupMember.id).filter(
+        models.StudyGroupMember.group_id == group_id,
+        models.StudyGroupMember.user_id == current_user.id,
+    ).first():
+        raise HTTPException(status_code=403, detail="You cannot attach this discussion to that group.")
+
+
+def _serialize_thread_rows(db: Session, threads: list[models.DiscussionThread]) -> list[dict]:
+    if not threads:
+        return []
+    thread_ids = [thread.id for thread in threads]
+    reply_counts = {
+        row.thread_id: row[1]
+        for row in db.query(models.ThreadMessage.thread_id, func.count(models.ThreadMessage.id).label("count"))
+        .filter(models.ThreadMessage.thread_id.in_(thread_ids))
+        .group_by(models.ThreadMessage.thread_id)
+        .all()
+    }
+    user_ids = {thread.created_by for thread in threads if thread.created_by is not None}
+    user_rows = db.query(models.User.id, models.User.username, models.User.name).filter(models.User.id.in_(user_ids)).all() if user_ids else []
+    user_usernames = {row.id: row.username for row in user_rows}
+    user_names = {row.id: row.name for row in user_rows}
+    group_ids = {thread.group_id for thread in threads if thread.group_id is not None}
+    group_rows = db.query(models.StudyGroup.id, models.StudyGroup.name).filter(models.StudyGroup.id.in_(group_ids)).all() if group_ids else []
+    group_names = {row.id: row.name for row in group_rows}
+    return [
+        {
+            "id": thread.id,
+            "title": thread.title,
+            "content": thread.content or thread.title,
+            "created_by": thread.created_by,
+            "created_by_username": user_usernames.get(thread.created_by) if thread.created_by else None,
+            "created_by_name": user_names.get(thread.created_by) if thread.created_by else "Deleted student",
+            "course_id": thread.course_id,
+            "past_question_id": thread.past_question_id,
+            "category": thread.category,
+            "mood": thread.mood,
+            "group_id": thread.group_id,
+            "group_name": group_names.get(thread.group_id) if thread.group_id else None,
+            "reply_count": reply_counts.get(thread.id, 0),
+            "created_at": thread.created_at,
+        }
+        for thread in threads
+    ]
+
+
 @router.get("/threads")
 def list_threads(
     course_id: Optional[int] = None,
+    feed: Optional[str] = Query(default=None),
+    cursor: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=50),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    query = db.query(models.DiscussionThread)
+    if feed is not None and feed not in THREAD_FEEDS:
+        raise HTTPException(status_code=400, detail="That discussion feed is not available.")
+    effective_feed = feed or "for-you"
+    paginated = feed is not None or cursor is not None or limit != 50
+    query = db.query(models.DiscussionThread).filter(_private_thread_filter(db, current_user))
     if course_id is not None:
         query = query.filter(models.DiscussionThread.course_id == course_id)
-    threads = query.order_by(models.DiscussionThread.created_at.desc()).limit(50).all()
-
-    user_ids = {t.created_by for t in threads if t.created_by is not None}
-    user_usernames: dict[int, str] = {}
-    if user_ids:
-        rows = db.query(models.User.id, models.User.username).filter(models.User.id.in_(user_ids)).all()
-        user_usernames = {row.id: row.username for row in rows}
-
-    return [
-        {
-            "id": t.id,
-            "title": t.title,
-            "created_by": t.created_by,
-            "created_by_username": user_usernames.get(t.created_by) if t.created_by else None,
-            "course_id": t.course_id,
-            "past_question_id": t.past_question_id,
-            "category": t.category,
-            "mood": t.mood,
-            "group_id": t.group_id,
-            "created_at": t.created_at,
-        }
-        for t in threads
-    ]
+    if effective_feed == "for-you":
+        query = query.filter(or_(models.DiscussionThread.category.is_(None), models.DiscussionThread.category == "academic"))
+    elif effective_feed == "my-courses":
+        course_ids = db.query(models.UserCourse.course_id).filter(models.UserCourse.user_id == current_user.id).subquery()
+        query = query.filter(models.DiscussionThread.course_id.in_(course_ids))
+    elif effective_feed == "my-groups":
+        group_ids = db.query(models.StudyGroupMember.group_id).filter(models.StudyGroupMember.user_id == current_user.id).subquery()
+        query = query.filter(models.DiscussionThread.group_id.in_(group_ids))
+    if cursor:
+        cursor_time, cursor_id = _parse_thread_cursor(cursor)
+        query = query.filter(
+            or_(
+                models.DiscussionThread.created_at < cursor_time,
+                (models.DiscussionThread.created_at == cursor_time) & (models.DiscussionThread.id < cursor_id),
+            )
+        )
+    threads = query.order_by(models.DiscussionThread.created_at.desc(), models.DiscussionThread.id.desc()).limit(limit + 1).all()
+    has_more = len(threads) > limit
+    page = threads[:limit]
+    items = _serialize_thread_rows(db, page)
+    if not paginated:
+        return items
+    return {
+        "items": items,
+        "next_cursor": _thread_cursor(page[-1]) if has_more and page else None,
+    }
 
 
 @router.post("/threads")
@@ -1059,13 +1204,15 @@ def create_thread(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    title = (req.title or req.content or "").strip()
-    if not title:
+    content = (req.content or req.title or "").strip()
+    if not content:
         raise HTTPException(status_code=400, detail="Write something to start the discussion.")
-    title = title.splitlines()[0][:180]
-    category, mood = classify_discussion(req.content or req.title)
+    _validate_thread_context(db, req.course_id, req.past_question_id, req.group_id, current_user)
+    title = content.splitlines()[0][:180]
+    category, mood = classify_discussion(content)
     thread = models.DiscussionThread(
         title=title,
+        content=content,
         course_id=req.course_id,
         past_question_id=req.past_question_id,
         group_id=req.group_id,
@@ -1079,12 +1226,48 @@ def create_thread(
     return serialize_thread(thread)
 
 
+@router.get("/threads/{thread_id}")
+def get_thread(
+    thread_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    thread = db.query(models.DiscussionThread).filter(models.DiscussionThread.id == thread_id).first()
+    if not thread or not _can_view_thread(db, thread, current_user):
+        raise HTTPException(status_code=404, detail="Discussion not found.")
+    return _serialize_thread_rows(db, [thread])[0]
+
+
+@router.patch("/threads/{thread_id}")
+def update_thread_context(
+    thread_id: int,
+    req: ThreadUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    thread = db.query(models.DiscussionThread).filter(models.DiscussionThread.id == thread_id).first()
+    if not thread:
+        raise HTTPException(status_code=404, detail="Discussion not found.")
+    if thread.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the discussion author can update its context.")
+    _validate_thread_context(db, req.course_id, req.past_question_id, req.group_id, current_user)
+    thread.course_id = req.course_id
+    thread.past_question_id = req.past_question_id
+    thread.group_id = req.group_id
+    db.commit()
+    db.refresh(thread)
+    return _serialize_thread_rows(db, [thread])[0]
+
+
 @router.get("/threads/{thread_id}/messages")
 def list_thread_messages(
     thread_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    thread = db.query(models.DiscussionThread).filter(models.DiscussionThread.id == thread_id).first()
+    if not thread or not _can_view_thread(db, thread, current_user):
+        raise HTTPException(status_code=404, detail="Discussion not found.")
     messages = (
         db.query(models.ThreadMessage)
         .filter(models.ThreadMessage.thread_id == thread_id)
@@ -1120,13 +1303,34 @@ def post_thread_message(
     current_user: models.User = Depends(auth.require_role("student")),
 ):
     thread = db.query(models.DiscussionThread).filter(models.DiscussionThread.id == thread_id).first()
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found.")
+    if not thread or not _can_view_thread(db, thread, current_user):
+        raise HTTPException(status_code=404, detail="Discussion not found.")
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Write a reply before sending.")
 
-    message = models.ThreadMessage(thread_id=thread_id, user_id=current_user.id, content=req.content)
+    if req.client_message_id:
+        duplicate = db.query(models.ThreadMessage).filter(
+            models.ThreadMessage.thread_id == thread_id,
+            models.ThreadMessage.client_message_id == req.client_message_id,
+        ).first()
+        if duplicate:
+            return {
+                "status": "posted",
+                "ai_response_added": contains_maxe_mention(content),
+                "duplicate": True,
+            }
+
+    message = models.ThreadMessage(
+        thread_id=thread_id,
+        user_id=current_user.id,
+        content=content,
+        client_message_id=req.client_message_id,
+    )
     db.add(message)
-    if "@ai" in req.content.lower():
-        ai_question = req.content.replace("@AI", "").replace("@ai", "").strip()
+    maxe_mentioned = contains_maxe_mention(content)
+    if maxe_mentioned:
+        ai_question = strip_maxe_mentions(req.content)
         if not ai_question:
             ai_question = thread.title
         try:
@@ -1140,7 +1344,7 @@ def post_thread_message(
             )
             recent_messages.reverse()
             recent_context = "\n".join(
-                f"- {'AI' if msg.is_ai_response else 'Student'}: {msg.content[:220]}"
+                    f"- {'Maxe' if msg.is_ai_response else 'Student'}: {msg.content[:220]}"
                 for msg in recent_messages
                 if msg.content
             )
@@ -1155,13 +1359,20 @@ def post_thread_message(
                 if part
             )
             contextual_question = f"{thread_context}\n\nStudent message: {ai_question}"
-            rag_result = run_rag_query(contextual_question, thread.course_id, None, db, room_context=thread_context)
+            rag_result = run_rag_query(
+                contextual_question,
+                thread.course_id,
+                None,
+                db,
+                room_context=thread_context,
+                current_user=current_user,
+            )
             ai_content = rag_result["answer"]
         except HTTPException as exc:
             ai_content = str(exc.detail)
         except Exception:
             ai_content = (
-                "AI answers are temporarily unavailable because the primary provider balance is low. "
+                "Maxe is temporarily unavailable because the primary provider balance is low. "
                 "Uploaded materials, search, and practice data are still available."
             )
         db.add(
@@ -1169,11 +1380,12 @@ def post_thread_message(
                 thread_id=thread_id,
                 user_id=None,
                 content=ai_content,
+                client_message_id=f"{req.client_message_id[:88]}-maxe" if req.client_message_id else None,
                 is_ai_response=True,
             )
         )
     db.commit()
-    return {"status": "posted", "ai_response_added": "@ai" in req.content.lower()}
+    return {"status": "posted", "ai_response_added": maxe_mentioned, "duplicate": False}
 
 
 # ── Study Groups ───────────────────────────────────────────────────────────────
@@ -1204,7 +1416,17 @@ def list_study_groups(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    query = db.query(models.StudyGroup).filter(models.StudyGroup.status == "active")
+    query = (
+        db.query(models.StudyGroup)
+        .outerjoin(
+            models.StudyGroupMember,
+            (models.StudyGroupMember.group_id == models.StudyGroup.id)
+            & (models.StudyGroupMember.user_id == current_user.id),
+        )
+        .filter(models.StudyGroup.status == "active")
+        .filter(or_(models.StudyGroup.visibility == "public", models.StudyGroupMember.user_id == current_user.id))
+        .distinct()
+    )
     if q:
         query = query.filter(
             or_(
@@ -1265,7 +1487,7 @@ def create_study_group(
         description=req.description,
         course_id=req.course_id,
         topic=req.topic,
-        visibility=req.visibility if req.visibility in {"public", "private"} else "public",
+        visibility=req.visibility if req.visibility in {"public", "unlisted", "private"} else "public",
         welcome_message=req.welcome_message,
         created_by=current_user.id,
     )
@@ -1292,6 +1514,8 @@ def join_study_group(
         models.StudyGroupMember.group_id == group_id,
         models.StudyGroupMember.user_id == current_user.id,
     ).first()
+    if not already and group.visibility != "public":
+        raise HTTPException(status_code=403, detail="This group can only be joined with an invitation.")
     if not already:
         db.add(models.StudyGroupMember(group_id=group_id, user_id=current_user.id, role="member"))
         try:

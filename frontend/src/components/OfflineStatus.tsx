@@ -4,12 +4,13 @@ import { countRecords, listRecords, removePendingUpload, removePracticeAttempt }
 import { apiFormPost, apiPost, apiGet } from '../lib/api';
 
 export default function OfflineStatus() {
-  const [online, setOnline] = useState(navigator.onLine);
+  const [connection, setConnection] = useState<'connecting' | 'waking' | 'online' | 'offline'>('connecting');
   const [packs, setPacks] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncedMsg, setSyncedMsg] = useState('');
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failuresRef = useRef(0);
 
   const refreshCounts = () => {
     countRecords('studyPacks').then(setPacks).catch(() => setPacks(0));
@@ -69,29 +70,43 @@ export default function OfflineStatus() {
 
     // Ping the backend to verify actual connectivity (navigator.onLine only
     // detects a network interface — it stays true even when the internet is down).
-    const ping = async () => {
+    const ping = async (retry = 0) => {
+      if (!navigator.onLine) {
+        failuresRef.current = 0;
+        setConnection('offline');
+        return;
+      }
+      setConnection(retry === 0 && failuresRef.current === 0 ? 'connecting' : 'waking');
       try {
         await apiGet('/');
-        setOnline(true);
+        failuresRef.current = 0;
+        setConnection('online');
+        void syncAll();
       } catch {
-        setOnline(false);
+        failuresRef.current += 1;
+        if (failuresRef.current < 3) {
+          setConnection('waking');
+          pollRef.current = setTimeout(() => void ping(retry + 1), Math.min(15000, 3000 * (retry + 1)));
+        } else {
+          setConnection('offline');
+          pollRef.current = setTimeout(() => void ping(), 30000);
+        }
       }
     };
 
-    const handleOnline = () => { void ping(); void syncAll(); };
-    const handleOffline = () => setOnline(false);
+    const handleOnline = () => { failuresRef.current = 0; void ping(); };
+    const handleOffline = () => { failuresRef.current = 0; setConnection('offline'); };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
     // Poll every 30 s so the indicator stays accurate without a page refresh.
-    pollRef.current = setInterval(() => void ping(), 30_000);
     void ping(); // initial check on mount
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
     };
   }, []);
 
@@ -101,10 +116,13 @@ export default function OfflineStatus() {
     return () => window.removeEventListener('exammind-offline-updated', refreshCounts);
   }, []);
 
-  const label = syncing ? 'Syncing...' : syncedMsg || (online ? 'Online' : 'Offline mode');
+  const label = syncing
+    ? 'Syncing...'
+    : syncedMsg
+      || (connection === 'connecting' ? 'Connecting' : connection === 'waking' ? 'Waking server…' : connection === 'online' ? 'Online' : 'Offline');
 
   return (
-    <div className={`offline-pill ${online ? 'online' : 'offline'}`}>
+    <div className={`offline-pill ${connection}`} role="status" aria-live="polite">
       <span className={`offline-dot${syncing ? ' syncing' : ''}`}></span>
       <span>{label}</span>
       {!syncedMsg && <span className="offline-meta">{packs} packs · {pendingCount} queued</span>}

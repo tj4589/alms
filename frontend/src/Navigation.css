@@ -1,5 +1,5 @@
 /* The authenticated workspace: stable navigation, warm paper, clear controls. */
-.workspace-shell{--font:'Outfit Variable',sans-serif;--text:#252b24;--text2:#555d51;--text3:#687062;--border:#dedfd4;--gold:#ac401e;--highlighter:#ac401e;--paper-ink:#252b24;--paper-ink-soft:#555d51;--sidebar-collapsed-width:72px;--sidebar-expanded-width:220px;--sidebar-transition-duration:220ms;--sidebar-transition-easing:cubic-bezier(.16,.84,.44,1);min-height:100dvh;overflow-x:hidden;background:#faf8f3;color:var(--text);font-family:var(--font)}
+.workspace-shell{--font:'Outfit Variable',sans-serif;--text:#252b24;--text2:#555d51;--text3:#687062;--border:#dedfd4;--gold:#ac401e;--highlighter:#ac401e;--paper-ink:#252b24;--paper-ink-soft:#555d51;--sidebar-collapsed-width:72px;--sidebar-expanded-width:220px;--rail-motion-duration:260ms;--rail-motion-easing:cubic-bezier(.22,1,.36,1);--rail-label-duration:120ms;--rail-label-reveal-delay:40ms;--rail-collapse-delay:88ms;min-height:100dvh;overflow-x:hidden;background:#faf8f3;color:var(--text);font-family:var(--font)}
 .workspace-shell button,.workspace-shell input{font-family:inherit}
 .workspace-shell .sidebar{width:var(--sidebar-expanded-width);top:0;bottom:0;left:0;height:100dvh;max-height:none;background:#f0eee6;border:0;border-right:1px solid #dedfd4;border-radius:0;box-shadow:none;overflow:auto;transform:none}
 .workspace-shell .main{min-width:0;margin-left:var(--sidebar-expanded-width);background:#faf8f3}
@@ -11,7 +11,7 @@
 .workspace-shell .nav{padding:8px 14px;flex:1;display:flex;flex-direction:column;gap:26px;overflow:visible}
 .workspace-shell .nav-group{display:flex;flex-direction:column;gap:4px}
 .workspace-shell .nav-section{padding:0 12px 7px;color:#74776b;font:500 12px/1.4 var(--font);letter-spacing:0;text-transform:none}
-.workspace-shell .rail-button{position:relative;display:block;width:100%;height:42px;min-height:42px;margin:0;padding:0;border:0;border-radius:9px;background:transparent;color:#52594d;cursor:pointer;text-align:left}
+.workspace-shell .rail-button{position:relative;display:block;width:100%;height:42px;min-height:42px;margin:0;padding:0;border:0;border-radius:9px;background:transparent;color:#52594d;cursor:pointer;text-align:left;transition:background-color 160ms ease,color 160ms ease}
 .workspace-shell .rail-item-surface{display:flex;align-items:center;gap:12px;width:100%;height:100%;padding:0 12px}
 .workspace-shell .rail-item-label{font-size:14px;font-weight:450;white-space:nowrap;color:inherit}
 .workspace-shell .ni-ico,.workspace-shell .rail-control-icon{width:19px;height:19px;flex-shrink:0}
@@ -35,6 +35,7 @@
 .workspace-shell .search-ico{color:#72786b;width:17px;height:17px}
 .workspace-shell .tb-right{gap:12px;margin-left:0}
 .workspace-shell .offline-pill{padding:0;border:0;background:none;box-shadow:none;gap:6px;color:#786343;font:400 12px var(--font)}
+.workspace-shell .offline-pill.checking{color:#8b846f}
 .workspace-shell .offline-meta{display:none}
 .workspace-shell .ico-btn{width:32px;height:34px;background:none;border:0;border-radius:8px;color:#5d6357}
 .workspace-shell .ico-btn:hover{background:#eae9df;color:#252b24}
@@ -45,24 +46,25 @@
 /* Focus mode: inside a tab the rail becomes a slim icon dock. Hovering the
    dock brings the labels back without making the student leave the page. */
 @media(min-width:769px){
-  .workspace-shell.is-compact-nav .sidebar{width:var(--sidebar-collapsed-width);overflow:visible;transition:width var(--sidebar-transition-duration) var(--sidebar-transition-easing);z-index:240}
-  .workspace-shell.is-compact-nav:is(.is-nav-expanded, :has(.sidebar:hover), :has(.sidebar:focus-within)) .sidebar{width:var(--sidebar-expanded-width);box-shadow:14px 0 32px rgba(37,43,36,.08)}
-  .workspace-shell.is-compact-nav .main{margin-left:var(--sidebar-collapsed-width);transition:margin-left var(--sidebar-transition-duration) var(--sidebar-transition-easing)}
-  .workspace-shell.is-compact-nav:is(.is-nav-expanded, :has(.sidebar:hover), :has(.sidebar:focus-within)) .main{margin-left:var(--sidebar-expanded-width)}
-  .workspace-shell.is-compact-nav .logo{padding:0 21px;justify-content:flex-start}
+  .workspace-shell.is-compact-nav .sidebar{width:var(--sidebar-collapsed-width);overflow:visible;transition:width var(--rail-motion-duration) var(--rail-motion-easing) var(--rail-collapse-delay);z-index:240}
+  .workspace-shell.is-compact-nav:not(.nav-window-blurred):is(.is-nav-expanded, :has(.sidebar:hover), :has(.sidebar:focus-within)) .sidebar{width:var(--sidebar-expanded-width);box-shadow:14px 0 32px rgba(37,43,36,.08);transition-delay:0ms}
+  .workspace-shell.is-compact-nav .main{margin-left:var(--sidebar-collapsed-width);transition:margin-left var(--rail-motion-duration) var(--rail-motion-easing) var(--rail-collapse-delay)}
+  .workspace-shell.is-compact-nav:not(.nav-window-blurred):is(.is-nav-expanded, :has(.sidebar:hover), :has(.sidebar:focus-within)) .main{margin-left:var(--sidebar-expanded-width);transition-delay:0ms}
+  .workspace-shell.is-compact-nav .logo{padding:0 24px;justify-content:flex-start}
   .workspace-shell.is-compact-nav .logo-name,
   .workspace-shell.is-compact-nav .nav-section,
   .workspace-shell.is-compact-nav .rail-item-label,
-  .workspace-shell.is-compact-nav .rail-account-copy{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .1s ease}
-  .workspace-shell.is-compact-nav .rail-item-label{flex:0 0 0;max-width:0;overflow:hidden}
-  .workspace-shell.is-compact-nav .rail-account-copy{max-width:0;overflow:hidden}
+  .workspace-shell.is-compact-nav .rail-account-copy{opacity:0;visibility:hidden;pointer-events:none;transform:translateX(-5px);transition:opacity var(--rail-label-duration) ease,transform var(--rail-label-duration) var(--rail-motion-easing),visibility 0s linear var(--rail-label-duration)}
+  .workspace-shell.is-compact-nav .nav-section{overflow:hidden;white-space:nowrap}
+  .workspace-shell.is-compact-nav .rail-item-label{flex:0 0 0;max-width:0;overflow:hidden;transition:opacity var(--rail-label-duration) ease,transform var(--rail-label-duration) var(--rail-motion-easing),max-width var(--rail-label-duration) var(--rail-motion-easing),visibility 0s linear var(--rail-label-duration)}
+  .workspace-shell.is-compact-nav .rail-account-copy{max-width:0;overflow:hidden;transition:opacity var(--rail-label-duration) ease,transform var(--rail-label-duration) var(--rail-motion-easing),max-width var(--rail-label-duration) var(--rail-motion-easing),visibility 0s linear var(--rail-label-duration)}
   .workspace-shell.is-compact-nav.is-nav-expanded .logo{padding:0 24px}
   .workspace-shell.is-compact-nav.is-nav-expanded .logo-name,
   .workspace-shell.is-compact-nav.is-nav-expanded .nav-section,
   .workspace-shell.is-compact-nav.is-nav-expanded .rail-item-label,
-  .workspace-shell.is-compact-nav.is-nav-expanded .rail-account-copy{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .16s ease .06s}
-  .workspace-shell.is-compact-nav.is-nav-expanded .rail-item-label{flex:0 1 auto;max-width:180px;overflow:visible}
-  .workspace-shell.is-compact-nav.is-nav-expanded .rail-account-copy{max-width:180px;overflow:visible}
+  .workspace-shell.is-compact-nav.is-nav-expanded .rail-account-copy{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition:opacity var(--rail-label-duration) ease var(--rail-label-reveal-delay),transform var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),visibility 0s linear var(--rail-label-reveal-delay)}
+  .workspace-shell.is-compact-nav.is-nav-expanded .rail-item-label{flex:0 1 auto;max-width:180px;overflow:visible;transition:opacity var(--rail-label-duration) ease var(--rail-label-reveal-delay),transform var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),max-width var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),visibility 0s linear var(--rail-label-reveal-delay)}
+  .workspace-shell.is-compact-nav.is-nav-expanded .rail-account-copy{max-width:180px;overflow:visible;transition:opacity var(--rail-label-duration) ease var(--rail-motion-easing) var(--rail-label-reveal-delay),transform var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),max-width var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),visibility 0s linear var(--rail-label-reveal-delay)}
   .workspace-shell.is-compact-nav .nav{padding-left:14px;padding-right:14px}
   .workspace-shell.is-compact-nav .rail-item-surface{justify-content:flex-start;padding:0 12px}
   .workspace-shell.is-compact-nav:not(.is-nav-expanded) .sidebar .rail-item-surface{justify-content:center;padding:0}

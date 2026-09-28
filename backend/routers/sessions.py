@@ -37,12 +37,16 @@ class SessionCreateRequest(BaseModel):
     topic: Optional[str] = None
     exam_goal: Optional[str] = None
     group_id: Optional[int] = None
-    ends_at: Optional[str] = None
-    starts_at: Optional[str] = None
+    ends_at: str
+    starts_at: str
 
 
 class ChatMessageRequest(BaseModel):
     content: str
+
+
+class BreakRequest(BaseModel):
+    duration_minutes: int = 5
 
 
 class AskAIRequest(BaseModel):
@@ -73,6 +77,17 @@ def _get_participant(session_id: int, user_id: int, db: Session):
         )
         .first()
     )
+
+
+def _ensure_room_access(session: models.StudySession, user_id: int, db: Session) -> None:
+    """Group rooms inherit group membership; standalone rooms stay open."""
+    if session.group_id:
+        member = db.query(models.StudyGroupMember).filter(
+            models.StudyGroupMember.group_id == session.group_id,
+            models.StudyGroupMember.user_id == user_id,
+        ).first()
+        if not member:
+            raise HTTPException(status_code=403, detail="Join this study group before entering its room.")
 
 
 def _close_interval(session_id: int, user_id: int, db: Session, now: datetime) -> None:
@@ -112,6 +127,17 @@ def _expire_stale_participants(session_id: int, db: Session, now: datetime) -> N
     ).all()
     cutoff = now - timedelta(seconds=_HEARTBEAT_TIMEOUT)
     for participant in participants:
+        if participant.status == "on_break" and participant.break_until:
+            break_until = participant.break_until
+            if break_until.tzinfo is None:
+                break_until = break_until.replace(tzinfo=timezone.utc)
+            if break_until <= now:
+                participant.status = "studying"
+                participant.break_until = None
+                participant.last_seen_at = now
+                _open_interval(session_id, participant.user_id, "studying", db, now)
+                _record_event(session_id, participant.user_id, "break_end", db, now)
+                continue
         last = participant.last_seen_at
         if last and last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)
@@ -162,6 +188,7 @@ def _serialize_session(
                 "joined_at": p.joined_at,
                 "last_seen_at": p.last_seen_at,
                 "status": p.status,
+                "break_until": p.break_until,
                 "is_active": _is_active(p),
             }
             for p in participants
@@ -249,18 +276,20 @@ def create_session(
     if not req.title or not req.title.strip():
         raise HTTPException(status_code=400, detail="Title is required.")
 
-    starts_at = datetime.now(timezone.utc)
-    if req.starts_at:
-        try:
-            starts_at = datetime.fromisoformat(req.starts_at)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid starts_at format. Use ISO 8601.") from exc
-    ends_at = None
-    if req.ends_at:
-        try:
-            ends_at = datetime.fromisoformat(req.ends_at)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid ends_at format. Use ISO 8601.")
+    try:
+        starts_at = datetime.fromisoformat(req.starts_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid starts_at format. Use ISO 8601.") from exc
+    try:
+        ends_at = datetime.fromisoformat(req.ends_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid ends_at format. Use ISO 8601.") from exc
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=timezone.utc)
+    if ends_at.tzinfo is None:
+        ends_at = ends_at.replace(tzinfo=timezone.utc)
+    if ends_at <= starts_at:
+        raise HTTPException(status_code=400, detail="The room end time must be after its start time.")
 
     if req.group_id:
         membership = db.query(models.StudyGroupMember).filter(
@@ -314,6 +343,7 @@ def get_session(
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Reading room not found.")
+    _ensure_room_access(session, current_user.id, db)
 
     _expire_stale_participants(session_id, db, datetime.now(timezone.utc))
     db.commit()
@@ -355,6 +385,7 @@ def join_session(
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Reading room not found.")
+    _ensure_room_access(session, current_user.id, db)
     if session.status == "scheduled" and session.starts_at:
         starts_at = session.starts_at
         if starts_at.tzinfo is None:
@@ -372,6 +403,7 @@ def join_session(
             _open_interval(session_id, current_user.id, "studying", db, now)
             _record_event(session_id, current_user.id, "join", db, now)
         existing.status = "studying"
+        existing.break_until = None
         existing.last_seen_at = now
         existing.left_at = None
     else:
@@ -391,23 +423,27 @@ def join_session(
 @router.post("/{session_id}/break")
 def take_break(
     session_id: int,
+    req: BreakRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
     p = _get_participant(session_id, current_user.id, db)
     if not p or p.status == "left":
         raise HTTPException(status_code=400, detail="You are not in this room.")
+    if req.duration_minutes not in {5, 10, 15} and not 1 <= req.duration_minutes <= 120:
+        raise HTTPException(status_code=400, detail="Choose a break between 1 and 120 minutes.")
     if p.status == "on_break":
         p.last_seen_at = datetime.now(timezone.utc)
         db.commit()
         return {"status": "on_break"}
     p.status = "on_break"
     now = datetime.now(timezone.utc)
+    p.break_until = now + timedelta(minutes=req.duration_minutes)
     p.last_seen_at = now
     _open_interval(session_id, current_user.id, "break", db, now)
     _record_event(session_id, current_user.id, "break_start", db, now)
     db.commit()
-    return {"status": "on_break"}
+    return {"status": "on_break", "break_until": p.break_until}
 
 
 @router.post("/{session_id}/back")
@@ -424,6 +460,7 @@ def back_to_study(
         db.commit()
         return {"status": "studying"}
     p.status = "studying"
+    p.break_until = None
     now = datetime.now(timezone.utc)
     p.last_seen_at = now
     _open_interval(session_id, current_user.id, "studying", db, now)
@@ -444,6 +481,7 @@ def leave_session(
             return {"status": "left"}
         now = datetime.now(timezone.utc)
         p.status = "left"
+        p.break_until = None
         p.left_at = now
         p.last_seen_at = now
         _close_interval(session_id, current_user.id, db, now)
@@ -473,6 +511,10 @@ def get_messages(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Reading room not found.")
+    _ensure_room_access(session, current_user.id, db)
     messages = (
         db.query(models.StudySessionMessage)
         .filter(models.StudySessionMessage.session_id == session_id)
@@ -510,6 +552,7 @@ def post_message(
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Reading room not found.")
+    _ensure_room_access(session, current_user.id, db)
 
     content = req.content.strip()
     if not content:
@@ -546,6 +589,10 @@ def get_ai_board(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Reading room not found.")
+    _ensure_room_access(session, current_user.id, db)
     cards = (
         db.query(models.StudySessionAIQuestion)
         .filter(models.StudySessionAIQuestion.session_id == session_id)
@@ -587,6 +634,7 @@ def ask_ai(
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Reading room not found.")
+    _ensure_room_access(session, current_user.id, db)
 
     question = req.question.strip()
     if not question:
