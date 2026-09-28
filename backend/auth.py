@@ -275,6 +275,11 @@ def delete_user_account(db: Session, user: models.User) -> None:
         ).all()
     }
     if private_question_ids:
+        db.query(models.MaterialGroupShare).filter(
+            models.MaterialGroupShare.material_type == "past_question",
+            models.MaterialGroupShare.material_id.in_(private_question_ids),
+        ).delete(synchronize_session=False)
+    if private_question_ids:
         db.query(models.DiscussionThread).filter(
             models.DiscussionThread.past_question_id.in_(private_question_ids)
         ).update({models.DiscussionThread.past_question_id: None}, synchronize_session=False)
@@ -287,6 +292,11 @@ def delete_user_account(db: Session, user: models.User) -> None:
             models.LectureNote.uploaded_by == user_id
         ).all()
     }
+    if private_note_ids:
+        db.query(models.MaterialGroupShare).filter(
+            models.MaterialGroupShare.material_type == "lecture_note",
+            models.MaterialGroupShare.material_id.in_(private_note_ids),
+        ).delete(synchronize_session=False)
     if private_note_ids:
         db.query(models.LectureNoteSection).filter(
             models.LectureNoteSection.lecture_note_id.in_(private_note_ids)

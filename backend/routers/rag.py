@@ -13,6 +13,7 @@ from database import get_db
 
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response
 from query_understanding import expanded_search_terms, public_understanding, understand_query
+from material_access import accessible_material_filter
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 MAX_RAG_QUESTION_CHARS = int(os.getenv("MAX_RAG_QUESTION_CHARS", "2000"))
@@ -120,9 +121,10 @@ def run_rag_query(
     topic_id: Optional[int],
     db: Session,
     room_context: Optional[str] = None,
+    current_user: models.User | None = None,
 ) -> dict:
     """Core RAG pipeline — reusable across endpoints. Raises HTTPException on failure."""
-    understanding = understand_query(question, _metadata_context(db))
+    understanding = understand_query(question, _metadata_context(db, current_user))
     if course_id is None and understanding.get("course_code"):
         compact_code = re.sub(r"\s+", "", str(understanding.get("course_code") or "")).upper()
         course = db.query(models.Course).filter(func.replace(models.Course.code, " ", "") == compact_code).first()
@@ -145,12 +147,21 @@ def run_rag_query(
 
     # ── Retrieve context: semantic if embeddings available, keyword otherwise ──
     past_query = db.query(models.PastQuestion)
+    if current_user is not None:
+        past_query = past_query.filter(
+            accessible_material_filter(db, models.PastQuestion, current_user),
+        )
     if course_id is not None:
         past_query = past_query.filter(models.PastQuestion.course_id == course_id)
     if topic_id is not None:
         past_query = past_query.filter(models.PastQuestion.topic_id == topic_id)
 
     notes_query = db.query(models.LectureNoteChunk)
+    if current_user is not None:
+        notes_query = notes_query.join(
+            models.LectureNote,
+            models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
+        ).filter(accessible_material_filter(db, models.LectureNote, current_user))
     if course_id is not None:
         notes_query = notes_query.filter(models.LectureNoteChunk.course_id == course_id)
 
@@ -301,18 +312,30 @@ def ask_question(
             + NL + req.passage[:MAX_PASSAGE_CHARS]
         )
     room_context = (NL + NL).join(parts) if parts else None
-    return run_rag_query(question, req.course_id, req.topic_id, db, room_context=room_context)
+    return run_rag_query(
+        question,
+        req.course_id,
+        req.topic_id,
+        db,
+        room_context=room_context,
+        current_user=current_user,
+    )
 
 
-def _metadata_context(db: Session) -> list[dict]:
+def _metadata_context(db: Session, current_user: models.User | None = None) -> list[dict]:
     context: list[dict] = []
     for course in db.query(models.Course).limit(80).all():
         context.append({"code": course.code, "name": course.name, "description": course.description})
     for topic in db.query(models.Topic).limit(120).all():
         context.append({"topic": topic.name})
-    for note in db.query(models.LectureNote).order_by(models.LectureNote.created_at.desc()).limit(120).all():
+    notes_query = db.query(models.LectureNote)
+    past_query = db.query(models.PastQuestion)
+    if current_user is not None:
+        notes_query = notes_query.filter(accessible_material_filter(db, models.LectureNote, current_user))
+        past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))
+    for note in notes_query.order_by(models.LectureNote.created_at.desc()).limit(120).all():
         context.append({"title": note.title, "topic": note.topic, **(note.metadata_json or {})})
-    for pq in db.query(models.PastQuestion).order_by(models.PastQuestion.created_at.desc()).limit(120).all():
+    for pq in past_query.order_by(models.PastQuestion.created_at.desc()).limit(120).all():
         context.append({"content": (pq.content_text or "")[:180], **(pq.metadata_json or {})})
     return context
 

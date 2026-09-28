@@ -71,6 +71,8 @@ export type PastQuestion = {
   snippets?: string[];
   chunk_ids?: number[];
   matching_sections?: number;
+  visibility?: 'public' | 'group' | 'private';
+  contributor_label?: string | null;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
 };
 
@@ -90,6 +92,8 @@ export type LectureNote = {
   title: string;
   year?: number | null;
   semester?: string | null;
+  visibility?: 'public' | 'group' | 'private';
+  contributor_label?: string | null;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
 };
 

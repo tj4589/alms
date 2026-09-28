@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ScreenType } from '../types';
+import { Flag } from 'lucide-react';
 import { apiDownload, apiGet, apiPost } from '../lib/api';
 import MaxeMark from '../components/Maxe/MaxeMark';
 import SaveButton from '../components/SaveButton';
@@ -81,6 +82,10 @@ export default function Reader({ go, noteId }: ReaderProps) {
   const [question, setQuestion] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [asking, setAsking] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('incorrect_or_outdated');
+  const [reportStatus, setReportStatus] = useState('');
+  const [reporting, setReporting] = useState(false);
 
   // Where a selection popover should sit, in page coordinates.
   const [selection, setSelection] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -213,6 +218,25 @@ export default function Reader({ go, noteId }: ReaderProps) {
     );
   }, [note]);
 
+  const reportMaterial = useCallback(async () => {
+    if (!note || reporting) return;
+    setReporting(true);
+    setReportStatus('');
+    try {
+      await apiPost('/community/reports', {
+        subject_type: 'lecture_note',
+        subject_id: note.id,
+        reason: reportReason,
+      });
+      setReportStatus('Thanks — the material has been reported for review.');
+      setReportOpen(false);
+    } catch (error) {
+      setReportStatus(error instanceof Error ? error.message : 'Could not send the report.');
+    } finally {
+      setReporting(false);
+    }
+  }, [note, reportReason, reporting]);
+
   return (
     <div className="page" id="s-reader">
       <button type="button" className="rd-back" onClick={() => go('dashboard')}>
@@ -265,6 +289,23 @@ export default function Reader({ go, noteId }: ReaderProps) {
                   Filed before originals were kept, so only the text is here.
                 </span>
               )}
+              <div className="rd-report-wrap">
+                <button type="button" className="rd-report-trigger" onClick={() => setReportOpen(value => !value)} aria-expanded={reportOpen}>
+                  <Flag size={14} aria-hidden="true" /> Report material
+                </button>
+                {reportOpen && (
+                  <div className="rd-report-panel">
+                    <label htmlFor="reader-report-reason">What should ExamMind review?</label>
+                    <select id="reader-report-reason" value={reportReason} onChange={event => setReportReason(event.target.value)}>
+                      <option value="incorrect_or_outdated">Incorrect or outdated</option>
+                      <option value="copyright">Copyright concern</option>
+                      <option value="inappropriate">Inappropriate material</option>
+                    </select>
+                    <button type="button" className="rd-report-submit" onClick={() => void reportMaterial()} disabled={reporting}>{reporting ? 'Sending...' : 'Send report'}</button>
+                  </div>
+                )}
+                {reportStatus && <span className="rd-report-status" role="status">{reportStatus}</span>}
+              </div>
             </div>
           </header>
 

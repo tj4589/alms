@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Flag } from 'lucide-react';
 import type { ScreenType, User } from '../types';
 import { saveStudyPack } from '../offline';
 import SaveButton from '../components/SaveButton';
@@ -166,6 +167,7 @@ export default function SmartSearch({
   const [offlineMsg, setOfflineMsg] = useState('');
   const [creatingThreadFor, setCreatingThreadFor] = useState<number | null>(null);
   const [groupActionPending, setGroupActionPending] = useState<number | null>(null);
+  const [reportedMaterialKey, setReportedMaterialKey] = useState<string | null>(null);
 
   const [courses, setCourses] = useState<Course[]>([]);
 
@@ -299,6 +301,20 @@ export default function SmartSearch({
       // leave state — user can retry
     } finally {
       setGroupActionPending(null);
+    }
+  };
+
+  const reportMaterial = async (materialType: 'past_question' | 'lecture_note', materialId: number) => {
+    const key = `${materialType}:${materialId}`;
+    try {
+      await apiPost('/community/reports', {
+        subject_type: materialType,
+        subject_id: materialId,
+        reason: 'incorrect_or_outdated',
+      });
+      setReportedMaterialKey(key);
+    } catch {
+      // Search remains usable if reporting is temporarily unavailable.
     }
   };
 
@@ -533,6 +549,14 @@ export default function SmartSearch({
                     >
                       Ask AI →
                     </button>
+                    <button
+                      className="ask-ai-btn"
+                      onClick={(e) => { e.stopPropagation(); void reportMaterial('past_question', q.id); }}
+                      disabled={reportedMaterialKey === `past_question:${q.id}`}
+                      title="Report incorrect, outdated, copyrighted, or inappropriate material"
+                    >
+                      <Flag size={13} aria-hidden="true" /> {reportedMaterialKey === `past_question:${q.id}` ? 'Reported' : 'Report'}
+                    </button>
                     <SaveButton
                       compact
                       target={{
@@ -599,6 +623,14 @@ export default function SmartSearch({
                       onClick={() => go('reader', note.id)}
                     >
                       Open to read →
+                    </button>
+                    <button
+                      className="ask-ai-btn"
+                      onClick={() => void reportMaterial('lecture_note', note.id)}
+                      disabled={reportedMaterialKey === `lecture_note:${note.id}`}
+                      title="Report incorrect, outdated, copyrighted, or inappropriate material"
+                    >
+                      <Flag size={13} aria-hidden="true" /> {reportedMaterialKey === `lecture_note:${note.id}` ? 'Reported' : 'Report'}
                     </button>
                     <button
                       className="ask-ai-btn"

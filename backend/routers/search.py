@@ -17,6 +17,7 @@ from query_understanding import (
     public_understanding,
     understand_query,
 )
+from material_access import accessible_material_filter
 
 router = APIRouter(tags=["search"])
 
@@ -49,7 +50,7 @@ def smart_search(
     if not q or (_q_tokens and _q_tokens.issubset(CONVERSATIONAL_NONTOPICS)):
         return _empty_response
 
-    metadata_context = _metadata_context(db)
+    metadata_context = _metadata_context(db, current_user)
     understanding = understand_query(q, metadata_context)
     terms = expanded_search_terms(understanding)
     best_query = understanding.get("interpreted_topic") or q
@@ -63,7 +64,9 @@ def smart_search(
         try:
             vec = _embed.embed_query(best_query)
 
-            pq_base = db.query(models.PastQuestion)
+            pq_base = db.query(models.PastQuestion).filter(
+                accessible_material_filter(db, models.PastQuestion, current_user),
+            )
             if course_id:
                 pq_base = pq_base.filter(models.PastQuestion.course_id == course_id)
             past_question_rows = pq_base.order_by(
@@ -71,7 +74,10 @@ def smart_search(
             ).limit(limit * 4).all()
             past_questions = _group_past_questions(past_question_rows, limit)
 
-            chunk_base = db.query(models.LectureNoteChunk)
+            chunk_base = db.query(models.LectureNoteChunk).join(
+                models.LectureNote,
+                models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
+            ).filter(accessible_material_filter(db, models.LectureNote, current_user))
             if course_id:
                 chunk_base = chunk_base.filter(models.LectureNoteChunk.course_id == course_id)
             top_chunks = chunk_base.order_by(
@@ -95,17 +101,29 @@ def smart_search(
 
     # ── Keyword fallback (ilike) ──────────────────────────────
     if not semantic_ok:
-        pq_q = db.query(models.PastQuestion).filter(_past_question_filter(terms))
+        pq_q = db.query(models.PastQuestion).filter(
+            accessible_material_filter(db, models.PastQuestion, current_user),
+            _past_question_filter(terms),
+        )
         if course_id:
             pq_q = pq_q.filter(models.PastQuestion.course_id == course_id)
         past_questions = _group_past_questions(pq_q.limit(limit * 4).all(), limit)
 
-        ln_q = db.query(models.LectureNote).filter(_lecture_note_filter(terms))
+        ln_q = db.query(models.LectureNote).filter(
+            accessible_material_filter(db, models.LectureNote, current_user),
+            _lecture_note_filter(terms),
+        )
         if course_id:
             ln_q = ln_q.filter(models.LectureNote.course_id == course_id)
         lecture_notes = [_ln(r) for r in ln_q.limit(limit).all()]
         if len(lecture_notes) < limit:
-            chunk_q = db.query(models.LectureNoteChunk).filter(_lecture_note_chunk_filter(terms))
+            chunk_q = db.query(models.LectureNoteChunk).join(
+                models.LectureNote,
+                models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
+            ).filter(
+                accessible_material_filter(db, models.LectureNote, current_user),
+                _lecture_note_chunk_filter(terms),
+            )
             if course_id:
                 chunk_q = chunk_q.filter(models.LectureNoteChunk.course_id == course_id)
             chunk_note_ids = [
@@ -311,15 +329,20 @@ def _suggested_actions(understanding: dict, query: str, has_results: bool) -> li
     return actions[:6]
 
 
-def _metadata_context(db: Session) -> list[dict]:
+def _metadata_context(db: Session, current_user: models.User | None = None) -> list[dict]:
     context: list[dict] = []
     for course in db.query(models.Course).limit(80).all():
         context.append({"code": course.code, "name": course.name, "description": course.description})
     for topic in db.query(models.Topic).limit(120).all():
         context.append({"topic": topic.name})
-    for note in db.query(models.LectureNote).order_by(models.LectureNote.created_at.desc()).limit(120).all():
+    notes_query = db.query(models.LectureNote)
+    past_query = db.query(models.PastQuestion)
+    if current_user is not None:
+        notes_query = notes_query.filter(accessible_material_filter(db, models.LectureNote, current_user))
+        past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))
+    for note in notes_query.order_by(models.LectureNote.created_at.desc()).limit(120).all():
         context.append({"title": note.title, "topic": note.topic, **(note.metadata_json or {})})
-    for pq in db.query(models.PastQuestion).order_by(models.PastQuestion.created_at.desc()).limit(120).all():
+    for pq in past_query.order_by(models.PastQuestion.created_at.desc()).limit(120).all():
         context.append({"content": (pq.content_text or "")[:180], **(pq.metadata_json or {})})
     for thread in db.query(models.DiscussionThread).order_by(models.DiscussionThread.created_at.desc()).limit(80).all():
         context.append({"title": thread.title})
@@ -430,6 +453,7 @@ def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[d
             fallback_snippet = _clean_snippet(row.content_text)
             if not snippets and fallback_snippet:
                 snippets = [fallback_snippet]
+            visibility = getattr(row, "visibility", None) or metadata.get("visibility") or "private"
             grouped[key] = {
                 "id": row.id,
                 "course_id": row.course_id,
@@ -441,6 +465,8 @@ def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[d
                 "snippets": snippets,
                 "chunk_ids": [row.id],
                 "matching_sections": 1,
+                "visibility": visibility,
+                "contributor_label": "Shared by a student contributor" if visibility in {"public", "group"} else None,
                 "metadata_json": metadata,
             }
         else:
@@ -454,6 +480,7 @@ def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[d
 
 def _pq(r: models.PastQuestion) -> dict:
     metadata = r.metadata_json or {}
+    visibility = getattr(r, "visibility", None) or metadata.get("visibility") or "private"
     return {
         "id": r.id,
         "course_id": r.course_id,
@@ -465,11 +492,15 @@ def _pq(r: models.PastQuestion) -> dict:
         "snippets": _metadata_snippets(metadata) or [_clean_snippet(r.content_text)],
         "chunk_ids": [r.id],
         "matching_sections": 1,
+        "visibility": visibility,
+        "contributor_label": "Shared by a student contributor" if visibility in {"public", "group"} else None,
         "metadata_json": metadata,
     }
 
 
 def _ln(r: models.LectureNote) -> dict:
+    metadata = r.metadata_json or {}
+    visibility = getattr(r, "visibility", None) or metadata.get("visibility") or "private"
     return {
         "id": r.id,
         "course_id": r.course_id,
@@ -477,5 +508,7 @@ def _ln(r: models.LectureNote) -> dict:
         "title": r.title,
         "year": r.year,
         "semester": r.semester,
-        "metadata_json": r.metadata_json,
+        "visibility": visibility,
+        "contributor_label": "Shared by a student contributor" if visibility in {"public", "group"} else None,
+        "metadata_json": metadata,
     }

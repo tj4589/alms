@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Integer, LargeBinary, String, Text, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, LargeBinary, String, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from database import Base
@@ -82,6 +82,9 @@ class PastQuestion(Base):
     file_mime = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
     metadata_json = Column(JSON, nullable=True)
+    # Publication is deliberately private until the uploader gives explicit
+    # consent. Older rows are migrated to the same safe state.
+    visibility = Column(String(16), nullable=False, default="private", server_default="private", index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
 class StudyMaterial(Base):
@@ -114,6 +117,7 @@ class LectureNote(Base):
     file_mime = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
     metadata_json = Column(JSON, nullable=True)
+    visibility = Column(String(16), nullable=False, default="private", server_default="private", index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
 class LectureNoteSection(Base):
@@ -235,6 +239,29 @@ class StudyGroupMember(Base):
 
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="uq_study_group_member_group_user"),
+    )
+
+
+class MaterialGroupShare(Base):
+    """Group grants for a private-to-a-group academic material.
+
+    Material IDs are polymorphic because past-question uploads are stored as
+    several retrieval rows while lecture notes have one row. The material
+    router always validates the type and owner before writing a grant.
+    """
+
+    __tablename__ = "material_group_shares"
+
+    id = Column(Integer, primary_key=True, index=True)
+    material_type = Column(String(32), nullable=False, index=True)
+    material_id = Column(Integer, nullable=False, index=True)
+    group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=False, index=True)
+    shared_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("material_type", "material_id", "group_id", name="uq_material_group_share"),
+        Index("ix_material_group_share_lookup", "material_type", "material_id", "group_id"),
     )
 
 

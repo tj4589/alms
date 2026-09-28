@@ -15,6 +15,15 @@ import auth
 import models
 from sectioniser import split_into_sections
 from database import get_db
+from material_access import (
+    GROUP,
+    PRIVATE,
+    normalize_group_ids,
+    normalize_visibility,
+    set_material_visibility,
+    sharing_payload,
+    validate_share_groups,
+)
 
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response
 
@@ -1941,6 +1950,9 @@ def upload_document(
     file: UploadFile = File(...),
     confirm: bool = Form(False),
     confirmed_metadata: Optional[str] = Form(None),
+    visibility: Optional[str] = Form(None),
+    shared_group_ids: Optional[str] = Form(None),
+    visibility_confirmed: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
@@ -1991,6 +2003,37 @@ def upload_document(
     metadata["content_preview"] = content_preview
     metadata["preview_quality"] = quality
     metadata["preview_sections"] = preview_sections
+    # Visibility is intentionally ignored during analysis. The upload is not
+    # published until the confirmation request carries an explicit consent
+    # flag, and the safe default is private.
+    requested_visibility = PRIVATE
+    requested_group_ids: list[int] = []
+    if confirm:
+        # Direct unit calls pass FastAPI's Form sentinel rather than the
+        # parsed value. Treat that sentinel like an omitted field so legacy
+        # callers retain the private default.
+        form_visibility = visibility if isinstance(visibility, str) else None
+        form_group_ids = shared_group_ids if isinstance(shared_group_ids, str) else None
+        form_visibility_confirmed = (
+            visibility_confirmed
+            if isinstance(visibility_confirmed, bool)
+            else bool(getattr(visibility_confirmed, "default", False))
+        )
+        requested_visibility = normalize_visibility(form_visibility)
+        try:
+            requested_group_ids = normalize_group_ids(form_group_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if requested_visibility != PRIVATE and not form_visibility_confirmed:
+            raise HTTPException(
+                status_code=400,
+                detail="Confirm who can access this material before sharing it.",
+            )
+        if requested_visibility == GROUP:
+            requested_group_ids = validate_share_groups(db, requested_group_ids, current_user)
+        elif requested_group_ids:
+            raise HTTPException(status_code=400, detail="Group IDs are only valid for group sharing.")
+    metadata["visibility"] = requested_visibility
     preview_snippets = [
         item["text"]
         for section in preview_sections
@@ -2022,6 +2065,7 @@ def upload_document(
             "raw_ocr_text": raw_extracted_text if extraction.get("ocr_used") else "",
             "cleaned_text": cleaned_text,
             "extraction": response_extraction,
+            "sharing": sharing_payload(PRIVATE),
             "message": extraction_message(extraction),
         }
 
@@ -2038,6 +2082,7 @@ def upload_document(
             "raw_ocr_text": raw_extracted_text if extraction.get("ocr_used") else "",
             "cleaned_text": cleaned_text,
             "extraction": response_extraction,
+            "sharing": sharing_payload(PRIVATE),
             "message": extraction_message(extraction),
         }
 
@@ -2113,9 +2158,17 @@ def upload_document(
                 )
             )
         document_id = note.id
+        set_material_visibility(
+            db,
+            [note],
+            requested_visibility,
+            requested_group_ids,
+            current_user.id,
+        )
     else:
         document_id = None
         indexed_chunks = chunks or [""]
+        question_rows = []
         for index, chunk in enumerate(indexed_chunks):
             pq = models.PastQuestion(
                 course_id=course.id if course else None,
@@ -2134,7 +2187,16 @@ def upload_document(
             )
             db.add(pq)
             db.flush()
+            question_rows.append(pq)
             document_id = document_id or pq.id
+
+        set_material_visibility(
+            db,
+            question_rows,
+            requested_visibility,
+            requested_group_ids,
+            current_user.id,
+        )
 
     db.commit()
     return {
@@ -2144,5 +2206,6 @@ def upload_document(
         "chunks_indexed": len(chunks),
         "indexed": bool(chunks),
         "searchable": metadata.get("searchable", bool(chunks)),
+        "sharing": sharing_payload(requested_visibility, requested_group_ids),
         "metadata": metadata,
     }

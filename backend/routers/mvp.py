@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Text, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +18,20 @@ from community_rules import classify_discussion
 from routers.rag import run_rag_query
 from routers.search import _document_key
 
+from material_access import (
+    GROUP,
+    PRIVATE,
+    accessible_material_filter,
+    can_view_material,
+    material_model,
+    material_type_for_model,
+    normalize_group_ids,
+    normalize_visibility,
+    require_material_owner,
+    set_material_visibility,
+    sharing_payload,
+    validate_share_groups,
+)
 router = APIRouter(tags=["mvp"])
 
 
@@ -190,9 +204,13 @@ def _relevant_note_chunks(
     db: Session,
     course_id: int | None,
     topic: str | None,
+    current_user: models.User,
     limit: int = MAX_NOTE_PRACTICE_CHUNKS,
 ) -> list[models.LectureNoteChunk]:
-    query = db.query(models.LectureNoteChunk)
+    query = db.query(models.LectureNoteChunk).join(
+        models.LectureNote,
+        models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
+    ).filter(accessible_material_filter(db, models.LectureNote, current_user))
     if course_id is not None:
         query = query.filter(models.LectureNoteChunk.course_id == course_id)
 
@@ -359,6 +377,7 @@ def serialize_course(row: models.Course) -> dict:
 
 
 def serialize_past_question(row: models.PastQuestion) -> dict:
+    metadata = row.metadata_json or {}
     return {
         "id": row.id,
         "course_id": row.course_id,
@@ -376,6 +395,9 @@ def serialize_past_question(row: models.PastQuestion) -> dict:
         "has_file": bool(row.file_size),
         "has_text": bool(row.content_text),
         "created_at": row.created_at,
+        "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
+        "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
+        "contributor_label": "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP} else None,
         "metadata_json": row.metadata_json or {},
     }
 
@@ -407,6 +429,7 @@ def _document_keys(rows) -> set:
 
 
 def serialize_lecture_note(row: models.LectureNote) -> dict:
+    metadata = row.metadata_json or {}
     return {
         "id": row.id,
         "course_id": row.course_id,
@@ -416,6 +439,9 @@ def serialize_lecture_note(row: models.LectureNote) -> dict:
         "year": row.year,
         "semester": row.semester,
         "file_url": row.file_url,
+        "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
+        "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
+        "contributor_label": "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP} else None,
         "created_at": row.created_at,
         "metadata_json": row.metadata_json or {},
     }
@@ -472,7 +498,9 @@ def list_past_questions(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    query = db.query(models.PastQuestion)
+    query = db.query(models.PastQuestion).filter(
+        accessible_material_filter(db, models.PastQuestion, current_user),
+    )
     if course_id is not None:
         query = query.filter(models.PastQuestion.course_id == course_id)
     if year is not None:
@@ -501,7 +529,9 @@ def list_lecture_notes(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    query = db.query(models.LectureNote)
+    query = db.query(models.LectureNote).filter(
+        accessible_material_filter(db, models.LectureNote, current_user),
+    )
     if course_id is not None:
         query = query.filter(models.LectureNote.course_id == course_id)
     if topic:
@@ -529,6 +559,8 @@ def read_lecture_note(
     if not note:
         raise HTTPException(status_code=404, detail="That material does not exist.")
 
+    if not can_view_material(db, note, current_user):
+        raise HTTPException(status_code=404, detail="That material does not exist.")
     sections = (
         db.query(models.LectureNoteSection)
         .filter(models.LectureNoteSection.lecture_note_id == note.id)
@@ -573,6 +605,8 @@ def download_lecture_note(
     note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="That material does not exist.")
+    if not can_view_material(db, note, current_user):
+        raise HTTPException(status_code=404, detail="That material does not exist.")
     if not note.file_data:
         raise HTTPException(
             status_code=404,
@@ -590,6 +624,8 @@ def download_past_question(
     row = db.query(models.PastQuestion).filter(models.PastQuestion.id == question_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="That past question does not exist.")
+    if not can_view_material(db, row, current_user):
+        raise HTTPException(status_code=404, detail="That past question does not exist.")
     # A past-question upload writes one row per chunk and keeps the file on the
     # first of them, so any other chunk has to find its own document's row zero.
     # Matched on _document_key rather than on the filename: two students can
@@ -604,7 +640,7 @@ def download_past_question(
                 .filter(models.PastQuestion.uploaded_by == row.uploaded_by)
                 .filter(models.PastQuestion.file_data.isnot(None))
                 .all()
-                if _document_key(candidate) == wanted
+                if _document_key(candidate) == wanted and can_view_material(db, candidate, current_user)
             ),
             None,
         )
@@ -630,6 +666,58 @@ def _file_response(data: bytes, name: str | None, mime: str | None, fallback: st
         media_type=mime or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{safe}"'},
     )
+
+
+class MaterialVisibilityRequest(BaseModel):
+    visibility: str = Field(default=PRIVATE, pattern="^(private|public|group)$")
+    group_ids: list[int] = Field(default_factory=list, max_length=20)
+    confirm: bool = False
+
+
+@router.patch("/materials/{material_type}/{material_id}/visibility")
+def update_material_visibility(
+    material_type: str,
+    material_id: int,
+    req: MaterialVisibilityRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    model = material_model(material_type)
+    row = db.query(model).filter(model.id == material_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="That material does not exist.")
+    require_material_owner(row, current_user)
+
+    visibility = normalize_visibility(req.visibility)
+    try:
+        group_ids = normalize_group_ids(req.group_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if visibility != PRIVATE and not req.confirm:
+        raise HTTPException(status_code=400, detail="Confirm who can access this material before sharing it.")
+    if visibility == GROUP:
+        group_ids = validate_share_groups(db, group_ids, current_user)
+    elif group_ids:
+        raise HTTPException(status_code=400, detail="Group IDs are only valid for group sharing.")
+
+    rows = [row]
+    if material_type == "past_question":
+        wanted = _document_key(row)
+        rows = [
+            candidate
+            for candidate in db.query(models.PastQuestion)
+            .filter(models.PastQuestion.uploaded_by == row.uploaded_by)
+            .all()
+            if _document_key(candidate) == wanted
+        ]
+    set_material_visibility(db, rows, visibility, group_ids, current_user.id)
+    db.commit()
+    return {
+        "status": "updated",
+        "material_type": material_type,
+        "material_id": material_id,
+        "sharing": sharing_payload(visibility, group_ids),
+    }
 
 
 @router.get("/analytics/cohort")
@@ -678,11 +766,13 @@ def public_profile(
     past_questions = len(_document_keys(
         db.query(*_DOCUMENT_KEY_COLUMNS)
         .filter(models.PastQuestion.uploaded_by == user.id)
+        .filter(accessible_material_filter(db, models.PastQuestion, current_user))
         .all()
     ))
     lecture_notes = (
         db.query(func.count(models.LectureNote.id))
         .filter(models.LectureNote.uploaded_by == user.id)
+        .filter(accessible_material_filter(db, models.LectureNote, current_user))
         .scalar()
     ) or 0
     groups = (
@@ -720,6 +810,7 @@ def public_profile(
     for course_id, metadata, year, semester in (
         db.query(models.PastQuestion.course_id, *_DOCUMENT_KEY_COLUMNS)
         .filter(models.PastQuestion.uploaded_by == user.id)
+        .filter(accessible_material_filter(db, models.PastQuestion, current_user))
         .filter(models.PastQuestion.course_id.isnot(None))
         .all()
     ):
@@ -730,6 +821,7 @@ def public_profile(
     ln_by_course = (
         db.query(models.LectureNote.course_id, func.count(models.LectureNote.id))
         .filter(models.LectureNote.uploaded_by == user.id)
+        .filter(accessible_material_filter(db, models.LectureNote, current_user))
         .filter(models.LectureNote.course_id.isnot(None))
         .group_by(models.LectureNote.course_id)
         .all()
@@ -809,7 +901,9 @@ def generate_practice(
     current_user: models.User = Depends(auth.require_role("student")),
 ):
     safe_count = max(1, min(req.count, 30))
-    query = db.query(models.PastQuestion)
+    query = db.query(models.PastQuestion).filter(
+        accessible_material_filter(db, models.PastQuestion, current_user),
+    )
     if req.course_id is not None:
         query = query.filter(models.PastQuestion.course_id == req.course_id)
 
@@ -858,7 +952,7 @@ def generate_practice(
     generated_items: list[dict] = []
     generation_warning: str | None = None
     remaining_count = max(safe_count - len(practice_items), 0)
-    note_chunks = _relevant_note_chunks(db, req.course_id, req.topic)
+    note_chunks = _relevant_note_chunks(db, req.course_id, req.topic, current_user)
     if note_chunks and remaining_count > 0:
         generated_items, generation_warning = _generated_practice_from_notes(note_chunks, req.topic, remaining_count)
     elif note_chunks and not practice_items:

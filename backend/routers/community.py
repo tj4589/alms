@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import models
+from material_access import accessible_material_filter, can_view_material, material_model
 from database import get_db
 
 router = APIRouter(prefix="/community", tags=["community"])
@@ -301,8 +302,8 @@ class GroupInviteRequest(BaseModel):
 
 
 class CommunityReportRequest(BaseModel):
-    subject_type: str = Field(pattern="^(group|thread|post|room)$")
-    subject_id: int
+    subject_type: str = Field(pattern="^(group|thread|post|room|past_question|lecture_note)$")
+    subject_id: int = Field(gt=0)
     reason: str = Field(min_length=2, max_length=80)
     details: Optional[str] = Field(default=None, max_length=1000)
 
@@ -340,8 +341,14 @@ def group_home(
     room_count = db.query(models.StudySession).filter(models.StudySession.group_id == group_id).count()
     material_count = 0
     if group.course_id:
-        material_count = db.query(models.LectureNote).filter(models.LectureNote.course_id == group.course_id).count()
-        material_count += db.query(models.PastQuestion).filter(models.PastQuestion.course_id == group.course_id).count()
+        material_count = db.query(models.LectureNote).filter(
+            models.LectureNote.course_id == group.course_id,
+            accessible_material_filter(db, models.LectureNote, current_user),
+        ).count()
+        material_count += db.query(models.PastQuestion).filter(
+            models.PastQuestion.course_id == group.course_id,
+            accessible_material_filter(db, models.PastQuestion, current_user),
+        ).count()
     return {
         "group": {
             "id": group.id,
@@ -492,6 +499,11 @@ def report_community_subject(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
+    if req.subject_type in {"past_question", "lecture_note"}:
+        model = material_model(req.subject_type)
+        material = db.query(model).filter(model.id == req.subject_id).first()
+        if not material or not can_view_material(db, material, current_user):
+            raise HTTPException(status_code=404, detail="That material does not exist.")
     report = models.CommunityReport(
         reporter_id=current_user.id,
         subject_type=req.subject_type,

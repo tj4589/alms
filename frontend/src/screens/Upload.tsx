@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronDown, FileText, Plus, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, FileText, Globe2, LockKeyhole, Plus, Users, X } from 'lucide-react';
 import type { Course, ScreenType, User } from '../types';
 import { queuePendingUpload } from '../offline';
-import { apiDelete, apiFormPost, apiGet } from '../lib/api';
+import { apiDelete, apiFormPost, apiGet, apiPatch } from '../lib/api';
 
 import './Upload.css';
 
 type RecentUpload = {
   id: number;
+  material_type: 'past_question' | 'lecture_note';
+  title?: string | null;
   year: number | null;
+  visibility?: ShareVisibility;
+  shared_group_ids?: number[];
+  created_at?: string | null;
   metadata_json: {
     course_code?: string;
     document_type?: string;
@@ -17,6 +22,9 @@ type RecentUpload = {
     needs_clearer_file?: boolean;
   } | null;
 };
+
+type ShareVisibility = 'public' | 'group' | 'private';
+type ShareGroup = { id: number; name: string; is_member?: boolean; status?: string };
 
 type UploadState = 'idle' | 'processing' | 'confirm' | 'manual_metadata_required' | 'duplicate' | 'success' | 'error';
 type UploadAction = 'analyze' | 'index';
@@ -43,7 +51,7 @@ type ExtractionInfo = {
 
 type CourseState = 'loading' | 'ready' | 'empty' | 'error';
 type FieldStatus = 'detected' | 'review' | 'missing' | 'edited';
-type ValidationErrors = Partial<Record<'document_title' | 'document_type' | 'course' | 'academic_year' | 'year' | 'topics', string>>;
+type ValidationErrors = Partial<Record<'document_title' | 'document_type' | 'course' | 'academic_year' | 'year' | 'topics' | 'sharing', string>>;
 
 type Metadata = {
   document_type: string;
@@ -179,6 +187,12 @@ function normalizeMetadata(value: Record<string, unknown> = {}) : Metadata {
   };
 }
 
+function visibilityLabel(visibility: ShareVisibility) {
+  if (visibility === 'public') return 'Shared with everyone';
+  if (visibility === 'group') return 'Shared with study group';
+  return 'Private to you';
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`;
@@ -202,6 +216,102 @@ function fieldStatus(value: string | number | null | undefined, edited: boolean,
 
 function FieldStatusBadge({ status }: { status: FieldStatus }) {
   return <span className={`field-status field-status--${status}`}>{statusLabel(status)}</span>;
+}
+
+function SharingChoice({
+  visibility,
+  onVisibilityChange,
+  groups,
+  selectedGroupIds,
+  onToggleGroup,
+  consent,
+  onConsentChange,
+  error,
+  compact = false,
+}: {
+  visibility: ShareVisibility;
+  onVisibilityChange: (value: ShareVisibility) => void;
+  groups: ShareGroup[];
+  selectedGroupIds: number[];
+  onToggleGroup: (groupId: number) => void;
+  consent: boolean;
+  onConsentChange: (value: boolean) => void;
+  error?: string;
+  compact?: boolean;
+}) {
+  const selectedGroups = groups.filter(group => selectedGroupIds.includes(group.id));
+  return (
+    <section className={`sharing-choice${compact ? ' sharing-choice--compact' : ''}`} aria-labelledby="sharing-choice-title">
+      <div className="sharing-choice-head">
+        <div>
+          <div className="document-summary-label" id="sharing-choice-title">Who can access this material?</div>
+          <p>Private is selected by default. You can change this later from your uploaded materials.</p>
+        </div>
+        <span className="sharing-safe-note"><LockKeyhole size={13} /> Consent first</span>
+      </div>
+
+      <div className="sharing-options" role="radiogroup" aria-label="Material visibility">
+        <label className={`sharing-option sharing-option--recommended${visibility === 'public' ? ' is-selected' : ''}`}>
+          <input type="radio" name="upload-visibility" value="public" checked={visibility === 'public'} onChange={() => { onVisibilityChange('public'); onConsentChange(false); }} />
+          <span className="sharing-option-icon"><Globe2 size={17} /></span>
+          <span className="sharing-option-copy">
+            <strong>Share with everyone <em>Recommended</em></strong>
+            <span>Help other students prepare. Share this resource with the ExamMind community so students taking this course can find and study from it.</span>
+            <ul className="sharing-benefits">
+              <li>Build a reliable CU course archive</li>
+              <li>Keep useful materials searchable instead of lost in chats</li>
+              <li>Help other students study and practise from the same resource</li>
+            </ul>
+          </span>
+        </label>
+        <label className={`sharing-option${visibility === 'group' ? ' is-selected' : ''}`}>
+          <input type="radio" name="upload-visibility" value="group" checked={visibility === 'group'} onChange={() => { onVisibilityChange('group'); onConsentChange(false); }} />
+          <span className="sharing-option-icon"><Users size={17} /></span>
+          <span className="sharing-option-copy">
+            <strong>Share with a study group</strong>
+            <span>Keep everyone in one group on the same material and avoid repeated uploads.</span>
+          </span>
+        </label>
+        <label className={`sharing-option${visibility === 'private' ? ' is-selected' : ''}`}>
+          <input type="radio" name="upload-visibility" value="private" checked={visibility === 'private'} onChange={() => { onVisibilityChange('private'); onConsentChange(false); }} />
+          <span className="sharing-option-icon"><LockKeyhole size={17} /></span>
+          <span className="sharing-option-copy">
+            <strong>Keep private</strong>
+            <span>Keep this in your personal workspace. You can share it with a group or publish it to the CU archive later.</span>
+          </span>
+        </label>
+      </div>
+
+      {visibility === 'group' && (
+        <div className="sharing-groups" aria-label="Choose study groups">
+          <div className="sharing-groups-title">Choose one or more groups</div>
+          {groups.length === 0 ? (
+            <p className="sharing-groups-empty">You are not a member of an active study group yet. Keep this private or join a group first.</p>
+          ) : (
+            <div className="sharing-group-list">
+              {groups.map(group => (
+                <label className="sharing-group" key={group.id}>
+                  <input type="checkbox" checked={selectedGroupIds.includes(group.id)} onChange={() => onToggleGroup(group.id)} />
+                  <span>{group.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {selectedGroups.length > 0 && <p className="sharing-audience">Only members of {selectedGroups.map(group => group.name).join(', ')} can access this material.</p>}
+        </div>
+      )}
+
+      {visibility === 'public' && (
+        <label className="sharing-consent">
+          <input type="checkbox" checked={consent} onChange={event => onConsentChange(event.target.checked)} />
+          <span>You are sharing this material with all verified ExamMind students. It may appear in course search, AI study answers and practice generation.</span>
+        </label>
+      )}
+
+      {visibility === 'private' && <p className="sharing-audience sharing-audience--private">Only you can access this material until you choose to share it.</p>}
+      {error && <p className="sharing-error" role="alert">{error}</p>}
+    </section>
+  );
 }
 
 function cleanPreviewLines(raw: string, snippets: string[]) {
@@ -605,6 +715,14 @@ function UploadConfirmationCard({
   onAddTopic,
   onRemoveTopic,
   onCourseSelect,
+  sharingVisibility,
+  onSharingVisibilityChange,
+  shareGroups,
+  selectedShareGroupIds,
+  onToggleShareGroup,
+  sharingConsent,
+  onSharingConsentChange,
+  sharingError,
   onCancel,
   onConfirm,
   hasQueue,
@@ -629,6 +747,14 @@ function UploadConfirmationCard({
   onAddTopic: () => void;
   onRemoveTopic: (topic: string) => void;
   onCourseSelect: (courseId: string) => void;
+  sharingVisibility: ShareVisibility;
+  onSharingVisibilityChange: (value: ShareVisibility) => void;
+  shareGroups: ShareGroup[];
+  selectedShareGroupIds: number[];
+  onToggleShareGroup: (groupId: number) => void;
+  sharingConsent: boolean;
+  onSharingConsentChange: (value: boolean) => void;
+  sharingError?: string;
   onCancel: () => void;
   onConfirm: () => void;
   hasQueue: boolean;
@@ -674,6 +800,16 @@ function UploadConfirmationCard({
           {(review || hasMissingEssentials) && (
             <div className="review-warning"><AlertCircle size={16} /><span>ExamMind may misread some details. Review anything marked “Needs review” before adding this material.</span></div>
           )}
+          <SharingChoice
+            visibility={sharingVisibility}
+            onVisibilityChange={onSharingVisibilityChange}
+            groups={shareGroups}
+            selectedGroupIds={selectedShareGroupIds}
+            onToggleGroup={onToggleShareGroup}
+            consent={sharingConsent}
+            onConsentChange={onSharingConsentChange}
+            error={sharingError}
+          />
           <button type="button" className="details-disclosure" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}>
             <span>More details</span><ChevronDown size={17} aria-hidden="true" />
           </button>
@@ -695,27 +831,117 @@ function ContributionSuccessModal({
   metadata,
   chunksIndexed,
   searchable,
+  documentId,
+  documentType,
+  initialVisibility,
+  initialGroupIds,
+  groups,
   onViewLibrary,
   onUploadAnother,
+  onDismiss,
 }: {
   metadata: Metadata;
   chunksIndexed: number;
   searchable: boolean;
+  documentId: number | null;
+  documentType: 'past_question' | 'lecture_note' | null;
+  initialVisibility: ShareVisibility;
+  initialGroupIds: number[];
+  groups: ShareGroup[];
   onViewLibrary: () => void;
   onUploadAnother: () => void;
+  onDismiss: () => void;
 }) {
+  const [currentVisibility, setCurrentVisibility] = useState<ShareVisibility>(initialVisibility);
+  const [currentGroupIds, setCurrentGroupIds] = useState<number[]>(initialGroupIds);
+  const [editorVisibility, setEditorVisibility] = useState<ShareVisibility | null>(null);
+  const [editorGroupIds, setEditorGroupIds] = useState<number[]>(initialGroupIds);
+  const [consent, setConsent] = useState(false);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const selectedGroups = groups.filter(group => currentGroupIds.includes(group.id));
+  const saveSharing = async () => {
+    if (!documentId || !documentType || !editorVisibility) return;
+    if (editorVisibility === 'group' && editorGroupIds.length === 0) {
+      setError('Choose at least one study group.');
+      return;
+    }
+    if (editorVisibility === 'public' && !consent) {
+      setError('Confirm that all verified ExamMind students may access this material.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await apiPatch(`/materials/${documentType}/${documentId}/visibility`, {
+        visibility: editorVisibility,
+        group_ids: editorGroupIds,
+        confirm: editorVisibility === 'private' ? true : consent,
+      });
+      setCurrentVisibility(editorVisibility);
+      setCurrentGroupIds(editorVisibility === 'group' ? editorGroupIds : []);
+      setEditorVisibility(null);
+      setConsent(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update sharing.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startSharing = (value: ShareVisibility) => {
+    setEditorVisibility(value);
+    setEditorGroupIds(value === 'group' ? currentGroupIds : []);
+    setConsent(false);
+    setError('');
+  };
+
   return (
     <div className="success-modal-backdrop">
       <div className="success-modal">
         <div className="success-label">Upload complete</div>
-        <h2>Thank you for contributing</h2>
-        <p>Your upload has strengthened ExamMind's knowledge base. Students can now discover this material through search, AI assistance, and practice tools.</p>
+        <h2>{currentVisibility === 'private' ? 'Saved to your workspace' : 'Thank you for contributing'}</h2>
+        <p>
+          {currentVisibility === 'public'
+            ? 'Resource shared successfully. Students studying this course can now find it in the CU archive.'
+            : currentVisibility === 'group'
+              ? `Resource shared with ${selectedGroups.map(group => group.name).join(', ')}. Only members of ${selectedGroups.length > 1 ? 'these groups' : 'this group'} can access it.`
+              : 'This resource is currently private. Would you like to help other students by sharing it with your study group or the CU archive?'}
+        </p>
         <div className="success-modal-meta">
           <span>{metadata.course_code || 'Course pending'}</span>
           <span>{DOC_TYPE_LABEL[metadata.document_type] ?? 'Document'}</span>
           <span>{chunksIndexed} chunks</span>
           <span>{searchable ? 'Searchable' : 'Record only'}</span>
+          <span>{visibilityLabel(currentVisibility)}</span>
         </div>
+        {currentVisibility === 'private' && !editorVisibility && (
+          <div className="success-sharing-actions">
+            <button type="button" className="cta" onClick={() => startSharing('public')}><Globe2 size={15} /> Share with everyone</button>
+            <button type="button" className="cta cta-ghost" onClick={() => startSharing('group')}><Users size={15} /> Share with a group</button>
+            <button type="button" className="success-keep-private" onClick={onDismiss}>Keep private</button>
+          </div>
+        )}
+        {editorVisibility && (
+          <div className="success-sharing-editor">
+            <SharingChoice
+              visibility={editorVisibility}
+              onVisibilityChange={value => { setEditorVisibility(value); setError(''); }}
+              groups={groups}
+              selectedGroupIds={editorGroupIds}
+              onToggleGroup={groupId => setEditorGroupIds(current => current.includes(groupId) ? current.filter(id => id !== groupId) : [...current, groupId])}
+              consent={consent}
+              onConsentChange={setConsent}
+              error={error}
+              compact
+            />
+            <div className="empty-actions">
+              <button type="button" className="cta cta-ghost" onClick={() => setEditorVisibility(null)} disabled={saving}>Cancel</button>
+              <button type="button" className="cta" onClick={() => void saveSharing()} disabled={saving}>{saving ? 'Saving...' : 'Confirm sharing'}</button>
+            </div>
+          </div>
+        )}
         <div className="empty-actions">
           <button type="button" className="cta" onClick={onViewLibrary}>View in Library</button>
           <button type="button" className="cta cta-ghost" onClick={onUploadAnother}>Upload Another</button>
@@ -753,13 +979,44 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [editedFields, setEditedFields] = useState<Set<string>>(new Set());
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [topicDraft, setTopicDraft] = useState('');
+  const [sharingVisibility, setSharingVisibility] = useState<ShareVisibility>('private');
+  const [shareGroups, setShareGroups] = useState<ShareGroup[]>([]);
+  const [selectedShareGroupIds, setSelectedShareGroupIds] = useState<number[]>([]);
+  const [sharingConsent, setSharingConsent] = useState(false);
+  const [sharingError, setSharingError] = useState('');
+  const [lastDocumentId, setLastDocumentId] = useState<number | null>(null);
+  const [lastDocumentType, setLastDocumentType] = useState<'past_question' | 'lecture_note' | null>(null);
+  const [editingRecentKey, setEditingRecentKey] = useState<string | null>(null);
+  const [recentVisibility, setRecentVisibility] = useState<ShareVisibility>('private');
+  const [recentGroupIds, setRecentGroupIds] = useState<number[]>([]);
+  const [recentConsent, setRecentConsent] = useState(false);
+  const [recentShareError, setRecentShareError] = useState('');
+  const [recentShareBusy, setRecentShareBusy] = useState(false);
+  const [removingRecentKey, setRemovingRecentKey] = useState<string | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!user?.id) return;
-    apiGet(`/past-questions?uploaded_by=${user.id}`)
-      .then(d => setRecentUploads((d as RecentUpload[]).slice(0, 3)))
+    Promise.all([
+      apiGet(`/past-questions?uploaded_by=${user.id}`),
+      apiGet(`/lecture-notes?uploaded_by=${user.id}`),
+    ])
+      .then(([past, notes]) => {
+        const pastRows = (Array.isArray(past) ? past as RecentUpload[] : []).map(row => ({ ...row, material_type: 'past_question' as const }));
+        const noteRows = (Array.isArray(notes) ? notes as RecentUpload[] : []).map(row => ({ ...row, material_type: 'lecture_note' as const }));
+        setRecentUploads([...pastRows, ...noteRows].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()).slice(0, 4));
+      })
       .catch(() => setRecentUploads([]));
+  }, [user?.id, state]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    apiGet('/study-groups')
+      .then(data => {
+        const groups = Array.isArray(data) ? data as ShareGroup[] : [];
+        setShareGroups(groups.filter(group => group.is_member && group.status === 'active'));
+      })
+      .catch(() => setShareGroups([]));
   }, [user?.id, state]);
 
   useEffect(() => {
@@ -791,6 +1048,10 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setEditedFields(new Set());
     setValidationErrors({});
     setTopicDraft('');
+    setSharingVisibility('private');
+    setSelectedShareGroupIds([]);
+    setSharingConsent(false);
+    setSharingError('');
     setPreview('');
     setPreviewSnippets([]);
     setPreviewSections([]);
@@ -870,7 +1131,13 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     if (metadata.topics_covered.some(topic => !topic.trim())) {
       errors.topics = 'Remove blank topics before adding this material.';
     }
+    if (sharingVisibility === 'group' && selectedShareGroupIds.length === 0) {
+      errors.sharing = 'Choose at least one study group, or keep this material private.';
+    } else if (sharingVisibility === 'public' && !sharingConsent) {
+      errors.sharing = 'Confirm that you want all verified ExamMind students to access this material.';
+    }
     setValidationErrors(errors);
+    setSharingError(errors.sharing || '');
     if (Object.keys(errors).length > 0) {
       const firstField = errors.document_title ? 'review-document-title' : errors.document_type ? 'review-document-type' : errors.course ? 'review-course-code' : errors.year ? 'upload-year' : undefined;
       if (firstField) window.setTimeout(() => document.getElementById(firstField)?.focus(), 0);
@@ -891,6 +1158,9 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     const formData = new FormData();
     formData.append('file', file);
     formData.append('confirm', 'true');
+    formData.append('visibility', sharingVisibility);
+    formData.append('shared_group_ids', JSON.stringify(selectedShareGroupIds));
+    formData.append('visibility_confirmed', sharingVisibility === 'private' ? 'true' : String(sharingConsent));
     formData.append('confirmed_metadata', JSON.stringify(saveUnindexed ? {
       ...submissionMetadata,
       extraction_method: 'manual',
@@ -910,6 +1180,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         setProcessingSteps(doneSteps(4));
         setChunksIndexed(data.chunks_indexed || 0);
         setLastIndexed(data.indexed !== false);
+        setLastDocumentId(typeof data.document_id === 'number' ? data.document_id : null);
+        setLastDocumentType(data.document_type === 'past_question' ? 'past_question' : 'lecture_note');
         setMetadata(normalizeMetadata({ ...submissionMetadata, ...(data.metadata || {}) }));
         setState('success');
       }
@@ -936,6 +1208,61 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       setQueue([]);
       setQueueIndex(0);
       setState('idle');
+    }
+  };
+
+  const openRecentVisibility = (upload: RecentUpload) => {
+    setEditingRecentKey(`${upload.material_type}:${upload.id}`);
+    setRecentVisibility(upload.visibility || 'private');
+    setRecentGroupIds(upload.shared_group_ids || []);
+    setRecentConsent(false);
+    setRecentShareError('');
+  };
+
+  const saveRecentVisibility = async (upload: RecentUpload) => {
+    if (recentVisibility === 'group' && recentGroupIds.length === 0) {
+      setRecentShareError('Choose at least one study group.');
+      return;
+    }
+    if (recentVisibility === 'public' && !recentConsent) {
+      setRecentShareError('Confirm that all verified students may access this material.');
+      return;
+    }
+    setRecentShareBusy(true);
+    setRecentShareError('');
+    try {
+      await apiPatch(`/materials/${upload.material_type}/${upload.id}/visibility`, {
+        visibility: recentVisibility,
+        group_ids: recentGroupIds,
+        confirm: recentVisibility === 'private' ? true : recentConsent,
+      });
+      setRecentUploads(current => current?.map(item => item.material_type === upload.material_type && item.id === upload.id
+        ? { ...item, visibility: recentVisibility, shared_group_ids: recentVisibility === 'group' ? recentGroupIds : [] }
+        : item) || current);
+      setEditingRecentKey(null);
+    } catch (err) {
+      setRecentShareError(err instanceof Error ? err.message : 'Could not update sharing.');
+    } finally {
+      setRecentShareBusy(false);
+    }
+  };
+
+  const removeRecentUpload = async (upload: RecentUpload) => {
+    const key = `${upload.material_type}:${upload.id}`;
+    if (!window.confirm('Remove this contribution from ExamMind?')) return;
+    setRemovingRecentKey(key);
+    setMessage('');
+    try {
+      await apiDelete('/ingest/documents', {
+        document_type: upload.material_type,
+        document_id: upload.id,
+      });
+      setRecentUploads(current => current?.filter(item => `${item.material_type}:${item.id}` !== key) || current);
+      setMessage('Your contribution was removed from ExamMind.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Could not remove this contribution.');
+    } finally {
+      setRemovingRecentKey(null);
     }
   };
 
@@ -1102,10 +1429,43 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
               {recentUploads && recentUploads.length > 0 && (
                 <ul className="margin-ledger">
                   {recentUploads.map(u => (
-                    <li key={u.id}>
-                      <span className="ledger-code">{u.metadata_json?.course_code ?? 'Unknown'}</span>
-                      <span className="ledger-kind">{DOC_TYPE_LABEL[u.metadata_json?.document_type ?? ''] ?? 'Document'}</span>
-                      <span className="ledger-year">{u.year ?? '--'}</span>
+                    <li key={`${u.material_type}:${u.id}`}>
+                      <div className="ledger-main">
+                        <span className="ledger-code">{u.metadata_json?.course_code ?? 'Unknown'}</span>
+                        <span className="ledger-kind">{DOC_TYPE_LABEL[u.metadata_json?.document_type ?? ''] ?? (u.material_type === 'lecture_note' ? 'Lecture Note' : 'Document')}</span>
+                        <span className="ledger-year">{u.year ?? '--'}</span>
+                      </div>
+                      <button type="button" className="ledger-visibility" onClick={() => openRecentVisibility(u)} aria-label={`Change access for ${u.title || u.metadata_json?.course_code || 'this material'}`}>
+                        {u.visibility === 'public' ? <Globe2 size={12} /> : u.visibility === 'group' ? <Users size={12} /> : <LockKeyhole size={12} />}
+                        {visibilityLabel(u.visibility || 'private')}
+                      </button>
+                      <button
+                        type="button"
+                        className="ledger-remove"
+                        onClick={() => void removeRecentUpload(u)}
+                        disabled={removingRecentKey === `${u.material_type}:${u.id}`}
+                      >
+                        {removingRecentKey === `${u.material_type}:${u.id}` ? 'Removing...' : 'Remove'}
+                      </button>
+                      {editingRecentKey === `${u.material_type}:${u.id}` && (
+                        <div className="ledger-editor">
+                          <SharingChoice
+                            visibility={recentVisibility}
+                            onVisibilityChange={value => { setRecentVisibility(value); setRecentShareError(''); setRecentConsent(false); }}
+                            groups={shareGroups}
+                            selectedGroupIds={recentGroupIds}
+                            onToggleGroup={groupId => setRecentGroupIds(current => current.includes(groupId) ? current.filter(id => id !== groupId) : [...current, groupId])}
+                            consent={recentConsent}
+                            onConsentChange={setRecentConsent}
+                            error={recentShareError}
+                            compact
+                          />
+                          <div className="ledger-editor-actions">
+                            <button type="button" className="ledger-editor-cancel" onClick={() => setEditingRecentKey(null)} disabled={recentShareBusy}>Cancel</button>
+                            <button type="button" className="ledger-editor-save" onClick={() => void saveRecentVisibility(u)} disabled={recentShareBusy}>{recentShareBusy ? 'Saving...' : 'Save access'}</button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -1160,6 +1520,17 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
           onAddTopic={addTopic}
           onRemoveTopic={removeTopic}
           onCourseSelect={selectCourse}
+           sharingVisibility={sharingVisibility}
+           onSharingVisibilityChange={value => { setSharingVisibility(value); setSharingError(''); }}
+           shareGroups={shareGroups}
+           selectedShareGroupIds={selectedShareGroupIds}
+           onToggleShareGroup={groupId => {
+             setSelectedShareGroupIds(current => current.includes(groupId) ? current.filter(id => id !== groupId) : [...current, groupId]);
+             setSharingError('');
+           }}
+           sharingConsent={sharingConsent}
+           onSharingConsentChange={value => { setSharingConsent(value); setSharingError(''); }}
+           sharingError={sharingError}
           onCancel={() => hasQueue ? nextInQueue() : setState('idle')}
           onConfirm={() => void confirmUpload(false)}
           hasQueue={hasQueue}
@@ -1176,6 +1547,19 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
           </div>
           <div className="upload-rescue-note">Manual metadata rescue is available here because the file could not produce useful searchable text.</div>
           <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} includeEssentials />
+          <SharingChoice
+            visibility={sharingVisibility}
+            onVisibilityChange={value => { setSharingVisibility(value); setSharingError(''); }}
+            groups={shareGroups}
+            selectedGroupIds={selectedShareGroupIds}
+            onToggleGroup={groupId => {
+              setSelectedShareGroupIds(current => current.includes(groupId) ? current.filter(id => id !== groupId) : [...current, groupId]);
+              setSharingError('');
+            }}
+            consent={sharingConsent}
+            onConsentChange={value => { setSharingConsent(value); setSharingError(''); }}
+            error={sharingError}
+          />
           <div className="confirm-actions">
             <button type="button" className="cta cta-ghost" onClick={() => setState('idle')}>Upload clearer file</button>
             <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(true)}>Save record only</button>
@@ -1201,7 +1585,13 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
           metadata={metadata}
           chunksIndexed={chunksIndexed}
           searchable={lastIndexed}
+          documentId={lastDocumentId}
+          documentType={lastDocumentType}
+          initialVisibility={sharingVisibility}
+          initialGroupIds={selectedShareGroupIds}
+          groups={shareGroups}
           onViewLibrary={() => go('questions')}
+          onDismiss={() => setState('idle')}
           onUploadAnother={() => {
             if (hasQueue && queueIndex + 1 < queue.length) {
               nextInQueue();

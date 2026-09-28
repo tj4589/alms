@@ -619,7 +619,14 @@ def ask_ai(
     ]
     room_context = "\n".join(part for part in room_context_parts if part)
     contextual_question = f"{room_context}\n\nStudent question: {question}"
-    rag_result = run_rag_query(contextual_question, course_id, None, db, room_context=room_context)
+    rag_result = run_rag_query(
+        contextual_question,
+        course_id,
+        None,
+        db,
+        room_context=room_context,
+        current_user=current_user,
+    )
 
     card = models.StudySessionAIQuestion(
         session_id=session_id,
