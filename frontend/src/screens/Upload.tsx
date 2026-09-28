@@ -188,9 +188,9 @@ function normalizeMetadata(value: Record<string, unknown> = {}) : Metadata {
 }
 
 function visibilityLabel(visibility: ShareVisibility) {
-  if (visibility === 'public') return 'Shared with everyone';
-  if (visibility === 'group') return 'Shared with study group';
-  return 'Private to you';
+  if (visibility === 'public') return 'Academy archive';
+  if (visibility === 'group') return 'Study group only';
+  return 'Only me';
 }
 
 function formatBytes(bytes: number) {
@@ -244,22 +244,28 @@ function SharingChoice({
     <section className={`sharing-choice${compact ? ' sharing-choice--compact' : ''}`} aria-labelledby="sharing-choice-title">
       <div className="sharing-choice-head">
         <div>
-          <div className="document-summary-label" id="sharing-choice-title">Who can access this material?</div>
-          <p>Private is selected by default. You can change this later from your uploaded materials.</p>
+          <div className="document-summary-label" id="sharing-choice-title">Where should this material be available?</div>
+          <p>The academy archive is the recommended path for course resources. You will confirm before anything is shared.</p>
         </div>
-        <span className="sharing-safe-note"><LockKeyhole size={13} /> Consent first</span>
+        <span className="sharing-safe-note"><LockKeyhole size={13} /> Consent required</span>
       </div>
+      <p className="sharing-private-data-note">
+        {compact
+          ? 'Your personal study data always stays private.'
+          : 'Your conversations with Maxe, highlights, practice attempts, scores, weaknesses and revision plan always stay private.'}
+      </p>
 
-      <div className="sharing-options" role="radiogroup" aria-label="Material visibility">
+      <div className="sharing-options" role="radiogroup" aria-label="Where this material should be available">
         <label className={`sharing-option sharing-option--recommended${visibility === 'public' ? ' is-selected' : ''}`}>
           <input type="radio" name="upload-visibility" value="public" checked={visibility === 'public'} onChange={() => { onVisibilityChange('public'); onConsentChange(false); }} />
           <span className="sharing-option-icon"><Globe2 size={17} /></span>
           <span className="sharing-option-copy">
-            <strong>Share with everyone <em>Recommended</em></strong>
-            <span>Help other students prepare. Share this resource with the ExamMind community so students taking this course can find and study from it.</span>
+            <strong>Academy archive <em>Recommended</em></strong>
+            <span>Help everyone studying this course find and use this resource.</span>
             <ul className="sharing-benefits">
               <li>Build a reliable CU course archive</li>
-              <li>Keep useful materials searchable instead of lost in chats</li>
+              <li>Keep useful materials from getting lost in chats</li>
+              <li>Make resources searchable by course and session</li>
               <li>Help other students study and practise from the same resource</li>
             </ul>
           </span>
@@ -268,16 +274,16 @@ function SharingChoice({
           <input type="radio" name="upload-visibility" value="group" checked={visibility === 'group'} onChange={() => { onVisibilityChange('group'); onConsentChange(false); }} />
           <span className="sharing-option-icon"><Users size={17} /></span>
           <span className="sharing-option-copy">
-            <strong>Share with a study group</strong>
-            <span>Keep everyone in one group on the same material and avoid repeated uploads.</span>
+            <strong>A study group</strong>
+            <span>Share only with members of your selected group so everyone can study from the same materials.</span>
           </span>
         </label>
         <label className={`sharing-option${visibility === 'private' ? ' is-selected' : ''}`}>
           <input type="radio" name="upload-visibility" value="private" checked={visibility === 'private'} onChange={() => { onVisibilityChange('private'); onConsentChange(false); }} />
           <span className="sharing-option-icon"><LockKeyhole size={17} /></span>
           <span className="sharing-option-copy">
-            <strong>Keep private</strong>
-            <span>Keep this in your personal workspace. You can share it with a group or publish it to the CU archive later.</span>
+            <strong>Only me</strong>
+            <span>Use this for personal or sensitive materials. Only you can access it, and you can share it later.</span>
           </span>
         </label>
       </div>
@@ -286,7 +292,7 @@ function SharingChoice({
         <div className="sharing-groups" aria-label="Choose study groups">
           <div className="sharing-groups-title">Choose one or more groups</div>
           {groups.length === 0 ? (
-            <p className="sharing-groups-empty">You are not a member of an active study group yet. Keep this private or join a group first.</p>
+            <p className="sharing-groups-empty">You are not a member of an active study group yet. Choose Only me or join a group first.</p>
           ) : (
             <div className="sharing-group-list">
               {groups.map(group => (
@@ -308,7 +314,7 @@ function SharingChoice({
         </label>
       )}
 
-      {visibility === 'private' && <p className="sharing-audience sharing-audience--private">Only you can access this material until you choose to share it.</p>}
+      {visibility === 'private' && <p className="sharing-audience sharing-audience--private">Only you can access this material. It stays out of the academy archive until you choose to share it.</p>}
       {error && <p className="sharing-error" role="alert">{error}</p>}
     </section>
   );
@@ -918,9 +924,9 @@ function ContributionSuccessModal({
         </div>
         {currentVisibility === 'private' && !editorVisibility && (
           <div className="success-sharing-actions">
-            <button type="button" className="cta" onClick={() => startSharing('public')}><Globe2 size={15} /> Share with everyone</button>
-            <button type="button" className="cta cta-ghost" onClick={() => startSharing('group')}><Users size={15} /> Share with a group</button>
-            <button type="button" className="success-keep-private" onClick={onDismiss}>Keep private</button>
+            <button type="button" className="cta" onClick={() => startSharing('public')}><Globe2 size={15} /> Share to academy archive</button>
+            <button type="button" className="cta cta-ghost" onClick={() => startSharing('group')}><Users size={15} /> Share with a study group</button>
+            <button type="button" className="success-keep-private" onClick={onDismiss}>Keep visible only to me</button>
           </div>
         )}
         {editorVisibility && (
@@ -979,7 +985,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [editedFields, setEditedFields] = useState<Set<string>>(new Set());
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [topicDraft, setTopicDraft] = useState('');
-  const [sharingVisibility, setSharingVisibility] = useState<ShareVisibility>('private');
+  const [sharingVisibility, setSharingVisibility] = useState<ShareVisibility>('public');
   const [shareGroups, setShareGroups] = useState<ShareGroup[]>([]);
   const [selectedShareGroupIds, setSelectedShareGroupIds] = useState<number[]>([]);
   const [sharingConsent, setSharingConsent] = useState(false);
@@ -1048,7 +1054,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setEditedFields(new Set());
     setValidationErrors({});
     setTopicDraft('');
-    setSharingVisibility('private');
+    setSharingVisibility('public');
     setSelectedShareGroupIds([]);
     setSharingConsent(false);
     setSharingError('');
@@ -1132,7 +1138,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       errors.topics = 'Remove blank topics before adding this material.';
     }
     if (sharingVisibility === 'group' && selectedShareGroupIds.length === 0) {
-      errors.sharing = 'Choose at least one study group, or keep this material private.';
+      errors.sharing = 'Choose at least one study group, or choose Only me.';
     } else if (sharingVisibility === 'public' && !sharingConsent) {
       errors.sharing = 'Confirm that you want all verified ExamMind students to access this material.';
     }
