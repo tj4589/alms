@@ -7,6 +7,24 @@ from datetime import datetime, timezone
 def utc_now():
     return datetime.now(timezone.utc)
 
+
+class LearningSpace(Base):
+    """An organization or environment inside the shared ExamMind platform."""
+
+    __tablename__ = "learning_spaces"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(80), unique=True, nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    type = Column(String(32), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    logo = Column(String(512), nullable=True)
+    status = Column(String(24), nullable=False, default="active", server_default="active", index=True)
+    settings = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -27,11 +45,51 @@ class User(Base):
     level = Column(String, nullable=True)
     semester = Column(String, nullable=True)
     interests = Column(JSON, nullable=True)
+    onboarding_preferences = Column(JSON, nullable=True)
+    active_learning_space_id = Column(Integer, ForeignKey("learning_spaces.id"), nullable=True, index=True)
     onboarding_completed = Column(Boolean, nullable=False, default=False, server_default="false")
     # Pending, skipped, or completed keeps a skipped profile distinct from a
     # finished one without breaking the legacy boolean used by older clients.
     onboarding_state = Column(String(20), nullable=False, default="pending", server_default="pending", index=True)
     profile_updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class LearningSpaceMembership(Base):
+    """The user's membership in a learning space, separate from identity."""
+
+    __tablename__ = "learning_space_memberships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    external_member_id = Column(String(80), nullable=True, index=True)
+    role = Column(String(32), nullable=False, default="member", server_default="member")
+    status = Column(String(24), nullable=False, default="active", server_default="active", index=True)
+    onboarding_state = Column(String(20), nullable=False, default="pending", server_default="pending")
+    joined_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    metadata_json = Column("metadata", JSON, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "learning_space_id", name="uq_learning_space_membership_user_space"),
+        UniqueConstraint("learning_space_id", "external_member_id", name="uq_learning_space_membership_external_id"),
+    )
+
+
+class KsaMember(Base):
+    """Authoritative KSA registry; rows are imported by trusted operators."""
+
+    __tablename__ = "ksa_member_registry"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ksa_id = Column(String(80), unique=True, nullable=False, index=True)
+    cohort = Column(String(80), nullable=True)
+    name = Column(String(160), nullable=True)
+    email = Column(String(254), nullable=True)
+    status = Column(String(24), nullable=False, default="active", server_default="active", index=True)
+    claimed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, unique=True, index=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
 
 class DeletedFirebaseIdentity(Base):

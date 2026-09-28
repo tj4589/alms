@@ -9,7 +9,7 @@ import {
   MessageCircle,
   Plus,
 } from 'lucide-react';
-import type { AcademicMetadata, ScreenType, User } from '../types';
+import type { AcademicMetadata, LearningSpace, ScreenType, User } from '../types';
 import { apiGet } from '../lib/api';
 
 import './Dashboard.css';
@@ -160,10 +160,14 @@ function formatSchedule(value: string | null | undefined): string {
 export default function Dashboard({
   go,
   user,
+  learningSpace,
+  onOpenSpaces,
   onOpenSearch,
 }: {
   go: (screen: ScreenType) => void;
   user: User | null;
+  learningSpace: LearningSpace | null;
+  onOpenSpaces: () => void;
   onOpenSearch: (query: string) => void;
 }) {
   const [analytics, setAnalytics] = useState<StudentAnalytics | null>(null);
@@ -383,6 +387,15 @@ export default function Dashboard({
         </div>
         <span className="desk-date"><CalendarDays size={16} aria-hidden="true" />{todayLabel()}</span>
       </header>
+
+      {learningSpace && <section className="desk-space-door" aria-labelledby="desk-space-title">
+        <div>
+          <span className="desk-space-kicker">Current learning space</span>
+          <h2 id="desk-space-title">{learningSpace.name}</h2>
+          <p>{learningSpace.description || 'Your organised place to learn, practise and keep moving.'}</p>
+        </div>
+        <button type="button" onClick={onOpenSpaces}>Switch learning space <ArrowRight size={16} aria-hidden="true" /></button>
+      </section>}
 
       {loadError && !loading && (
         <div className="desk-error" role="alert">

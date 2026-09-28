@@ -5,6 +5,12 @@
 #s-dashboard .desk-heading h1 span{color:#ac401e}
 #s-dashboard .desk-heading p{margin:0;color:#687062;font-size:14px;line-height:1.6}
 #s-dashboard .desk-date{display:flex;align-items:center;gap:8px;color:#687062;font-size:12px;white-space:nowrap}
+#s-dashboard .desk-space-door{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:0 0 28px;padding:20px 22px;border:1px solid #dfd6c7;border-radius:14px;background:#fffdf8}
+#s-dashboard .desk-space-kicker{display:block;margin-bottom:6px;color:#ac401e;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+#s-dashboard .desk-space-door h2{margin:0;color:#30372a;font:600 21px/1.2 'Outfit Variable',sans-serif;letter-spacing:-.35px}
+#s-dashboard .desk-space-door p{max-width:66ch;margin:7px 0 0;color:#687062;font-size:12px;line-height:1.5}
+#s-dashboard .desk-space-door button{display:inline-flex;align-items:center;gap:8px;flex:none;padding:10px 0;background:transparent;color:#445037;font-size:12px;font-weight:600}
+#s-dashboard .desk-space-door button:hover{color:#ac401e}
 #s-dashboard .desk-layout{display:grid;grid-template-columns:minmax(0,1fr) 286px;gap:32px;align-items:start}
 #s-dashboard .desk-main,#s-dashboard .desk-aside{min-width:0}
 #s-dashboard .desk-next{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(180px,.8fr);gap:28px;padding:30px;background:#eee5d6;border-radius:18px;min-height:265px;align-items:center}
@@ -97,7 +103,7 @@
 @media(min-width:1600px){#s-dashboard .desk-layout{grid-template-columns:minmax(0,1fr) 320px;gap:40px}#s-dashboard .desk-next{padding:36px;min-height:280px}#s-dashboard .desk-together-photo{height:200px}}
 @media(max-width:1200px){#s-dashboard.student-desk{padding:32px 26px 48px}#s-dashboard .desk-layout{grid-template-columns:minmax(0,1fr) 254px;gap:24px}#s-dashboard .desk-next{grid-template-columns:1fr;padding:25px;min-height:0}#s-dashboard .desk-next-side{display:none}#s-dashboard .desk-date{font-size:11px}#s-dashboard .desk-together-copy{padding:20px}#s-dashboard .desk-together-photo{height:155px}}
 @media(max-width:1000px){#s-dashboard .desk-layout{grid-template-columns:1fr}#s-dashboard .desk-aside{display:grid;grid-template-columns:1fr 1fr;gap:24px}#s-dashboard .desk-agenda{margin-top:0;padding-top:8px}#s-dashboard .desk-activity{margin-top:0}#s-dashboard .desk-heading{align-items:flex-start}#s-dashboard .desk-date{display:none}#s-dashboard .desk-next{grid-template-columns:1.2fr 1fr}#s-dashboard .desk-next-side{display:block}}
-@media(max-width:768px){#s-dashboard.student-desk{padding:28px 22px 32px}#s-dashboard .desk-heading{margin-bottom:24px}#s-dashboard .desk-heading h1{font-size:29px}#s-dashboard .desk-next{gap:24px}#s-dashboard .desk-next h2{font-size:30px}#s-dashboard .desk-course{min-height:145px}}
+@media(max-width:768px){#s-dashboard.student-desk{padding:28px 22px 32px}#s-dashboard .desk-heading{margin-bottom:24px}#s-dashboard .desk-heading h1{font-size:29px}#s-dashboard .desk-next{gap:24px}#s-dashboard .desk-next h2{font-size:30px}#s-dashboard .desk-course{min-height:145px}#s-dashboard .desk-space-door{align-items:flex-start;flex-direction:column;gap:13px}#s-dashboard .desk-space-door button{padding-top:0}}
 @media(max-width:540px){#s-dashboard.student-desk{padding:25px 20px 32px}#s-dashboard .desk-heading h1{font-size:27px}#s-dashboard .desk-heading p{font-size:13px}#s-dashboard .desk-next{grid-template-columns:1fr;padding:25px;border-radius:15px}#s-dashboard .desk-next-side{display:none}#s-dashboard .desk-next h2{font-size:30px}#s-dashboard .desk-next-copy>p{font-size:13px}#s-dashboard .desk-layout{gap:28px}#s-dashboard .desk-aside{display:block}#s-dashboard .desk-together-photo{height:200px}#s-dashboard .desk-together-copy{padding:24px}#s-dashboard .desk-agenda{margin-top:26px}#s-dashboard .desk-activity{margin-top:24px}#s-dashboard .desk-course-grid{grid-template-columns:1fr}#s-dashboard .desk-course{min-height:135px}#s-dashboard .desk-section{margin-top:27px}#s-dashboard .desk-course-empty{padding:26px 20px}#s-dashboard .desk-material time{display:none}#s-dashboard .desk-error{align-items:flex-start;padding:14px;gap:12px}#s-dashboard .desk-summary{gap:12px;font-size:11px}}
 
 /* ---- dark palette -------------------------------------------------------

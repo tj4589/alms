@@ -131,6 +131,8 @@ services:
       # (https://) and no trailing slash.
       - key: VITE_API_BASE_URL
         value: https://exammind-api.onrender.com
+      - key: VITE_ALLOWED_AUTH_EMAIL_DOMAINS
+        value: stu.cu.edu.ng,covenantuniversity.edu.ng
       - key: VITE_FIREBASE_API_KEY
         sync: false
       - key: VITE_FIREBASE_AUTH_DOMAIN

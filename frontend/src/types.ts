@@ -1,4 +1,4 @@
-export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding';
+export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'spaces';
 
 export type Course = {
   id: number;
@@ -15,6 +15,36 @@ export type User = {
   username: string | null;
   email: string;
   role: string;
+};
+
+export type LearningSpaceMembership = {
+  id: number;
+  role: string;
+  status: string;
+  external_member_id?: string | null;
+  onboarding_required: boolean;
+  joined_at?: string | null;
+};
+
+export type LearningSpace = {
+  id: number;
+  slug: string;
+  name: string;
+  type: 'academy' | 'university' | 'personal' | 'organization' | string;
+  description?: string | null;
+  logo?: string | null;
+  status: string;
+  membership?: LearningSpaceMembership | null;
+};
+
+export type LearningSpaceMembershipEntry = {
+  space: LearningSpace & { membership: LearningSpaceMembership };
+};
+
+export type LearningSpacesResponse = {
+  active_space: LearningSpace | null;
+  memberships: LearningSpaceMembershipEntry[];
+  available_spaces: LearningSpace[];
 };
 
 export type AcademicMetadata = {

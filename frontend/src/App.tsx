@@ -21,6 +21,8 @@ import type {
   GlobalSearchResult,
   SearchActionContext,
   ScreenType,
+  LearningSpace,
+  LearningSpacesResponse,
   User,
 } from './types';
 
@@ -48,6 +50,7 @@ import Settings from './screens/Settings';
 import Profile from './screens/Profile';
 import Reader from './screens/Reader';
 import Onboarding from './screens/Onboarding';
+import LearningSpaces from './screens/LearningSpaces';
 import Logo from './components/Logo';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
@@ -182,6 +185,9 @@ export default function App() {
   const [publicView, setPublicView] = useState<PublicView>(publicViewFromPath);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
+  const [learningSpaces, setLearningSpaces] = useState<LearningSpacesResponse | null>(null);
+  const [learningSpacesLoading, setLearningSpacesLoading] = useState(false);
+  const [onboardingSpace, setOnboardingSpace] = useState<LearningSpace | null>(null);
   const [userHydrating, setUserHydrating] = useState(() => Boolean(readStoredToken()));
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -205,6 +211,20 @@ export default function App() {
   const [practiceInitialTopic, setPracticeInitialTopic] = useState('');
   const [practiceContext, setPracticeContext] = useState<SearchActionContext | null>(null);
   const [communityContext, setCommunityContext] = useState<(SearchActionContext & { action: 'discussion' | 'study_group' | 'reading_room' }) | null>(null);
+
+  const refreshLearningSpaces = useCallback(async (): Promise<LearningSpacesResponse | null> => {
+    setLearningSpacesLoading(true);
+    try {
+      const data = await apiGet('/learning-spaces') as LearningSpacesResponse;
+      setLearningSpaces(data);
+      return data;
+    } catch {
+      setLearningSpaces(null);
+      return null;
+    } finally {
+      setLearningSpacesLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const syncPublicPath = () => setPublicView(publicViewFromPath());
@@ -362,6 +382,23 @@ export default function App() {
       .catch(() => setNeedsOnboarding(false));
   }, [token, user]);
 
+  useEffect(() => {
+    if (!token || !user) {
+      setLearningSpaces(null);
+      setLearningSpacesLoading(false);
+      return;
+    }
+    void refreshLearningSpaces();
+  }, [refreshLearningSpaces, token, user]);
+
+  useEffect(() => {
+    const active = learningSpaces?.active_space;
+    if (active?.slug !== 'ksa' || !active.membership?.onboarding_required || editingProfile) return;
+    setOnboardingSpace(active);
+    setNeedsOnboarding(true);
+    setActiveScreen('onboarding');
+  }, [editingProfile, learningSpaces]);
+
   const handleLogin = async (jwt: string, authenticatedUser?: User) => {
     setAccountLifecycleRecovery(null);
     storeToken(jwt);
@@ -394,6 +431,8 @@ export default function App() {
     clearStoredToken();
     setToken(null);
     setUser(null);
+    setLearningSpaces(null);
+    setOnboardingSpace(null);
     setUserHydrating(false);
     setNeedsOnboarding(false);
     setEditingProfile(false);
@@ -413,6 +452,8 @@ export default function App() {
     clearStoredToken();
     setToken(null);
     setUser(null);
+    setLearningSpaces(null);
+    setOnboardingSpace(null);
     setUserHydrating(false);
     setNeedsOnboarding(false);
     setEditingProfile(false);
@@ -431,6 +472,8 @@ export default function App() {
     clearStoredToken();
     setToken(null);
     setUser(null);
+    setLearningSpaces(null);
+    setOnboardingSpace(null);
     setUserHydrating(false);
     setNeedsOnboarding(false);
     setEditingProfile(false);
@@ -449,6 +492,8 @@ export default function App() {
     clearStoredToken();
     setToken(null);
     setUser(null);
+    setLearningSpaces(null);
+    setOnboardingSpace(null);
     setUserHydrating(false);
     setNeedsOnboarding(false);
     setEditingProfile(false);
@@ -465,6 +510,8 @@ export default function App() {
     clearStoredToken();
     setToken(null);
     setUser(null);
+    setLearningSpaces(null);
+    setOnboardingSpace(null);
     setUserHydrating(false);
     setNeedsOnboarding(false);
     setEditingProfile(false);
@@ -808,12 +855,27 @@ export default function App() {
     );
   }
 
+  if (needsOnboarding && !editingProfile && learningSpacesLoading && !onboardingSpace) {
+    return (
+      <div className="account-bootstrap" role="status" aria-live="polite">
+        <div className="account-bootstrap-card">
+          <div className="account-bootstrap-mark"><Logo size={30} /></div>
+          <p className="account-bootstrap-kicker">EXAMMIND / LEARNING SPACE</p>
+          <h1>Preparing your setup.</h1>
+          <p>We’re checking which learning space should guide your onboarding.</p>
+          <span className="account-bootstrap-loader" aria-hidden="true" />
+        </div>
+      </div>
+    );
+  }
+
   if (needsOnboarding || editingProfile) {
     return (
       <Onboarding
         userName={user.name}
+        learningSpace={onboardingSpace}
         isEditing={editingProfile}
-        onComplete={() => { const wasEditing = editingProfile; setNeedsOnboarding(false); setEditingProfile(false); setProfileNudgeVisible(false); setActiveScreen(onboardingReturnScreen); if (wasEditing) { setToast('Academic profile saved.'); window.setTimeout(() => setToast(''), 3600); } }}
+        onComplete={() => { const wasEditing = editingProfile; setNeedsOnboarding(false); setOnboardingSpace(null); setEditingProfile(false); setProfileNudgeVisible(false); setActiveScreen(onboardingReturnScreen); if (wasEditing) { setToast('Academic profile saved.'); window.setTimeout(() => setToast(''), 3600); } }}
         onCancel={() => { setEditingProfile(false); setActiveScreen(onboardingReturnScreen); }}
         onLogout={handleLogout}
       />
@@ -1087,9 +1149,26 @@ export default function App() {
           <Dashboard
             go={go}
             user={user}
+            learningSpace={learningSpaces?.active_space || null}
+            onOpenSpaces={() => go('spaces')}
             onOpenSearch={(query) => { void openSearchResults(query); }}
           />
         )}
+        {activeScreen === 'spaces' && <LearningSpaces
+          spaces={learningSpaces}
+          onBack={() => go('dashboard')}
+          onOpenFeedback={openFeedback}
+          onRefresh={refreshLearningSpaces}
+          onKsaVerified={(onboardingRequired, space) => {
+            setOnboardingSpace(space);
+            if (onboardingRequired) {
+              setNeedsOnboarding(true);
+              setActiveScreen('onboarding');
+            } else {
+              setActiveScreen('dashboard');
+            }
+          }}
+        />}
         {activeScreen === 'questions' && <Questions go={go} onAskQuestion={askQuestion} user={user} onGoToPractice={handleGoToPractice} />}
         {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} user={user} />}
         {activeScreen === 'upload' && <Upload go={go} user={user} />}

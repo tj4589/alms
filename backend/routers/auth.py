@@ -41,7 +41,7 @@ def _verification_reason(stage: str, message: str) -> str:
         return f"{stage}_audience_invalid"
     if "issuer is invalid" in normalized:
         return f"{stage}_issuer_invalid"
-    if stage == "google" and "covenant university google account" in normalized:
+    if stage == "google" and ("covenant university google account" in normalized or "approved exammind google account" in normalized):
         return "google_hosted_domain_invalid"
     if stage == "google" and "does not match the firebase account" in normalized:
         return "google_email_mismatch"
@@ -161,10 +161,10 @@ def firebase_session(
         message = str(exc)
         if "Email verification" in message:
             detail = "Verify your email before entering ExamMind."
-        elif "Covenant" in message or "school email" in message:
-            detail = "Use a Covenant University school email to continue."
+        elif "approved ExamMind account" in message or "school email" in message:
+            detail = "Use an approved ExamMind account to continue."
         elif "Google" in message:
-            detail = "Google sign-in could not be verified. Try again with your Covenant University account."
+            detail = "Google sign-in could not be verified. Try again with an approved ExamMind account."
         else:
             detail = "We could not verify that sign-in. Please try again."
         raise HTTPException(

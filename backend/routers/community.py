@@ -130,6 +130,7 @@ def _profile_payload(db: Session, user: models.User) -> dict:
         "level": user.level,
         "semester": user.semester,
         "interests": user.interests or [],
+        "onboarding_preferences": user.onboarding_preferences or {},
         "courses": [{"id": c.id, "code": c.code, "name": c.name} for c in course_rows],
         "onboarding_state": onboarding_state,
         "onboarding_completed": onboarding_state == "completed",

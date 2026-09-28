@@ -2,6 +2,7 @@ from sqlalchemy import text
 
 from database import SessionLocal, engine, Base
 import models
+from learning_spaces import seed_learning_spaces as _seed_learning_spaces
 
 COURSES = [
     {"code": "CSC317", "name": "System Analysis and Design", "department": "Computer Science", "level": "300", "description": "Requirements, modelling, system design and implementation planning."},
@@ -32,6 +33,15 @@ def seed_courses():
     finally:
         db.close()
 
+
+def seed_learning_spaces():
+    """Seed the configured spaces and backfill existing CU users only."""
+    db = SessionLocal()
+    try:
+        _seed_learning_spaces(db, backfill_users=True)
+    finally:
+        db.close()
+
 if __name__ == "__main__":
     print("Creating database tables...")
     try:
@@ -40,6 +50,7 @@ if __name__ == "__main__":
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(bind=engine)
         seed_courses()
+        seed_learning_spaces()
         print("Done!")
     except Exception as e:
         print(f"Error creating tables: {e}")

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Check, CircleUserRound, Compass, LoaderCircle, RotateCw, Sparkles, UsersRound } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Check, CircleUserRound, Compass, LoaderCircle, RotateCw, ShieldCheck, Sparkles, UsersRound } from 'lucide-react';
 import { apiGet, apiPost, apiPut } from '../lib/api';
-import type { Course } from '../types';
+import type { Course, LearningSpace } from '../types';
 import Logo from '../components/Logo';
 import './Onboarding.css';
 
@@ -20,6 +20,7 @@ type AcademicOptions = { departments: AcademicOption[]; levels: AcademicOption[]
 
 type Props = {
   userName: string;
+  learningSpace?: LearningSpace | null;
   onComplete: () => void;
   onCancel?: () => void;
   onLogout: () => void;
@@ -52,7 +53,95 @@ function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-export default function Onboarding({ userName, onComplete, onCancel, onLogout, isEditing = false }: Props) {
+type KsaOnboardingProps = {
+  userName: string;
+  onComplete: () => void;
+  onLogout: () => void;
+};
+
+function KsaOnboarding({ userName, onComplete, onLogout }: KsaOnboardingProps) {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [name, setName] = useState(userName);
+  const [username, setUsername] = useState('');
+  const [goal, setGoal] = useState('');
+  const [helpTopics, setHelpTopics] = useState('');
+  const [explanationPreference, setExplanationPreference] = useState<'concise' | 'step_by_step' | 'examples_first' | 'not_sure'>('not_sure');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    void apiGet('/community/profile').then((data) => {
+      const profile = data as AcademicProfile & { onboarding_preferences?: Record<string, unknown> };
+      const preferences = profile.onboarding_preferences || {};
+      setName(profile.preferred_name || userName);
+      setUsername(normaliseUsername(profile.username || ''));
+      setGoal(typeof preferences.learning_goals === 'object' && Array.isArray(preferences.learning_goals) ? String(preferences.learning_goals[0] || '') : '');
+      setHelpTopics(typeof preferences.help_topics === 'object' && Array.isArray(preferences.help_topics) ? preferences.help_topics.join(', ') : '');
+      if (preferences.explanation_preference === 'concise' || preferences.explanation_preference === 'step_by_step' || preferences.explanation_preference === 'examples_first' || preferences.explanation_preference === 'not_sure') {
+        setExplanationPreference(preferences.explanation_preference);
+      }
+      setNotificationsEnabled(preferences.notifications_enabled === true);
+    }).catch((loadError) => {
+      setError(errorText(loadError, 'We could not load your KSA setup yet.'));
+    }).finally(() => setLoading(false));
+  }, [userName]);
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (name.trim().length < 2 || !/^[a-z0-9_]{3,24}$/.test(username.trim().toLowerCase())) {
+      setError('Add your name and choose a username with 3-24 lowercase letters, numbers, or underscores.');
+      setStep(1);
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await apiPost('/learning-spaces/ksa/onboarding', {
+        preferred_name: name.trim(),
+        username: username.trim().toLowerCase(),
+        learning_goals: goal ? [goal] : [],
+        help_topics: helpTopics.split(',').map(item => item.trim()).filter(Boolean).slice(0, 8),
+        explanation_preference: explanationPreference,
+        notifications_enabled: notificationsEnabled,
+      });
+      onComplete();
+    } catch (saveError) {
+      setError(errorText(saveError, 'Your KSA setup could not be saved.'));
+      if ((saveError instanceof Error ? saveError.message : '').toLowerCase().includes('username')) setStep(1);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <main className="onboarding-shell">
+      <div className="onboarding-frame">
+        <header className="onboarding-topline"><div className="onboarding-brand" aria-label="ExamMind"><Logo size={28} /><span>Exam<span>Mind.</span></span></div><div className="onboarding-top-actions"><span className="onboarding-time">Kora Sales Academy</span><button type="button" className="onboarding-logout" onClick={onLogout}>Log out</button></div></header>
+        <div className="onboarding-layout">
+          <aside className="onboarding-side" aria-label="Kora Sales Academy welcome"><div className="onboarding-side-visual"><img src="/images/onboarding/students-study.webp" alt="Students studying together with a laptop and notebooks" decoding="async" /><div className="onboarding-art-note" aria-hidden="true"><BookOpen size={18} /><span>your desk</span><strong>ready when you are</strong></div></div><div className="onboarding-side-copy"><p>Learn the work.</p><p><em>Practise what matters.</em></p><span>Tell ExamMind how you learn, then make the KSA space your own.</span></div><div className="onboarding-side-points"><span><ShieldCheck size={16} /> Verified KSA access</span><span><Compass size={16} /> Useful study context</span><span><Sparkles size={16} /> Clearer next steps</span></div></aside>
+          <section className="onboarding-main" aria-labelledby="ksa-onboarding-title">
+            {loading ? <div className="onboarding-status" role="status"><LoaderCircle size={20} className="onboarding-spin" /><h1 id="ksa-onboarding-title">Bringing your desk into focus.</h1><p>One moment while we load your setup.</p></div> : <form className="onboarding-step" onSubmit={(event) => { event.preventDefault(); if (step === 1) { setStep(2); return; } void save(event); }}>
+              <div className="onboarding-progress" aria-label={`KSA onboarding step ${step} of 2`}><div className="onboarding-progress-meta"><span>KSA space setup</span><strong>{step} of 2</strong></div><div className="onboarding-progress-track"><span style={{ width: `${step * 50}%` }} /></div></div>
+              {step === 1 ? <><span className="onboarding-step-label">Step one · identity</span><h1 id="ksa-onboarding-title">What should we call you?</h1><p className="onboarding-lede">Choose the name and handle you want to use in your KSA learning space.</p><label className="onboarding-field onboarding-field-large" htmlFor="ksa-onboarding-name"><span>Name you want to use</span><input id="ksa-onboarding-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required minLength={2} maxLength={120} /></label><label className="onboarding-field onboarding-handle-field" htmlFor="ksa-onboarding-username"><span>Username <em>Required</em></span><div className="onboarding-input-prefix"><b>@</b><input id="ksa-onboarding-username" value={username} onChange={(event) => setUsername(normaliseUsername(event.target.value))} autoComplete="username" required minLength={3} maxLength={24} placeholder="your_study_handle" /></div><small>3–24 lowercase letters, numbers, or underscores.</small></label></> : <><span className="onboarding-step-label">Step two · learning preferences</span><h1 id="ksa-onboarding-title">What would make KSA more useful?</h1><p className="onboarding-lede">These preferences help ExamMind explain and suggest practice in a way that suits you. You can change them later.</p><label className="onboarding-field" htmlFor="ksa-learning-goal"><span>Main goal <em>Optional</em></span><select id="ksa-learning-goal" value={goal} onChange={(event) => setGoal(event.target.value)}><option value="">Choose later</option><option value="product_knowledge">Build product knowledge</option><option value="prospecting">Get better at prospecting</option><option value="discovery">Practise discovery conversations</option><option value="negotiation">Improve negotiation</option></select></label><label className="onboarding-field" htmlFor="ksa-help-topics"><span>What do you want help with? <em>Optional</em></span><textarea id="ksa-help-topics" value={helpTopics} onChange={(event) => setHelpTopics(event.target.value)} rows={3} maxLength={600} placeholder="e.g. objection handling, follow-up, explaining products" /></label><label className="onboarding-field" htmlFor="ksa-explanation"><span>How should explanations start?</span><select id="ksa-explanation" value={explanationPreference} onChange={(event) => setExplanationPreference(event.target.value as typeof explanationPreference)}><option value="not_sure">I am not sure yet</option><option value="concise">Keep it concise</option><option value="step_by_step">Walk me through it step by step</option><option value="examples_first">Start with examples</option></select></label><label className="onboarding-check" htmlFor="ksa-notifications"><input id="ksa-notifications" type="checkbox" checked={notificationsEnabled} onChange={(event) => setNotificationsEnabled(event.target.checked)} /><span>Send optional reminders about study activity</span></label></>}
+              {error && <p className="onboarding-error" role="alert">{error}</p>}<div className="onboarding-actions"><button type="button" className="onboarding-back" onClick={() => { setError(''); setStep(1); }} disabled={saving || step === 1}>{step === 1 ? 'Verified KSA member' : 'Back'}</button><button type="submit" className="onboarding-submit" disabled={saving}>{saving ? <><LoaderCircle size={17} className="onboarding-spin" /> Saving…</> : step === 1 ? <>Next <ArrowRight size={17} aria-hidden="true" /></> : <>Enter my KSA desk <ArrowRight size={17} aria-hidden="true" /></>}</button></div>
+            </form>}
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default function Onboarding(props: Props) {
+  if (props.learningSpace?.slug === 'ksa') {
+    return <KsaOnboarding userName={props.userName} onComplete={props.onComplete} onLogout={props.onLogout} />;
+  }
+  return <AcademicOnboarding {...props} />;
+}
+
+function AcademicOnboarding({ userName, onComplete, onCancel, onLogout, isEditing = false }: Props) {
   const [step, setStep] = useState<Step>(isEditing ? 1 : 0);
   const [courses, setCourses] = useState<Course[]>([]);
   const [options, setOptions] = useState<AcademicOptions>({ departments: [], levels: FALLBACK_LEVELS });

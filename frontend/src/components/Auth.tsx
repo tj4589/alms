@@ -54,7 +54,13 @@ type AuthProps = {
 
 type PendingProfile = { email: string; name: string; username: string };
 
-const ALLOWED_SCHOOL_DOMAINS = new Set(['stu.cu.edu.ng', 'covenantuniversity.edu.ng']);
+const ALLOWED_SCHOOL_DOMAINS = new Set(
+  (import.meta.env.VITE_ALLOWED_AUTH_EMAIL_DOMAINS || 'stu.cu.edu.ng,covenantuniversity.edu.ng')
+    .split(',')
+    .map((domain: string) => domain.trim().toLowerCase())
+    .filter(Boolean),
+);
+const AUTH_DOMAIN_LABEL = [...ALLOWED_SCHOOL_DOMAINS].map(domain => `@${domain}`).join(' or ');
 const PENDING_PROFILE_KEY = 'exammind-pending-firebase-profile';
 const VERIFICATION_COOLDOWN_SECONDS = 60;
 const VERIFICATION_RESEND_KEY_PREFIX = 'exammind-verification-resend:';
@@ -250,7 +256,7 @@ export const Auth = ({
 
     const verifiedEmail = normaliseEmail(user.email || email);
     if (!isAllowedSchoolEmail(verifiedEmail)) {
-      setError('ExamMind is currently available to Covenant University students only.');
+      setError('ExamMind is currently available to approved learning-space members.');
       return;
     }
 
@@ -356,7 +362,7 @@ export const Auth = ({
     if (!ensureFirebase()) return;
     const schoolEmail = normaliseEmail(email);
     if (!isAllowedSchoolEmail(schoolEmail)) {
-      setError('Use your Covenant University email (@stu.cu.edu.ng or @covenantuniversity.edu.ng).');
+      setError(`Use an approved ExamMind email (${AUTH_DOMAIN_LABEL}).`);
       return;
     }
     if (!isLogin) {
@@ -420,7 +426,7 @@ export const Auth = ({
       const signedInEmail = normaliseEmail(signedInUser.email || '');
       if (!isAllowedSchoolEmail(signedInEmail)) {
         await signOut(firebaseAuth!);
-        throw new Error('Use a Covenant University Google account to continue.');
+        throw new Error('Use an approved ExamMind Google account to continue.');
       }
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const googleIdToken = credential?.idToken;
@@ -442,7 +448,7 @@ export const Auth = ({
     if (!ensureFirebase()) return;
     const schoolEmail = normaliseEmail(email);
     if (!isAllowedSchoolEmail(schoolEmail)) {
-      setError('Enter your Covenant University email first.');
+      setError('Enter your approved ExamMind email first.');
       return;
     }
     setLoading(true);
@@ -682,7 +688,7 @@ export const Auth = ({
               {verificationNotice && <div className="auth-verification-note" role="status">{verificationNotice}</div>}
               <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
                 {!isLogin && <><label className="auth-field"><span>Full Name</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" autoComplete="name" required minLength={2} /></label><label className="auth-field"><span>Username</span><input type="text" value={username} onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} placeholder="e.g. vera_csc301" autoComplete="username" required minLength={3} maxLength={24} /><small>3-24 characters - lowercase letters, numbers, underscores</small></label></>}
-                <label className="auth-field"><span>{isLogin ? 'Email Address' : 'School Email'}</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={isLogin ? 'your@email.com' : 'yourname@stu.cu.edu.ng'} autoComplete="email" required />{!isLogin && <small>Use your Covenant University email. ExamMind is currently available to Covenant University students.</small>}</label>
+                <label className="auth-field"><span>{isLogin ? 'Email Address' : 'Approved Email'}</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={isLogin ? 'your@email.com' : 'yourname@stu.cu.edu.ng'} autoComplete="email" required />{!isLogin && <small>Use an email from an approved ExamMind learning space ({AUTH_DOMAIN_LABEL}).</small>}</label>
                 <label className="auth-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'} autoComplete={isLogin ? 'current-password' : 'new-password'} required minLength={8} /></label>
                 {!isLogin && <label className="auth-field"><span>Confirm Password</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Re-enter your password" autoComplete="new-password" required minLength={8} /></label>}
                 {isLogin && <button type="button" className="auth-forgot" onClick={() => void handleForgotPassword()} disabled={loading}>Forgot password?</button>}
@@ -690,7 +696,7 @@ export const Auth = ({
               </form>
               <div className="auth-divider"><span>or</span></div>
               <button type="button" className="auth-google" onClick={() => void handleGoogleSignIn()} disabled={loading}><Globe2 size={17} aria-hidden="true" /> Continue with Google</button>
-              <p className="auth-provider-note">Use your Covenant University Google account. Personal Gmail accounts are not accepted.</p>
+              <p className="auth-provider-note">Use a Google account from an approved ExamMind learning space. Personal Gmail accounts are not accepted.</p>
               <div className="auth-footnote">{isLogin ? "Don't have an account? " : 'Already have an account? '}<button type="button" onClick={switchMode}>{isLogin ? 'Sign up' : 'Sign in'}</button></div>
             </>
           )}

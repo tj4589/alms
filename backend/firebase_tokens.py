@@ -296,7 +296,7 @@ def verify_firebase_id_token(token: str) -> dict[str, Any]:
 
     email = claims.get("email")
     if not isinstance(email, str) or not is_allowed_school_email(email):
-        raise FirebaseTokenError("A Covenant University email is required.")
+        raise FirebaseTokenError("An approved ExamMind account is required.")
     claims["email"] = email.strip().lower()
     return claims
 
@@ -317,7 +317,7 @@ def verify_google_provider_token(token: str, *, expected_email: str) -> dict[str
 
     hosted_domain = claims.get("hd")
     if not isinstance(hosted_domain, str) or hosted_domain.strip().lower() not in ALLOWED_SCHOOL_EMAIL_DOMAINS:
-        raise FirebaseTokenError("A Covenant University Google account is required.")
+        raise FirebaseTokenError("An approved ExamMind Google account is required.")
 
     provider_email = claims.get("email")
     if not isinstance(provider_email, str) or provider_email.strip().lower() != expected_email:

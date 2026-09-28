@@ -42,7 +42,7 @@ os.environ.setdefault("SECRET_KEY", SECRET_KEY)
 from sqlalchemy import text
 from database import engine, Base
 import models  # registers all ORM classes with Base.metadata
-from init_db import seed_courses
+from init_db import seed_courses, seed_learning_spaces
 
 
 with engine.begin() as conn:
@@ -62,6 +62,9 @@ _ALTER_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS level VARCHAR;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS semester VARCHAR;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS interests JSONB;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_preferences JSONB;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_learning_space_id INTEGER;",
+    "CREATE INDEX IF NOT EXISTS ix_users_active_learning_space_id ON users (active_learning_space_id);",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_state VARCHAR(20) NOT NULL DEFAULT 'pending';",
     "UPDATE users SET onboarding_state = 'completed' WHERE onboarding_completed = TRUE AND onboarding_state <> 'completed';",
@@ -159,5 +162,7 @@ Base.metadata.create_all(bind=engine)
 print("  Done.")
 seed_courses()
 print("  Seeded initial course catalogue (existing IDs preserved).")
+seed_learning_spaces()
+print("  Seeded learning spaces and backfilled existing CU memberships.")
 
 print("\nMigration complete.")
