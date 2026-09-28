@@ -25,6 +25,14 @@ type RecentUpload = {
 
 type ShareVisibility = 'public' | 'group' | 'private';
 type ShareGroup = { id: number; name: string; is_member?: boolean; status?: string };
+type DuplicateDocument = {
+  id: number;
+  type: 'past_question' | 'lecture_note';
+  title?: string | null;
+  match_type?: 'exact_checksum' | 'filename_or_title' | 'text_similarity';
+  similarity?: number;
+  actions?: string[];
+};
 
 type UploadState = 'idle' | 'processing' | 'confirm' | 'manual_metadata_required' | 'duplicate' | 'success' | 'error';
 type UploadAction = 'analyze' | 'index';
@@ -1068,6 +1076,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [recentConsent, setRecentConsent] = useState(false);
   const [recentShareError, setRecentShareError] = useState('');
   const [recentShareBusy, setRecentShareBusy] = useState(false);
+  const [duplicateDocument, setDuplicateDocument] = useState<DuplicateDocument | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1127,6 +1136,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setSelectedShareGroupIds([]);
     setSharingConsent(false);
     setSharingError('');
+    setDuplicateDocument(null);
     setPreview('');
     setPreviewSnippets([]);
     setPreviewSections([]);
@@ -1167,6 +1177,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       setExtraction(data.extraction || null);
 
       if (data.status === 'duplicate') {
+        setDuplicateDocument((data.existing_document || null) as DuplicateDocument | null);
         setProcessingSteps(doneSteps(3));
         setState('duplicate');
         setMessage(`Already uploaded as ${data.existing_document?.title || 'an existing document'}.`);
@@ -1227,7 +1238,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     return true;
   };
 
-  const confirmUpload = async (saveUnindexed = false) => {
+  const confirmUpload = async (saveUnindexed = false, duplicateResolution?: 'continue' | 'newer_version') => {
     if (!file) return;
     if (!validateConfirmation()) return;
     setState('processing');
@@ -1242,6 +1253,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     formData.append('visibility', sharingVisibility);
     formData.append('shared_group_ids', JSON.stringify(selectedShareGroupIds));
     formData.append('visibility_confirmed', sharingVisibility === 'private' ? 'true' : String(sharingConsent));
+    if (duplicateResolution) formData.append('duplicate_resolution', duplicateResolution);
     formData.append('confirmed_metadata', JSON.stringify(saveUnindexed ? {
       ...submissionMetadata,
       extraction_method: 'manual',
@@ -1254,10 +1266,12 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       const data = await apiFormPost('/ingest/upload', formData);
 
       if (data.status === 'duplicate') {
+        setDuplicateDocument((data.existing_document || null) as DuplicateDocument | null);
         setProcessingSteps(failSteps(3));
         setState('duplicate');
         setMessage('A matching document already exists.');
       } else {
+        setDuplicateDocument(null);
         setProcessingSteps(doneSteps(4));
         setChunksIndexed(data.chunks_indexed || 0);
         setLastIndexed(data.indexed !== false);
@@ -1597,9 +1611,16 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       {state === 'duplicate' && (
         <div className="duplicate-card">
           <div className="duplicate-label">Duplicate detected</div>
-          <div className="duplicate-title">This {DOC_TYPE_LABEL[metadata.document_type] ?? metadata.document_type} is already in ExamMind.</div>
-          <div className="duplicate-body">Same course, year, semester and type. Indexing was skipped to keep the knowledge base clean.</div>
+          <div className="duplicate-title">This {DOC_TYPE_LABEL[metadata.document_type] ?? metadata.document_type} may already be in ExamMind.</div>
+          <div className="duplicate-body">
+            {duplicateDocument?.title || 'A material with the same course and document details was found.'}
+            {duplicateDocument?.match_type === 'text_similarity' ? ' The readable text is also very similar.' : ''}
+            {' '}Choose what to do with your copy.
+          </div>
           <div className="confirm-actions">
+            {duplicateDocument?.id && <button type="button" className="cta cta-ghost" onClick={() => go('questions')}>View existing</button>}
+            <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(false, 'continue')}>Continue with this version</button>
+            <button type="button" className="cta" onClick={() => void confirmUpload(false, 'newer_version')}>Submit as newer version</button>
             {hasQueue && <button type="button" className="cta" onClick={nextInQueue}>Next file ({queueIndex + 1}/{queue.length})</button>}
             <button type="button" className="cta cta-ghost" onClick={() => setState('idle')}>Upload another file</button>
           </div>

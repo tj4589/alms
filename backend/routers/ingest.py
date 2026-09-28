@@ -3,7 +3,9 @@ import logging
 import mimetypes
 import os
 import re
+from difflib import SequenceMatcher
 from io import BytesIO
+from hashlib import sha256
 from typing import Any, Dict, Literal, Optional
 
 import PyPDF2
@@ -18,6 +20,7 @@ from database import get_db
 from material_access import (
     GROUP,
     PRIVATE,
+    accessible_material_filter,
     normalize_group_ids,
     normalize_visibility,
     set_material_visibility,
@@ -1007,6 +1010,7 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     # a student nothing to download. They ride along now so the caller can
     # store the file the student actually uploaded.
     result["file_bytes"] = content
+    result["source_checksum"] = sha256(content).hexdigest()
     result["file_name"] = filename or "upload"
     result["file_mime"] = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     if extension == ".pdf":
@@ -1729,6 +1733,7 @@ def normalize_metadata_fields(metadata: Dict[str, Any]) -> Dict[str, Any]:
         "exam_type": exam_type,
         "topics_covered": topics_covered,
         "source_file": str(metadata.get("source_file") or "").strip(),
+        "source_checksum": str(metadata.get("source_checksum") or "").strip().lower(),
         "extraction_method": str(metadata.get("extraction_method") or "embedded_text").strip(),
         "extraction_confidence": float(metadata.get("extraction_confidence") or 0),
         "extraction_failure_reason": str(metadata.get("extraction_failure_reason") or "").strip(),
@@ -2231,43 +2236,120 @@ def record_metadata_corrections(metadata: Dict[str, Any]) -> None:
     )
 
 
-def find_duplicate(db: Session, metadata: Dict[str, Any]):
-    course_code = metadata.get("course_code")
-    year = metadata.get("year")
-    semester = metadata.get("semester")
+def _duplicate_text(value: Any) -> str:
+    """Normalize text for conservative, bounded similarity comparisons."""
+    normalized = re.sub(r"\s+", " ", str(value or "").lower())
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return normalized.strip()[:30000]
+
+
+def _duplicate_group_key(row: Any) -> str:
+    metadata = row.metadata_json or {}
+    checksum = str(getattr(row, "source_checksum", None) or metadata.get("source_checksum") or "").strip().lower()
+    if checksum:
+        return f"checksum:{checksum}"
+    return "|".join(
+        str(value or "").strip().lower()
+        for value in (
+            getattr(row, "uploaded_by", None),
+            metadata.get("source_file"),
+            metadata.get("document_title") or getattr(row, "title", None),
+            metadata.get("course_code"),
+            metadata.get("academic_year") or getattr(row, "year", None),
+            getattr(row, "semester", None),
+        )
+    ) or f"row:{getattr(row, 'id', id(row))}"
+
+
+def _duplicate_payload(row: Any, document_type: str, match_type: str, similarity: float = 1.0) -> dict[str, Any]:
+    metadata = row.metadata_json or {}
+    title = metadata.get("document_title") or getattr(row, "title", None) or metadata.get("source_file") or "Existing material"
+    return {
+        "id": row.id,
+        "type": document_type,
+        "title": title,
+        "file_url": getattr(row, "file_url", None),
+        "match_type": match_type,
+        "similarity": round(float(similarity), 4),
+        "actions": ["view", "continue", "newer_version", "cancel"],
+    }
+
+
+def find_duplicate(
+    db: Session,
+    metadata: Dict[str, Any],
+    current_user: models.User | None = None,
+    content_text: str = "",
+):
+    """Find only duplicates the current user is authorized to know about.
+
+    The old implementation searched every row and matched filename/title. That
+    could disclose the existence of a private or group-only material. All
+    candidates now pass the same access predicate used by retrieval first.
+    """
+    if current_user is None:
+        return None
+
     document_type = metadata.get("document_type")
-    source_file = (metadata.get("source_file") or "").strip().lower()
-    document_title = (metadata.get("document_title") or "").strip().lower()
-
-    if not course_code or not year or not semester or course_code == "UNKNOWN":
+    model = models.PastQuestion if document_type == "past_question" else models.LectureNote
+    material_type = "past_question" if document_type == "past_question" else "lecture_note"
+    query = db.query(model).filter(accessible_material_filter(db, model, current_user))
+    candidates = query.limit(200).all()
+    if not candidates:
         return None
 
-    if document_type != "past_question":
-        query = db.query(models.LectureNote).filter(
-            models.LectureNote.year == year,
-            models.LectureNote.semester == semester,
-            models.LectureNote.metadata_json["course_code"].as_string() == course_code,
-        )
-        candidates = query.limit(20).all()
-        duplicate = next((row for row in candidates if _same_uploaded_file(row.metadata_json, source_file, document_title)), None)
-        if duplicate:
-            return {"id": duplicate.id, "type": "lecture_note", "title": duplicate.title, "file_url": duplicate.file_url}
-        return None
+    source_checksum = str(metadata.get("source_checksum") or "").strip().lower()
+    source_file = str(metadata.get("source_file") or "").strip().lower()
+    document_title = str(metadata.get("document_title") or "").strip().lower()
+    course_code = str(metadata.get("course_code") or "").strip().upper()
+    year = metadata.get("year")
+    semester = str(metadata.get("semester") or "").strip().lower()
+    groups: dict[str, dict[str, Any]] = {}
+    for row in candidates:
+        row_metadata = row.metadata_json or {}
+        row_type = row_metadata.get("document_type") or material_type
+        if row_type != material_type:
+            continue
+        row_course = str(row_metadata.get("course_code") or "").strip().upper()
+        if course_code and course_code != "UNKNOWN" and row_course and row_course != course_code:
+            continue
+        row_year = getattr(row, "year", None) or row_metadata.get("year")
+        if year and row_year and int(row_year) != int(year):
+            continue
+        row_semester = str(getattr(row, "semester", None) or row_metadata.get("semester") or "").strip().lower()
+        if semester and semester != "unknown" and row_semester and row_semester != semester:
+            continue
+        key = _duplicate_group_key(row)
+        group = groups.setdefault(key, {"row": row, "parts": []})
+        if getattr(row, "content_text", None):
+            group["parts"].append(row.content_text)
 
-    candidates = (
-        db.query(models.PastQuestion)
-        .filter(
-            models.PastQuestion.year == year,
-            models.PastQuestion.semester == semester,
-            models.PastQuestion.metadata_json["course_code"].as_string() == course_code,
-            models.PastQuestion.metadata_json["document_type"].as_string() == "past_question",
-        )
-        .limit(20)
-        .all()
-    )
-    duplicate = next((row for row in candidates if _same_uploaded_file(row.metadata_json, source_file, document_title)), None)
-    if duplicate:
-        return {"id": duplicate.id, "type": "past_question", "title": duplicate.metadata_json.get("source_file"), "file_url": duplicate.file_url}
+    for group in groups.values():
+        row = group["row"]
+        row_metadata = row.metadata_json or {}
+        row_checksum = str(getattr(row, "source_checksum", None) or row_metadata.get("source_checksum") or "").strip().lower()
+        if source_checksum and row_checksum == source_checksum:
+            return _duplicate_payload(row, material_type, "exact_checksum")
+
+    for group in groups.values():
+        row = group["row"]
+        row_metadata = row.metadata_json or {}
+        if _same_uploaded_file(row_metadata, source_file, document_title):
+            return _duplicate_payload(row, material_type, "filename_or_title")
+
+    normalized_text = _duplicate_text(content_text)
+    if len(normalized_text) < 200:
+        return None
+    best: tuple[float, Any] | None = None
+    for group in groups.values():
+        existing_text = _duplicate_text(" ".join(group["parts"]))
+        if len(existing_text) < 200:
+            continue
+        score = SequenceMatcher(None, normalized_text, existing_text, autojunk=False).ratio()
+        if best is None or score > best[0]:
+            best = (score, group["row"])
+    if best and best[0] >= 0.9:
+        return _duplicate_payload(best[1], material_type, "text_similarity", best[0])
     return None
 
 
@@ -2276,6 +2358,48 @@ def _same_uploaded_file(existing: Optional[Dict[str, Any]], source_file: str, do
     existing_file = str(existing.get("source_file") or "").strip().lower()
     existing_title = str(existing.get("document_title") or "").strip().lower()
     return bool((source_file and existing_file == source_file) or (document_title and existing_title == document_title))
+
+
+def _next_version_number(db: Session, model: Any, parent_id: int | None) -> int:
+    """Return the next logical version number without trusting client IDs."""
+    if not parent_id:
+        return 1
+    parent = db.query(model).filter(model.id == parent_id).first()
+    if not parent:
+        return 1
+    root_id = getattr(parent, "version_of_id", None) or parent.id
+    rows = db.query(model).all()
+    numbers = [
+        int(getattr(row, "version_number", 1) or 1)
+        for row in rows
+        if getattr(row, "id", None) == root_id or getattr(row, "version_of_id", None) == root_id
+    ]
+    return max(numbers or [1]) + 1
+
+
+def _citation_for_chunk(text: str, sections: list[Any]) -> dict[str, Any] | None:
+    """Attach a retrieval chunk to the best truthful page/section boundary."""
+    if not sections:
+        return None
+    chunk_words = set(re.findall(r"[a-z0-9]{3,}", _duplicate_text(text)))
+    if not chunk_words:
+        return None
+    best: tuple[float, Any] | None = None
+    for section in sections:
+        section_words = set(re.findall(r"[a-z0-9]{3,}", _duplicate_text(section.body)))
+        score = len(chunk_words & section_words) / max(len(chunk_words), 1)
+        if best is None or score > best[0]:
+            best = (score, section)
+    if best is None:
+        return None
+    section = best[1]
+    return {
+        "section_index": section.index,
+        "section": section.heading,
+        "page_from": section.page_from,
+        "page_to": section.page_to,
+        "cut_by": section.cut_by,
+    }
 
 
 def _empty_delete_summary() -> Dict[str, int]:
@@ -2488,6 +2612,7 @@ def upload_document(
     visibility: Optional[str] = Form(None),
     shared_group_ids: Optional[str] = Form(None),
     visibility_confirmed: bool = Form(False),
+    duplicate_resolution: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
@@ -2532,6 +2657,7 @@ def upload_document(
     )
     metadata = normalized_metadata(confirmed_metadata, ai_metadata)
     metadata["source_file"] = file.filename
+    metadata["source_checksum"] = extraction.get("source_checksum") or metadata.get("source_checksum") or ""
     metadata["extraction_method"] = metadata.get("extraction_method") or extraction["method"]
     metadata["extraction_confidence"] = metadata.get("extraction_confidence", extraction["extraction_confidence"])
     metadata["extraction_failure_reason"] = extraction.get("failure_reason") or metadata.get("extraction_failure_reason") or ""
@@ -2605,9 +2731,17 @@ def upload_document(
     preview_text = cleaned_text[:5000]
     response_extraction = public_extraction_payload(extraction)
 
-    duplicate = find_duplicate(db, metadata)
-    if duplicate:
+    form_duplicate_resolution = duplicate_resolution if isinstance(duplicate_resolution, str) else None
+    duplicate = find_duplicate(db, metadata, current_user, operational_text)
+    if duplicate and form_duplicate_resolution not in {"continue", "newer_version"}:
         return {"status": "duplicate", "metadata": metadata, "existing_document": duplicate}
+
+    version_parent_id = duplicate.get("id") if duplicate and form_duplicate_resolution == "newer_version" else None
+    material_model = models.PastQuestion if metadata.get("document_type") == "past_question" else models.LectureNote
+    version_number = _next_version_number(db, material_model, version_parent_id)
+    metadata["version_number"] = version_number
+    if version_parent_id:
+        metadata["version_of_id"] = version_parent_id
 
     if not extraction_succeeded and not confirm:
         return {
@@ -2688,6 +2822,7 @@ def upload_document(
             detail=f"PDF produced {len(chunks)} chunks, which exceeds MAX_INDEX_CHUNKS={MAX_INDEX_CHUNKS}. Upload a smaller document.",
         )
 
+    reading_sections = split_into_sections(operational_text, extraction.get("page_texts"))
     if metadata.get("document_type") != "past_question":
         note = models.LectureNote(
             course_id=course.id if course else None,
@@ -2697,6 +2832,9 @@ def upload_document(
             file_name=extraction.get("file_name"),
             file_mime=extraction.get("file_mime"),
             file_size=len(extraction.get("file_bytes") or b"") or None,
+            source_checksum=extraction.get("source_checksum") or metadata.get("source_checksum"),
+            version_of_id=version_parent_id,
+            version_number=version_number,
             topic=", ".join(metadata.get("topics_covered", [])[:3]) or None,
             title=metadata.get("document_title") or metadata.get("course_title") or metadata.get("source_file") or "Lecture note",
             year=metadata.get("year"),
@@ -2707,6 +2845,12 @@ def upload_document(
         db.add(note)
         db.flush()
         for index, chunk in enumerate(chunks):
+            chunk_metadata = {
+                **metadata,
+                "chunk_index": index,
+                "indexed": bool(chunk.strip()),
+                "source_citation": _citation_for_chunk(chunk, reading_sections),
+            }
             db.add(
                 models.LectureNoteChunk(
                     lecture_note_id=note.id,
@@ -2715,13 +2859,13 @@ def upload_document(
                     embedding=embed_or_fail(chunk),
                     topic_tag=", ".join(metadata.get("topics_covered", [])[:2]) or None,
                     chunk_index=index,
-                    metadata_json=metadata,
+                    metadata_json=chunk_metadata,
                 )
             )
         # Reading sections, cut from the document's own structure rather than
         # from the retrieval chunks above. Separate pass, separate table: the
         # chunks stay tuned for recall and these stay readable.
-        for section in split_into_sections(operational_text, extraction.get("page_texts")):
+        for section in reading_sections:
             db.add(
                 models.LectureNoteSection(
                     lecture_note_id=note.id,
@@ -2759,7 +2903,15 @@ def upload_document(
                 file_name=extraction.get("file_name") if index == 0 else None,
                 file_mime=extraction.get("file_mime") if index == 0 else None,
                 file_size=(len(extraction.get("file_bytes") or b"") or None) if index == 0 else None,
-                metadata_json={**metadata, "chunk_index": index, "indexed": bool(chunk.strip())},
+                source_checksum=(extraction.get("source_checksum") or metadata.get("source_checksum")) if index == 0 else None,
+                version_of_id=version_parent_id,
+                version_number=version_number,
+                metadata_json={
+                    **metadata,
+                    "chunk_index": index,
+                    "indexed": bool(chunk.strip()),
+                    "source_citation": _citation_for_chunk(chunk, reading_sections),
+                },
             )
             db.add(pq)
             db.flush()

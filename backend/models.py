@@ -81,6 +81,9 @@ class PastQuestion(Base):
     file_name = Column(String, nullable=True)
     file_mime = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
+    source_checksum = Column(String(64), nullable=True, index=True)
+    version_of_id = Column(Integer, ForeignKey("past_questions.id"), nullable=True, index=True)
+    version_number = Column(Integer, nullable=False, default=1, server_default="1")
     metadata_json = Column(JSON, nullable=True)
     # Publication is deliberately private until the uploader gives explicit
     # consent. Older rows are migrated to the same safe state.
@@ -116,6 +119,9 @@ class LectureNote(Base):
     file_name = Column(String, nullable=True)
     file_mime = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
+    source_checksum = Column(String(64), nullable=True, index=True)
+    version_of_id = Column(Integer, ForeignKey("lecture_notes.id"), nullable=True, index=True)
+    version_number = Column(Integer, nullable=False, default=1, server_default="1")
     metadata_json = Column(JSON, nullable=True)
     visibility = Column(String(16), nullable=False, default="private", server_default="private", index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)

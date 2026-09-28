@@ -1,10 +1,10 @@
 import os
 import re
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import Text, func, or_
+from sqlalchemy import Text, false, func, or_
 from sqlalchemy.orm import Session
 
 import auth
@@ -44,6 +44,8 @@ class AskQuestionResponse(BaseModel):
     sources: List[str]
     past_question_sources: List[str] = []
     lecture_note_sources: List[str] = []
+    source_citations: List[dict] = []
+    insufficient_sources: bool = False
     no_past_questions_found: bool = False
     no_lecture_notes_found: bool = False
     understanding: dict | None = None
@@ -98,6 +100,47 @@ def _past_question_context(item: models.PastQuestion) -> str:
     return "\n".join(parts)
 
 
+def _source_citation(db: Session, item: Any, source: str, material_type: str) -> dict:
+    """Return a concise, user-safe citation without exposing stored content."""
+    metadata = getattr(item, "metadata_json", None) or {}
+    citation = metadata.get("source_citation") if isinstance(metadata, dict) else None
+    if not isinstance(citation, dict):
+        citation = {}
+    result = {
+        "source": source,
+        "material_type": material_type,
+        "material_id": getattr(item, "id", None),
+        "page_from": citation.get("page_from"),
+        "page_to": citation.get("page_to"),
+        "section": citation.get("section"),
+        "section_index": citation.get("section_index"),
+        "evidence_status": "retrieved_source",
+    }
+    if material_type == "lecture_note" and not result["section"] and not result["page_from"]:
+        sections = (
+            db.query(models.LectureNoteSection)
+            .filter(models.LectureNoteSection.lecture_note_id == item.lecture_note_id)
+            .order_by(models.LectureNoteSection.section_index)
+            .all()
+        )
+        chunk_words = set(re.findall(r"[a-z0-9]{3,}", str(getattr(item, "chunk_text", "")).lower()))
+        best = None
+        for section in sections:
+            section_words = set(re.findall(r"[a-z0-9]{3,}", str(section.body or "").lower()))
+            score = len(chunk_words & section_words) / max(len(chunk_words), 1)
+            if best is None or score > best[0]:
+                best = (score, section)
+        if best:
+            section = best[1]
+            result.update({
+                "page_from": section.page_from,
+                "page_to": section.page_to,
+                "section": section.heading,
+                "section_index": section.section_index,
+            })
+    return result
+
+
 def _topic_list_answer(question: str, rows: list[models.PastQuestion], sources: list[str]) -> str | None:
     if not re.search(r"\b(topic|topics|cover|appear|what.+in)\b", question, re.IGNORECASE):
         return None
@@ -137,6 +180,8 @@ def run_rag_query(
             "sources": [],
             "past_question_sources": [],
             "lecture_note_sources": [],
+            "source_citations": [],
+            "insufficient_sources": True,
             "no_past_questions_found": False,
             "no_lecture_notes_found": False,
             "understanding": public_view,
@@ -148,9 +193,9 @@ def run_rag_query(
     # ── Retrieve context: semantic if embeddings available, keyword otherwise ──
     past_query = db.query(models.PastQuestion)
     if current_user is not None:
-        past_query = past_query.filter(
-            accessible_material_filter(db, models.PastQuestion, current_user),
-        )
+        past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))
+    else:
+        past_query = past_query.filter(false())
     if course_id is not None:
         past_query = past_query.filter(models.PastQuestion.course_id == course_id)
     if topic_id is not None:
@@ -162,6 +207,8 @@ def run_rag_query(
             models.LectureNote,
             models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
         ).filter(accessible_material_filter(db, models.LectureNote, current_user))
+    else:
+        notes_query = notes_query.filter(false())
     if course_id is not None:
         notes_query = notes_query.filter(models.LectureNoteChunk.course_id == course_id)
 
@@ -194,14 +241,16 @@ def run_rag_query(
         related = ", ".join((understanding.get("related_terms") or [])[:5])
         return {
             "answer": (
-                f"I could not find {interpreted} in uploaded ExamMind materials yet. "
-                "To make my answer grounded, upload lecture notes, past questions, course outlines, "
-                "tutorial sheets, assignment questions, revision slides, or exam prep PDFs"
-                f"{f' that mention {interpreted} or related terms like {related}' if related else ''}."
+                "I couldn't find enough information in your available materials to answer this confidently. "
+                "Upload a relevant lecture note, past question, course outline, tutorial, assignment, "
+                "revision slide, or exam-prep document"
+                f"{f' mentioning {interpreted} or related terms like {related}' if related else ''}."
             ),
             "sources": [],
             "past_question_sources": [],
             "lecture_note_sources": [],
+            "source_citations": [],
+            "insufficient_sources": True,
             "no_past_questions_found": True,
             "no_lecture_notes_found": True,
             "understanding": public_view,
@@ -217,11 +266,16 @@ def run_rag_query(
 
     note_context = []
     note_sources = []
+    source_citations = []
     for item in similar_notes:
         note_context.append(f"Lecture Note: {item.chunk_text}")
         source = source_from_metadata("Lecture note", None, item.metadata_json)
         if source not in note_sources:
             note_sources.append(source)
+        source_citations.append(_source_citation(db, item, source, "lecture_note"))
+    for item in similar_questions:
+        source = source_from_metadata("Past question", item.year, item.metadata_json)
+        source_citations.append(_source_citation(db, item, source, "past_question"))
 
     topic_answer = _topic_list_answer(question, similar_questions, past_sources)
     if topic_answer:
@@ -230,6 +284,8 @@ def run_rag_query(
             "sources": past_sources + note_sources,
             "past_question_sources": past_sources,
             "lecture_note_sources": note_sources,
+            "source_citations": source_citations,
+            "insufficient_sources": False,
             "no_past_questions_found": no_past_questions_found,
             "no_lecture_notes_found": no_lecture_notes_found,
             "understanding": public_view,
@@ -244,7 +300,7 @@ def run_rag_query(
         "When the student asks about uploaded content, do not use outside knowledge except to explain terms that appear in the retrieved material.\n"
         "Cite source names exactly as listed in the source metadata when possible, for example MIS415 Project Management Past Question 2022/2023.\n"
         "If OCR quality or extraction looks imperfect, say so briefly and answer from the usable text.\n"
-        "If no relevant uploaded source was found, say that clearly and do not invent exam content.\n\n"
+        "If the retrieved sources do not contain enough information, say exactly: I couldn't find enough information in your available materials to answer this confidently. Do not invent exam content.\n\n"
         f"Room or workflow context:\n{room_context or 'No extra room context.'}\n\n"
         f"Source metadata:\n{chr(10).join(past_sources + note_sources) or 'No source metadata available.'}\n\n"
         f"Student's original wording:\n{question}\n\n"
@@ -281,6 +337,8 @@ def run_rag_query(
         "sources": past_sources + note_sources,
         "past_question_sources": past_sources,
         "lecture_note_sources": note_sources,
+        "source_citations": source_citations,
+        "insufficient_sources": False,
         "no_past_questions_found": no_past_questions_found,
         "no_lecture_notes_found": no_lecture_notes_found,
         "understanding": public_view,
@@ -333,10 +391,11 @@ def _metadata_context(db: Session, current_user: models.User | None = None) -> l
     if current_user is not None:
         notes_query = notes_query.filter(accessible_material_filter(db, models.LectureNote, current_user))
         past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))
-    for note in notes_query.order_by(models.LectureNote.created_at.desc()).limit(120).all():
-        context.append({"title": note.title, "topic": note.topic, **(note.metadata_json or {})})
-    for pq in past_query.order_by(models.PastQuestion.created_at.desc()).limit(120).all():
-        context.append({"content": (pq.content_text or "")[:180], **(pq.metadata_json or {})})
+    if current_user is not None:
+        for note in notes_query.order_by(models.LectureNote.created_at.desc()).limit(120).all():
+            context.append({"title": note.title, "topic": note.topic, **(note.metadata_json or {})})
+        for pq in past_query.order_by(models.PastQuestion.created_at.desc()).limit(120).all():
+            context.append({"content": (pq.content_text or "")[:180], **(pq.metadata_json or {})})
     return context
 
 

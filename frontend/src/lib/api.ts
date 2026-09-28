@@ -157,3 +157,15 @@ export function apiPut(path: string, body: RequestBody) {
     'Request failed.',
   );
 }
+
+export function apiPatch(path: string, body: RequestBody) {
+  return request(
+    path,
+    {
+      method: 'PATCH',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    },
+    'Request failed.',
+  );
+}
