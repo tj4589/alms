@@ -91,20 +91,22 @@ def note(note_id: int, owner_id: int, filename: str = "shared.pdf"):
 
 
 class IngestDeletionTests(unittest.TestCase):
-    def test_user_can_delete_their_own_upload(self):
+    def test_student_cannot_delete_their_own_upload(self):
         owned = note(1, 7, "mine.pdf")
         other = note(2, 8, "theirs.pdf")
         db = DatabaseDouble(owned, other)
 
-        response = ingest.delete_uploaded_document(
-            ingest.DeleteDocumentRequest(document_type="lecture_note", source_file="mine.pdf"),
-            db,
-            user(7),
-        )
+        with self.assertRaises(HTTPException) as error:
+            ingest.delete_uploaded_document(
+                ingest.DeleteDocumentRequest(document_type="lecture_note", source_file="mine.pdf"),
+                db,
+                user(7),
+            )
 
-        self.assertEqual(response["lecture_notes_deleted"], 1)
-        self.assertEqual(db.rows[models.LectureNote], [other])
-        self.assertEqual(db.commits, 1)
+        self.assertEqual(error.exception.status_code, 403)
+        self.assertEqual(db.rows[models.LectureNote], [owned, other])
+        self.assertEqual(db.commits, 0)
+        self.assertEqual(db.deleted, [])
 
     def test_user_cannot_delete_another_users_upload_by_filename(self):
         target = note(1, 8, "private.pdf")
@@ -117,7 +119,7 @@ class IngestDeletionTests(unittest.TestCase):
                 user(7),
             )
 
-        self.assertEqual(error.exception.status_code, 404)
+        self.assertEqual(error.exception.status_code, 403)
         self.assertEqual(db.rows[models.LectureNote], [target])
         self.assertEqual(db.commits, 0)
         self.assertEqual(db.deleted, [])
@@ -165,7 +167,7 @@ class IngestDeletionTests(unittest.TestCase):
                 user(7),
             )
 
-        self.assertEqual(error.exception.status_code, 404)
+        self.assertEqual(error.exception.status_code, 403)
         self.assertEqual(db.rows[models.LectureNote], [target])
         self.assertEqual(db.deleted, [])
 
@@ -188,7 +190,7 @@ class IngestDeletionTests(unittest.TestCase):
                 user(7),
             )
 
-        self.assertEqual(error.exception.status_code, 404)
+        self.assertEqual(error.exception.status_code, 403)
         self.assertEqual(db.rows[models.LectureNote], [target])
         self.assertEqual(db.deleted, [])
 

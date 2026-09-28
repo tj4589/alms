@@ -4,11 +4,11 @@ import mimetypes
 import os
 import re
 from io import BytesIO
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 import PyPDF2
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 import auth
@@ -130,7 +130,25 @@ DOCUMENT_TYPES = {
     "exam_prep",
     "unknown",
 }
-EXAM_TYPES = {"quiz", "test", "midterm", "final", "unknown"}
+EXAM_TYPES = {"quiz", "test", "midterm", "continuous_assessment", "final", "unknown"}
+METADATA_STATUSES = {
+    "catalogue_confirmed",
+    "strong_evidence",
+    "suggested",
+    "missing_required",
+    "optional",
+    "conflict",
+}
+METADATA_SOURCES = {
+    "filename",
+    "document_text",
+    "document_properties",
+    "ocr",
+    "course_catalogue",
+    "upload_context",
+    "ai_inference",
+    "user_confirmed",
+}
 TRUSTED_HEURISTIC_FIELDS = {
     "document_type",
     "course_code",
@@ -165,6 +183,71 @@ class DeleteDocumentRequest(BaseModel):
     document_id: int | None = Field(default=None, gt=0)
 
 
+class MetadataEvidence(BaseModel):
+    """The safe, reviewable provenance attached to one metadata proposal."""
+
+    model_config = {"extra": "forbid"}
+
+    value: Any | None = None
+    status: Literal[
+        "catalogue_confirmed",
+        "strong_evidence",
+        "suggested",
+        "missing_required",
+        "optional",
+        "conflict",
+    ]
+    source: Literal[
+        "filename",
+        "document_text",
+        "document_properties",
+        "ocr",
+        "course_catalogue",
+        "upload_context",
+        "ai_inference",
+        "user_confirmed",
+    ]
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence: str = Field(default="", max_length=240)
+    page_number: int | None = Field(default=None, ge=1)
+    requires_confirmation: bool = False
+
+
+class StructuredMetadataResponse(BaseModel):
+    """Strict AI contract. Unknown keys are rejected before they reach metadata."""
+
+    model_config = {"extra": "forbid"}
+
+    title: str | None = Field(default=None, validation_alias=AliasChoices("title", "document_title"))
+    document_type: Literal[
+        "past_question",
+        "lecture_note",
+        "course_outline",
+        "tutorial",
+        "assignment",
+        "revision_slide",
+        "exam_prep",
+        "unknown",
+    ] | None = None
+    course_code: str | None = None
+    course_title: str | None = None
+    academic_session: str | None = Field(default=None, validation_alias=AliasChoices("academic_session", "academic_year"))
+    semester: str | None = None
+    instructor_or_author: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("instructor_or_author", "instructor_names"),
+    )
+    year: int | None = None
+    department: str | None = None
+    faculty: str | None = None
+    college: str | None = None
+    institution: str | None = None
+    exam_type: Literal["quiz", "test", "midterm", "continuous_assessment", "final", "unknown"] | None = None
+    topics: list[str] = Field(default_factory=list, validation_alias=AliasChoices("topics", "topics_covered"))
+    confidence_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    evidence: dict[str, MetadataEvidence] = Field(default_factory=dict)
+
+
 def missing_ai_error(feature: str):
     return HTTPException(
         status_code=503,
@@ -196,6 +279,19 @@ def delete_uploaded_document(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    # Student uploads are retained by policy. Keep the destructive path
+    # available only to administrators; do this before any lookup so a
+    # student cannot infer whether a material exists from the response.
+    if current_user.role != "admin":
+        _audit_material_deletion(
+            current_user,
+            action="delete_material",
+            document_type=(req.document_type or "").strip().lower(),
+            resource_ids=[req.document_id] if req.document_id is not None else [],
+            result="forbidden",
+        )
+        raise HTTPException(status_code=403, detail="Administrator access is required to remove materials.")
+
     document_type = (req.document_type or "").strip().lower()
     source_file = (req.source_file or "").strip()
     document_title = (req.document_title or "").strip()
@@ -695,6 +791,7 @@ def _extract_pptx_text(content: bytes, warnings: list[str]) -> Dict[str, Any]:
     try:
         deck = Presentation(BytesIO(content))
         parts: list[str] = []
+        slide_texts: list[str] = []
         for slide_index, slide in enumerate(deck.slides, start=1):
             slide_parts: list[str] = []
             for shape in slide.shapes:
@@ -711,14 +808,19 @@ def _extract_pptx_text(content: bytes, warnings: list[str]) -> Dict[str, Any]:
             notes_frame = getattr(notes_slide, "notes_text_frame", None) if notes_slide else None
             if notes_frame and notes_frame.text.strip():
                 slide_parts.append(notes_frame.text)
+            slide_texts.append("\n".join(slide_parts).strip())
             if slide_parts:
                 parts.append(f"Slide {slide_index}\n" + "\n".join(slide_parts))
         text = _clean_extracted_text(parts)
         page_count = len(deck.slides)
         if len(text.strip()) >= MIN_INDEXABLE_TEXT_CHARS:
-            return _successful_text_extraction(text, "pptx_text", page_count, warnings)
+            result = _successful_text_extraction(text, "pptx_text", page_count, warnings)
+            result["page_texts"] = slide_texts
+            return result
         warnings.append("PowerPoint file did not contain enough readable text.")
-        return _failed_text_extraction(text, page_count, warnings, "no_text_found")
+        result = _failed_text_extraction(text, page_count, warnings, "no_text_found")
+        result["page_texts"] = slide_texts
+        return result
     except Exception as exc:
         warnings.append(f"PowerPoint text extraction failed: {exc}")
         return _failed_text_extraction("", 0, warnings, "pptx_read_failed")
@@ -907,7 +1009,10 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     result["file_bytes"] = content
     result["file_name"] = filename or "upload"
     result["file_mime"] = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    result["page_texts"] = _page_texts(content) if extension == ".pdf" else None
+    if extension == ".pdf":
+        result["page_texts"] = _page_texts(content)
+    else:
+        result.setdefault("page_texts", None)
     return result
 
 
@@ -933,12 +1038,17 @@ def _page_texts(content: bytes) -> list[str] | None:
         doc.close()
 
 
-def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
+def infer_metadata_fallback(filename: str, text: str, page_texts: Optional[list[str]] = None) -> Dict[str, Any]:
     sample = f"{filename}\n{text[:2500]}"
-    course_match = re.search(r"\b[A-Z]{2,4}\s?\d{3}\b", sample, re.IGNORECASE)
+    course_matches = _extract_course_codes(sample)
+    course_match = course_matches[0] if course_matches else ""
     academic_year = _extract_academic_year(sample)
     year_match = re.search(r"\b(20\d{2}|19\d{2})\b", sample)
-    semester_match = re.search(r"\b(first|second|rain|harmattan|alpha|omega)(?:\s+semester)?\b", sample, re.IGNORECASE)
+    semester_match = re.search(
+        r"\b(?:semester\s*)?(first|second|rain|harmattan|alpha|omega|1st|2nd)(?:\s+semester)?\b|\bsemester\s*([12])\b",
+        sample,
+        re.IGNORECASE,
+    )
     exam_signal_count = sum(
         bool(re.search(pattern, sample, re.IGNORECASE))
         for pattern in [
@@ -968,12 +1078,24 @@ def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
 
     if looks_like_exam:
         document_type = "past_question"
+    elif re.search(r"\b(course\s+outline|course\s+syllabus|syllabus)\b", sample, re.IGNORECASE):
+        document_type = "course_outline"
+    elif re.search(r"\b(assignment|coursework|take[-\s]?home)\b", sample, re.IGNORECASE):
+        document_type = "assignment"
+    elif re.search(r"\b(tutorial|worked\s+example|problem\s+set)\b", sample, re.IGNORECASE):
+        document_type = "tutorial"
+    elif re.search(r"\b(exam\s+prep|exam\s+revision|revision\s+guide)\b", sample, re.IGNORECASE):
+        document_type = "exam_prep"
+    elif re.search(r"\b(revision\s+slide|revision\s+slides)\b", sample, re.IGNORECASE):
+        document_type = "revision_slide"
     elif looks_like_note:
         document_type = "lecture_note"
     else:
         document_type = "unknown"
-    course_code = course_match.group(0).upper().replace(" ", "") if course_match else "UNKNOWN"
-    semester = semester_match.group(1).title() if semester_match else "Unknown"
+    course_code = course_match or "UNKNOWN"
+    semester = _normalize_semester_label(
+        semester_match.group(1) or semester_match.group(2) if semester_match else ""
+    ) or "Unknown"
     year = int(year_match.group(1)) if year_match else None
     if academic_year and not year:
         year = int(academic_year.split("/")[-1])
@@ -995,51 +1117,143 @@ def infer_metadata_fallback(filename: str, text: str) -> Dict[str, Any]:
         "exam_type": exam_type,
         "topics_covered": topics_covered,
         "confidence_score": 0.55 if course_match and (course_title or topics_covered) else 0.45 if course_match else 0.25,
+        "metadata_conflicts": {
+            "course_code": course_matches[1:],
+        } if len(course_matches) > 1 else {},
     }
 
 
-def extract_metadata(filename: str, text: str) -> Dict[str, Any]:
-    heuristic = normalize_metadata_fields(infer_metadata_fallback(filename, text))
+def extract_metadata(filename: str, text: str, page_texts: Optional[list[str]] = None, extraction_method: str = "embedded_text") -> Dict[str, Any]:
+    heuristic = normalize_metadata_fields(infer_metadata_fallback(filename, text, page_texts))
     prompt = f"""
-Extract academic document metadata from this Nigerian university PDF.
-Read headers, footers, cover pages, course information, instructor/author names, department/faculty/college names, exam instructions, and repeated topic headings.
-Return JSON only with these keys:
-document_type: "past_question", "lecture_note", "course_outline", "tutorial", "assignment", "revision_slide", "exam_prep", or "unknown"
-document_title, course_code, course_title,
-instructor_names: array of explicit instructor or author names only. If no name is explicit, return [].
-year, semester, department, faculty, college,
-exam_type: "quiz", "test", "midterm", "final", or "unknown",
-topics_covered: array of concise topic strings,
-confidence_score: number from 0 to 1.
-Do not hallucinate instructor or author names.
+Extract metadata from this academic document. Use only explicit facts in the
+filename or excerpt. Return one JSON object and no commentary, reasoning, or
+additional keys. The object must match this schema exactly:
+{{
+  "title": string|null,
+  "document_type": "past_question"|"lecture_note"|"course_outline"|"tutorial"|"assignment"|"revision_slide"|"exam_prep"|"unknown"|null,
+  "course_code": string|null,
+  "course_title": string|null,
+  "academic_session": string|null,
+  "semester": string|null,
+  "instructor_or_author": string[],
+  "year": integer|null,
+  "department": string|null,
+  "faculty": string|null,
+  "college": string|null,
+  "institution": string|null,
+  "exam_type": "quiz"|"test"|"midterm"|"continuous_assessment"|"final"|"unknown"|null,
+  "topics": string[],
+  "confidence_score": number|null,
+  "evidence": {{
+    "<field>": {{
+      "value": string|number|string[]|null,
+      "status": "catalogue_confirmed"|"strong_evidence"|"suggested"|"missing_required"|"optional"|"conflict",
+      "source": "filename"|"document_text"|"document_properties"|"ocr"|"course_catalogue"|"upload_context"|"ai_inference"|"user_confirmed",
+      "confidence": number,
+      "evidence": string,
+      "page_number": integer|null,
+      "requires_confirmation": boolean
+    }}
+  }}
+}}
+Use null or [] for unknown values. Evidence must be a short excerpt, never
+chain-of-thought. Do not invent page numbers.
 
 Filename: {filename}
 Document excerpt:
 {text[:6000]}
 """
     ai_metadata: Dict[str, Any] = {}
-    try:
-        raw = generate_ai_response(prompt, temperature=0).strip()
-        raw = re.sub(r"^```json|```$", "", raw, flags=re.IGNORECASE | re.MULTILINE).strip()
-        ai_metadata = normalize_metadata_fields(json.loads(raw))
-    except AIProviderError as exc:
-        print(f"AI: Both providers unavailable, using heuristics - {exc}")
-    except Exception as exc:
-        print(f"AI: Metadata JSON invalid, using heuristics - {exc}")
+    if _metadata_needs_ai(heuristic):
+        try:
+            raw = generate_ai_response(prompt, temperature=0).strip()
+            ai_metadata = _parse_strict_ai_metadata(raw)
+        except AIProviderError as exc:
+            print(f"AI: Both providers unavailable, using heuristics - {exc}")
+        except Exception as exc:
+            print(f"AI: Metadata JSON invalid, using heuristics - {exc}")
 
     merged = normalize_metadata_fields(_merge_ai_metadata_with_heuristics(heuristic, ai_metadata))
+    merged = _attach_metadata_review(
+        merged,
+        heuristic=heuristic,
+        ai_metadata=ai_metadata,
+        filename=filename,
+        text=text,
+        page_texts=page_texts,
+        extraction_method=extraction_method,
+    )
     _log_metadata_debug("heuristic metadata", heuristic)
     _log_metadata_debug("ai metadata", ai_metadata)
     _log_metadata_debug("merged metadata", merged)
     return merged
 
 
+def _metadata_needs_ai(metadata: Dict[str, Any]) -> bool:
+    """Only ask a model for fields deterministic extraction could not supply."""
+    return any(
+        not _field_has_value(metadata.get(field))
+        for field in (
+            "document_title",
+            "course_title",
+            "academic_year",
+            "semester",
+            "instructor_names",
+            "department",
+            "topics_covered",
+        )
+    )
+
+
+def _parse_strict_ai_metadata(raw: str) -> Dict[str, Any]:
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.IGNORECASE | re.MULTILINE).strip()
+    payload = json.loads(cleaned)
+    parsed = StructuredMetadataResponse.model_validate(payload)
+    allowed_evidence_keys = {
+        "title", "document_title", "document_type", "course_code", "course_title",
+        "academic_session", "academic_year", "semester", "instructor_or_author",
+        "instructor_names", "year", "department", "faculty", "college", "institution",
+        "exam_type", "topics", "topics_covered",
+    }
+    unexpected_evidence = set((payload.get("evidence") or {}).keys()) - allowed_evidence_keys
+    if unexpected_evidence:
+        raise ValueError(f"Unsupported metadata evidence fields: {sorted(unexpected_evidence)}")
+    data = parsed.model_dump()
+    return {
+        "document_title": data.get("title"),
+        "document_type": data.get("document_type"),
+        "course_code": data.get("course_code"),
+        "course_title": data.get("course_title"),
+        "academic_year": data.get("academic_session"),
+        "semester": data.get("semester"),
+        "instructor_names": data.get("instructor_or_author") or [],
+        "year": data.get("year"),
+        "department": data.get("department"),
+        "faculty": data.get("faculty"),
+        "college": data.get("college"),
+        "institution": data.get("institution"),
+        "exam_type": data.get("exam_type"),
+        "topics_covered": data.get("topics") or [],
+        "confidence_score": data.get("confidence_score"),
+        "ai_evidence": {
+            _canonical_metadata_field(key): value
+            for key, value in (data.get("evidence") or {}).items()
+        },
+    }
+
+
 def _merge_ai_metadata_with_heuristics(heuristic: Dict[str, Any], ai_metadata: Dict[str, Any]) -> Dict[str, Any]:
     merged = dict(heuristic)
+    conflicts = dict(heuristic.get("metadata_conflicts") or {})
 
     for key, value in (ai_metadata or {}).items():
+        if key in {"ai_evidence", "metadata_evidence", "metadata_proposal", "metadata_corrections"}:
+            continue
         if key in TRUSTED_HEURISTIC_FIELDS:
             if _metadata_value_is_good(heuristic.get(key)):
+                if _metadata_value_is_good(value) and _metadata_values_differ(heuristic.get(key), value):
+                    conflicts[key] = {"deterministic": heuristic.get(key), "ai": value}
                 continue
             if _metadata_value_is_good(value):
                 merged[key] = value
@@ -1055,7 +1269,234 @@ def _merge_ai_metadata_with_heuristics(heuristic: Dict[str, Any], ai_metadata: D
         ai_metadata.get("instructor_names") or ai_metadata.get(_legacy_instructor_key()),
     )
     merged["confidence_score"] = max(float(heuristic.get("confidence_score") or 0), float(ai_metadata.get("confidence_score") or 0))
+    if conflicts:
+        merged["metadata_conflicts"] = conflicts
     return merged
+
+
+def _metadata_values_differ(left: Any, right: Any) -> bool:
+    if isinstance(left, list) or isinstance(right, list):
+        return {str(item).strip().lower() for item in _as_list(left)} != {str(item).strip().lower() for item in _as_list(right)}
+    return _clean_metadata_text(left).lower() != _clean_metadata_text(right).lower()
+
+
+def _extract_course_codes(value: str) -> list[str]:
+    found: list[str] = []
+    for match in re.finditer(r"\b([A-Z]{2,6})\s*[-]?\s*(\d{3,4})\b", value or "", re.IGNORECASE):
+        code = f"{match.group(1).upper()}{match.group(2)}"
+        if code not in found:
+            found.append(code)
+    return found
+
+
+def _normalize_semester_label(value: Any) -> str:
+    text = _clean_metadata_text(value).lower()
+    mapping = {
+        "1": "First", "1st": "First", "first": "First", "rain": "Rain",
+        "2": "Second", "2nd": "Second", "second": "Second", "harmattan": "Harmattan",
+        "alpha": "Alpha", "omega": "Omega",
+    }
+    return mapping.get(text, _academic_title_case(text) if text else "")
+
+
+METADATA_FIELD_ALIASES = {
+    "title": "document_title",
+    "document_title": "document_title",
+    "document_type": "document_type",
+    "course_code": "course_code",
+    "course_title": "course_title",
+    "academic_session": "academic_year",
+    "academic_year": "academic_year",
+    "semester": "semester",
+    "instructor_or_author": "instructor_names",
+    "instructor_names": "instructor_names",
+    "year": "year",
+    "department": "department",
+    "faculty": "faculty",
+    "college": "college",
+    "institution": "institution",
+    "exam_type": "exam_type",
+    "topics": "topics_covered",
+    "topics_covered": "topics_covered",
+}
+
+
+def _canonical_metadata_field(value: str) -> str:
+    return METADATA_FIELD_ALIASES.get(value, value)
+
+
+def _strict_metadata_field(value: str) -> str:
+    for strict_name, canonical_name in METADATA_FIELD_ALIASES.items():
+        if canonical_name == value and strict_name not in {"document_title", "academic_year", "instructor_names", "topics_covered"}:
+            return strict_name
+    return {
+        "document_title": "title",
+        "academic_year": "academic_session",
+        "instructor_names": "instructor_or_author",
+        "topics_covered": "topics",
+    }.get(value, value)
+
+
+def _metadata_snapshot(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "title": metadata.get("document_title") or "",
+        "document_type": metadata.get("document_type") or "unknown",
+        "course_code": metadata.get("course_code") or "",
+        "course_title": metadata.get("course_title") or "",
+        "academic_session": metadata.get("academic_year") or "",
+        "semester": metadata.get("semester") or "",
+        "instructor_or_author": list(metadata.get("instructor_names") or []),
+        "year": metadata.get("year"),
+        "department": metadata.get("department") or "",
+        "faculty": metadata.get("faculty") or "",
+        "college": metadata.get("college") or "",
+        "institution": metadata.get("institution") or "",
+        "exam_type": metadata.get("exam_type") or "unknown",
+        "topics": list(metadata.get("topics_covered") or []),
+    }
+
+
+def _metadata_field_value(metadata: Dict[str, Any], strict_field: str) -> Any:
+    return metadata.get(METADATA_FIELD_ALIASES.get(strict_field, strict_field))
+
+
+def _required_metadata_fields(metadata: Dict[str, Any]) -> set[str]:
+    required = {"title", "document_type", "course_code"}
+    if not _metadata_value_is_good(metadata.get("course_code")) and _metadata_value_is_good(metadata.get("course_title")):
+        required.remove("course_code")
+        required.add("course_title")
+    if metadata.get("document_type") == "past_question":
+        required.update({"academic_session", "semester"})
+    return required
+
+
+def _field_has_value(value: Any) -> bool:
+    if isinstance(value, list):
+        return bool(value)
+    return _metadata_value_is_good(value)
+
+
+def _evidence_excerpt(
+    field: str,
+    value: Any,
+    filename: str,
+    text: str,
+    page_texts: Optional[list[str]],
+) -> tuple[str, str, int | None]:
+    values = _as_list(value) if isinstance(value, list) else [str(value or "")]
+    terms = [term.strip().lower() for term in values if term and str(term).strip()]
+    compact_terms = [re.sub(r"[\s-]+", "", term) for term in terms]
+    if not terms:
+        return "", "upload_context", None
+    for index, page_text in enumerate(page_texts or [], start=1):
+        page_lower = (page_text or "").lower()
+        page_compact = re.sub(r"[\s-]+", "", page_lower)
+        if any(term in page_lower or compact in page_compact for term, compact in zip(terms, compact_terms)):
+            excerpt = _clean_metadata_text(page_text)
+            return excerpt[:240], "document_text", index
+    filename_lower = (filename or "").lower()
+    filename_compact = re.sub(r"[\s-]+", "", filename_lower)
+    if any(term in filename_lower or compact in filename_compact for term, compact in zip(terms, compact_terms)):
+        return _clean_metadata_text(filename)[:240], "filename", None
+    text_lower = (text or "").lower()
+    if any(term in text_lower for term in terms):
+        position = next((text_lower.find(term) for term in terms if term in text_lower), 0)
+        start = max(0, position - 70)
+        return _clean_metadata_text(text[start:start + 240]), "document_text", None
+    return "", "ai_inference", None
+
+
+def _attach_metadata_review(
+    metadata: Dict[str, Any],
+    *,
+    heuristic: Dict[str, Any],
+    ai_metadata: Dict[str, Any],
+    filename: str,
+    text: str,
+    page_texts: Optional[list[str]],
+    extraction_method: str,
+) -> Dict[str, Any]:
+    result = normalize_metadata_fields(metadata)
+    required = _required_metadata_fields(result)
+    conflicts = result.get("metadata_conflicts") or {}
+    ai_evidence = ai_metadata.get("ai_evidence") or {}
+    evidence_map: Dict[str, Dict[str, Any]] = {}
+
+    for strict_field, canonical_field in (
+        ("title", "document_title"),
+        ("document_type", "document_type"),
+        ("course_code", "course_code"),
+        ("course_title", "course_title"),
+        ("academic_session", "academic_year"),
+        ("semester", "semester"),
+        ("instructor_or_author", "instructor_names"),
+        ("year", "year"),
+        ("department", "department"),
+        ("faculty", "faculty"),
+        ("college", "college"),
+        ("institution", "institution"),
+        ("exam_type", "exam_type"),
+        ("topics", "topics_covered"),
+    ):
+        value = result.get(canonical_field)
+        heuristic_value = heuristic.get(canonical_field)
+        ai_value = ai_metadata.get(canonical_field)
+        ai_item = ai_evidence.get(canonical_field) or ai_evidence.get(strict_field)
+        conflict = canonical_field in conflicts or strict_field in conflicts
+        if conflict:
+            status = "conflict"
+            source = "ai_inference"
+            confidence = 0.45
+            excerpt = f"Conflicting proposals for {strict_field.replace('_', ' ')}."
+            page_number = None
+            requires_confirmation = True
+        elif _field_has_value(value) and _field_has_value(heuristic_value):
+            excerpt, source, page_number = _evidence_excerpt(strict_field, value, filename, text, page_texts)
+            if extraction_method in {"ocr", "mixed"} and source == "document_text":
+                source = "ocr"
+            status = "strong_evidence"
+            confidence = 0.88 if source in {"document_text", "ocr"} else 0.8
+            requires_confirmation = False
+        elif _field_has_value(value) and _field_has_value(ai_value):
+            status = "suggested"
+            source = "ai_inference"
+            confidence = float((ai_item or {}).get("confidence") or result.get("confidence_score") or 0.55)
+            excerpt = str((ai_item or {}).get("evidence") or "")[:240]
+            page_number = (ai_item or {}).get("page_number")
+            requires_confirmation = True
+        elif _field_has_value(value):
+            excerpt, source, page_number = _evidence_excerpt(strict_field, value, filename, text, page_texts)
+            status = "strong_evidence" if source != "ai_inference" else "suggested"
+            confidence = 0.8 if status == "strong_evidence" else 0.5
+            requires_confirmation = status == "suggested"
+        else:
+            status = "missing_required" if strict_field in required else "optional"
+            source = "upload_context"
+            confidence = 0.0
+            excerpt = ""
+            page_number = None
+            requires_confirmation = status == "missing_required"
+
+        evidence_map[strict_field] = MetadataEvidence(
+            value=value,
+            status=status,
+            source=source if source in METADATA_SOURCES else "upload_context",
+            confidence=max(0.0, min(float(confidence), 1.0)),
+            evidence=excerpt,
+            page_number=page_number,
+            requires_confirmation=requires_confirmation,
+        ).model_dump()
+
+    result["metadata_evidence"] = evidence_map
+    result["metadata_conflicts"] = conflicts
+    result["metadata_model_version"] = os.getenv("AI_METADATA_MODEL_VERSION", "metadata-v1")
+    result["metadata_proposal"] = _metadata_snapshot(result)
+    result["needs_review"] = bool(result.get("needs_review") or any(
+        item["status"] in {"missing_required", "conflict"}
+        or (item["status"] == "suggested" and _canonical_metadata_field(field) in required)
+        for field, item in evidence_map.items()
+    ))
+    return result
 
 
 def _metadata_value_is_good(value: Any) -> bool:
@@ -1202,6 +1643,7 @@ def _infer_exam_type(sample: str) -> str:
         ("midterm", r"\b(mid[-\s]?semester|midterm)\b"),
         ("final", r"\b(final|examination|exam)\b"),
         ("quiz", r"\bquiz\b"),
+        ("continuous_assessment", r"\b(continuous\s+assessment|c\.?a\.?)\b"),
         ("test", r"\btest\b"),
     ]
     for value, pattern in checks:
@@ -1254,14 +1696,15 @@ def normalize_metadata_fields(metadata: Dict[str, Any]) -> Dict[str, Any]:
         confidence_score = 0.25
 
     course_title = _clean_course_title(metadata.get("course_title") or "")
-    semester = _clean_metadata_text(metadata.get("semester") or "Unknown") or "Unknown"
+    semester = _normalize_semester_label(metadata.get("semester")) or "Unknown"
     department = _normalize_department(metadata.get("department") or "")
     faculty = _clean_org_field(metadata.get("faculty") or "")
     college = _normalize_college(metadata.get("college") or "")
+    institution = _clean_org_field(metadata.get("institution") or "")
     topics_covered = [_clean_metadata_text(topic).lower() for topic in _as_list(metadata.get("topics_covered"))]
     topics_covered = [topic for topic in dict.fromkeys(topics_covered) if topic]
     document_title = _clean_document_title(metadata.get("document_title") or "")
-    if course_code != "UNKNOWN":
+    if not document_title and course_code != "UNKNOWN":
         title_parts = [course_code]
         if course_title:
             title_parts.append(course_title)
@@ -1282,6 +1725,7 @@ def normalize_metadata_fields(metadata: Dict[str, Any]) -> Dict[str, Any]:
         "department": department,
         "faculty": faculty,
         "college": college,
+        "institution": institution,
         "exam_type": exam_type,
         "topics_covered": topics_covered,
         "source_file": str(metadata.get("source_file") or "").strip(),
@@ -1293,6 +1737,13 @@ def normalize_metadata_fields(metadata: Dict[str, Any]) -> Dict[str, Any]:
         "needs_review": bool(metadata.get("needs_review", False)),
         "needs_clearer_file": bool(metadata.get("needs_clearer_file", False)),
         "confidence_score": max(0.0, min(confidence_score, 1.0)),
+        "metadata_evidence": metadata.get("metadata_evidence") if isinstance(metadata.get("metadata_evidence"), dict) else {},
+        "metadata_proposal": metadata.get("metadata_proposal") if isinstance(metadata.get("metadata_proposal"), dict) else {},
+        "metadata_corrections": metadata.get("metadata_corrections") if isinstance(metadata.get("metadata_corrections"), dict) else {},
+        "metadata_model_version": str(metadata.get("metadata_model_version") or "metadata-v1"),
+        "metadata_conflicts": metadata.get("metadata_conflicts") if isinstance(metadata.get("metadata_conflicts"), dict) else {},
+        "course_catalogue_status": str(metadata.get("course_catalogue_status") or "unmatched"),
+        "catalogue_course_id": metadata.get("catalogue_course_id"),
     }
 
 
@@ -1674,26 +2125,110 @@ def normalized_metadata(metadata_json: Optional[str], fallback: Dict[str, Any]) 
 
 
 def match_course(db: Session, metadata: Dict[str, Any]) -> Optional[models.Course]:
+    """Resolve an existing catalogue course without creating user-supplied rows."""
+    return derive_course_catalogue(db, metadata)
+
+
+def derive_course_catalogue(db: Session, metadata: Dict[str, Any]) -> Optional[models.Course]:
     course_code = metadata.get("course_code")
     if not course_code or course_code == "UNKNOWN":
+        metadata["course_catalogue_status"] = "unmatched"
+        return None
+    if not hasattr(db, "query"):
+        metadata["course_catalogue_status"] = "unmatched"
         return None
 
     course_title = (metadata.get("course_title") or "").strip()
     course = db.query(models.Course).filter(models.Course.code == course_code).first()
     if course:
-        if course_title and (not course.name or course.name.lower() in {"unknown", "untitled"}):
-            course.name = course_title
-            db.flush()
+        metadata["course_catalogue_status"] = "confirmed"
+        metadata["catalogue_course_id"] = course.id
+        metadata["course_title"] = (course.name or course_title or "").strip()
+        if getattr(course, "department", None):
+            metadata["department"] = course.department
+        _mark_catalogue_evidence(metadata, "course_code", course.code)
+        _mark_catalogue_evidence(metadata, "course_title", course.name or course_title)
+        if getattr(course, "department", None):
+            _mark_catalogue_evidence(metadata, "department", course.department)
         return course
 
-    course = models.Course(
-        code=course_code,
-        name=course_title or course_code,
-        description=f"Auto-created from uploaded {DOC_TYPE_TITLE.get(metadata.get('document_type'), 'material')}.",
+    metadata["course_catalogue_status"] = "unmatched"
+    return None
+
+
+def _mark_catalogue_evidence(metadata: Dict[str, Any], field: str, value: Any) -> None:
+    evidence = dict(metadata.get("metadata_evidence") or {})
+    strict_field = _strict_metadata_field(field)
+    evidence[strict_field] = MetadataEvidence(
+        value=value,
+        status="catalogue_confirmed",
+        source="course_catalogue",
+        confidence=1.0,
+        evidence=f"Course catalogue: {value}",
+        requires_confirmation=False,
+    ).model_dump()
+    metadata["metadata_evidence"] = evidence
+
+
+def metadata_required_errors(metadata: Dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if not _metadata_value_is_good(metadata.get("document_title")):
+        errors.append("title")
+    if metadata.get("document_type") in {None, "", "unknown"}:
+        errors.append("document_type")
+    if not _metadata_value_is_good(metadata.get("course_code")) and not _metadata_value_is_good(metadata.get("course_title")):
+        errors.append("course")
+    if metadata.get("document_type") == "past_question":
+        if not _metadata_value_is_good(metadata.get("academic_year")) and not metadata.get("year"):
+            errors.append("academic_session")
+        if not _metadata_value_is_good(metadata.get("semester")) or str(metadata.get("semester")).lower() == "unknown":
+            errors.append("semester")
+    return errors
+
+
+def _normalised_snapshot_value(snapshot: Dict[str, Any], strict_field: str) -> Any:
+    return snapshot.get(strict_field)
+
+
+def record_metadata_corrections(metadata: Dict[str, Any]) -> None:
+    proposal = metadata.get("metadata_proposal")
+    if not isinstance(proposal, dict) or not proposal:
+        proposal = _metadata_snapshot(metadata)
+        metadata["metadata_proposal"] = proposal
+    final = _metadata_snapshot(metadata)
+    evidence = metadata.get("metadata_evidence") or {}
+    corrections: Dict[str, Any] = {}
+    for strict_field in final:
+        original = _normalised_snapshot_value(proposal, strict_field)
+        confirmed = final.get(strict_field)
+        corrected = _metadata_values_differ(original, confirmed)
+        source = "user_confirmed" if corrected else str((evidence.get(strict_field) or {}).get("source") or "upload_context")
+        corrections[strict_field] = {
+            "original": original,
+            "final": confirmed,
+            "corrected": corrected,
+            "source": source if source in METADATA_SOURCES else "upload_context",
+            "extraction_version": metadata.get("metadata_model_version") or "metadata-v1",
+        }
+    metadata["metadata_corrections"] = corrections
+    if any(item["corrected"] for item in corrections.values()):
+        refreshed = dict(evidence)
+        for field, item in corrections.items():
+            if item["corrected"]:
+                current = dict(refreshed.get(field) or {})
+                current.update({
+                    "value": item["final"],
+                    "status": "strong_evidence",
+                    "source": "user_confirmed",
+                    "confidence": 1.0,
+                    "requires_confirmation": False,
+                })
+                refreshed[field] = current
+        metadata["metadata_evidence"] = refreshed
+    metadata["needs_review"] = any(
+        (item or {}).get("status") in {"missing_required", "suggested", "conflict"}
+        for item in (metadata.get("metadata_evidence") or {}).values()
     )
-    db.add(course)
-    db.flush()
-    return course
 
 
 def find_duplicate(db: Session, metadata: Dict[str, Any]):
@@ -1964,7 +2499,26 @@ def upload_document(
         len(operational_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS or bool(extraction.get("searchable"))
     )
 
-    ai_metadata = extract_metadata(file.filename or "upload.pdf", operational_text) if extraction_succeeded else infer_metadata_fallback(file.filename or "upload.pdf", operational_text)
+    if extraction_succeeded:
+        ai_metadata = extract_metadata(
+            file.filename or "upload.pdf",
+            operational_text,
+            extraction.get("page_texts"),
+            extraction.get("method") or "embedded_text",
+        )
+    else:
+        heuristic = normalize_metadata_fields(
+            infer_metadata_fallback(file.filename or "upload.pdf", operational_text, extraction.get("page_texts"))
+        )
+        ai_metadata = _attach_metadata_review(
+            heuristic,
+            heuristic=heuristic,
+            ai_metadata={},
+            filename=file.filename or "upload.pdf",
+            text=operational_text,
+            page_texts=extraction.get("page_texts"),
+            extraction_method=extraction.get("method") or "failed",
+        )
     ai_metadata.update(
         {
             "source_file": file.filename,
@@ -1984,7 +2538,7 @@ def upload_document(
     metadata["extraction_warnings"] = extraction.get("warnings", [])
     metadata["indexed_status"] = extraction.get("indexed_status") or metadata.get("indexed_status") or "indexed"
     metadata["searchable"] = bool(extraction.get("searchable", metadata.get("searchable", extraction_succeeded)))
-    metadata["needs_review"] = bool(extraction.get("needs_review", metadata.get("needs_review", False)))
+    metadata["needs_review"] = bool(extraction.get("needs_review", False) or metadata.get("needs_review", False))
     metadata["pages_read"] = extraction.get("page_count") or 0
     detected_topics = _infer_topics_covered(operational_text)
     metadata["topics_covered"] = list(dict.fromkeys([*(metadata.get("topics_covered") or []), *detected_topics]))[:24]
@@ -1992,6 +2546,14 @@ def upload_document(
     metadata["raw_extracted_text_truncated"] = len(raw_extracted_text) > 8000
     metadata["cleaned_text_sample"] = cleaned_text[:5000]
     metadata["cleaned_text_char_count"] = len(cleaned_text.strip())
+
+    # Catalogue data is read-only enrichment. Unknown codes remain unmatched;
+    # an upload never creates a new course row as a side effect of review.
+    derive_course_catalogue(db, metadata)
+    if not confirm:
+        metadata["metadata_proposal"] = _metadata_snapshot(metadata)
+    else:
+        record_metadata_corrections(metadata)
 
     content_preview = build_structured_content_preview(
         operational_text,
@@ -2085,6 +2647,20 @@ def upload_document(
             "sharing": sharing_payload(PRIVATE),
             "message": extraction_message(extraction),
         }
+
+    required_errors = metadata_required_errors(metadata)
+    if required_errors:
+        readable = {
+            "title": "title",
+            "document_type": "document type",
+            "course": "course",
+            "academic_session": "academic session",
+            "semester": "semester",
+        }
+        raise HTTPException(
+            status_code=400,
+            detail="Complete the required metadata before indexing: " + ", ".join(readable.get(item, item) for item in required_errors) + ".",
+        )
 
     course = match_course(db, metadata)
     manual_unindexed = metadata.get("extraction_method") == "manual" or not extraction_succeeded

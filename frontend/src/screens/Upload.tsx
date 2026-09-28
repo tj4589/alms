@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, ChevronDown, FileText, Globe2, LockKeyhole, Plus, Users, X } from 'lucide-react';
 import type { Course, ScreenType, User } from '../types';
 import { queuePendingUpload } from '../offline';
-import { apiDelete, apiFormPost, apiGet, apiPatch } from '../lib/api';
+import { apiFormPost, apiGet, apiPatch } from '../lib/api';
 
 import './Upload.css';
 
@@ -50,8 +50,17 @@ type ExtractionInfo = {
 };
 
 type CourseState = 'loading' | 'ready' | 'empty' | 'error';
-type FieldStatus = 'detected' | 'review' | 'missing' | 'edited';
-type ValidationErrors = Partial<Record<'document_title' | 'document_type' | 'course' | 'academic_year' | 'year' | 'topics' | 'sharing', string>>;
+type MetadataEvidence = {
+  value?: unknown;
+  status?: 'catalogue_confirmed' | 'strong_evidence' | 'suggested' | 'missing_required' | 'optional' | 'conflict';
+  source?: string;
+  confidence?: number;
+  evidence?: string;
+  page_number?: number | null;
+  requires_confirmation?: boolean;
+};
+type FieldStatus = 'detected' | 'review' | 'missing' | 'edited' | 'catalogue' | 'strong' | 'suggested' | 'optional' | 'conflict';
+type ValidationErrors = Partial<Record<'document_title' | 'document_type' | 'course' | 'academic_year' | 'semester' | 'year' | 'topics' | 'sharing', string>>;
 
 type Metadata = {
   document_type: string;
@@ -77,6 +86,13 @@ type Metadata = {
   needs_clearer_file?: boolean;
   confidence_score?: number;
   pages_read?: number;
+  metadata_evidence?: Record<string, MetadataEvidence>;
+  metadata_proposal?: Record<string, unknown>;
+  metadata_corrections?: Record<string, unknown>;
+  metadata_model_version?: string;
+  metadata_conflicts?: Record<string, unknown>;
+  course_catalogue_status?: string;
+  catalogue_course_id?: number | null;
 };
 
 const emptyMetadata: Metadata = {
@@ -101,6 +117,7 @@ const emptyMetadata: Metadata = {
   needs_review: false,
   needs_clearer_file: false,
   pages_read: 0,
+  metadata_evidence: {},
 };
 
 const STEP_LABELS = [
@@ -130,7 +147,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
 };
 
 const DOC_TYPES = Object.keys(DOC_TYPE_LABEL);
-const EXAM_TYPES = ['unknown', 'quiz', 'test', 'midterm', 'final'];
+const EXAM_TYPES = ['unknown', 'quiz', 'test', 'midterm', 'continuous_assessment', 'final'];
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const UNKNOWN_VALUES = new Set(['unknown', 'not found', 'n/a', 'na', 'none', 'null', 'undefined', 'not available']);
 
@@ -205,13 +222,39 @@ function fileTypeLabel(file: File | null) {
 }
 
 function statusLabel(status: FieldStatus) {
+  if (status === 'catalogue') return 'Catalogue';
+  if (status === 'strong') return 'Verified';
+  if (status === 'suggested') return 'Suggested';
+  if (status === 'optional') return 'Optional';
+  if (status === 'conflict') return 'Conflict';
   return status === 'detected' ? 'Detected' : status === 'review' ? 'Needs review' : status === 'edited' ? 'Edited' : 'Not found';
 }
 
-function fieldStatus(value: string | number | null | undefined, edited: boolean, needsReview = false): FieldStatus {
+function fieldStatus(value: string | number | null | undefined, edited: boolean, needsReview = false, evidence?: MetadataEvidence): FieldStatus {
   if (edited) return 'edited';
+  if (evidence?.status === 'catalogue_confirmed') return 'catalogue';
+  if (evidence?.status === 'strong_evidence') return 'strong';
+  if (evidence?.status === 'suggested') return 'suggested';
+  if (evidence?.status === 'conflict') return 'conflict';
+  if (evidence?.status === 'optional') return 'optional';
+  if (evidence?.status === 'missing_required') return 'missing';
   if (!displayValue(value, '')) return 'missing';
   return needsReview ? 'review' : 'detected';
+}
+
+const EVIDENCE_FIELD_KEY: Record<string, string> = {
+  document_title: 'title',
+  academic_year: 'academic_session',
+  instructor_names: 'instructor_or_author',
+  topics_covered: 'topics',
+};
+
+function metadataEvidence(metadata: Metadata, field: string) {
+  return metadata.metadata_evidence?.[EVIDENCE_FIELD_KEY[field] || field];
+}
+
+function metadataFieldStatus(metadata: Metadata, field: string, value: string | number | null | undefined, edited: boolean, needsReview = false) {
+  return fieldStatus(value, edited, needsReview, metadataEvidence(metadata, field));
 }
 
 function FieldStatusBadge({ status }: { status: FieldStatus }) {
@@ -518,10 +561,12 @@ function AdvancedMetadataEditor({
     ['instructor_names', 'Instructor/Author'],
     ['year', 'Year'],
     ['department', 'Department'],
-    ['faculty', 'Faculty'],
-    ['college', 'College'],
     ['exam_type', 'Exam type'],
-  ] as const;
+  ].filter(([key]) => {
+    const value = key === 'instructor_names' ? metadata.instructor_names.join(', ') : String(metadata[key as keyof Metadata] ?? '');
+    if (key === 'year' || key === 'exam_type') return metadata.document_type === 'past_question' || Boolean(value && value !== 'unknown');
+    return Boolean(value) || metadataEvidence(metadata, key)?.status === 'suggested' || metadataEvidence(metadata, key)?.status === 'conflict';
+  }) as Array<['instructor_names' | 'year' | 'department' | 'exam_type', string]>;
 
   const fieldValue = (key: keyof Metadata) => key === 'instructor_names' ? metadata.instructor_names.join(', ') : String(metadata[key] ?? '');
 
@@ -532,30 +577,30 @@ function AdvancedMetadataEditor({
         {includeEssentials && (
           <>
             <label className="meta-field wide" htmlFor="upload-document-title">
-              <span>Document title <FieldStatusBadge status={fieldStatus(metadata.document_title, editedFields.has('document_title'), Boolean(metadata.needs_review))} /></span>
+              <span>Document title <FieldStatusBadge status={metadataFieldStatus(metadata, 'document_title', metadata.document_title, editedFields.has('document_title'), Boolean(metadata.needs_review))} /></span>
               <input id="upload-document-title" value={metadata.document_title} onChange={e => updateField('document_title', e.target.value)} />
             </label>
             <label className="meta-field" htmlFor="upload-document-type">
-              <span>Document type <FieldStatusBadge status={fieldStatus(metadata.document_type === 'unknown' ? '' : metadata.document_type, editedFields.has('document_type'), Boolean(metadata.needs_review))} /></span>
+              <span>Document type <FieldStatusBadge status={metadataFieldStatus(metadata, 'document_type', metadata.document_type === 'unknown' ? '' : metadata.document_type, editedFields.has('document_type'), Boolean(metadata.needs_review))} /></span>
               <select id="upload-document-type" value={metadata.document_type === 'unknown' ? '' : metadata.document_type} onChange={e => updateField('document_type', e.target.value)}>
                 <option value="" disabled>Choose a type</option>
                 {DOC_TYPES.filter(type => type !== 'unknown').map(type => <option value={type} key={type}>{DOC_TYPE_LABEL[type]}</option>)}
               </select>
             </label>
             <label className="meta-field" htmlFor="upload-course-code">
-              <span>Course code <FieldStatusBadge status={fieldStatus(metadata.course_code, editedFields.has('course_code'), Boolean(metadata.needs_review))} /></span>
+              <span>Course code <FieldStatusBadge status={metadataFieldStatus(metadata, 'course_code', metadata.course_code, editedFields.has('course_code'), Boolean(metadata.needs_review))} /></span>
               <input id="upload-course-code" value={metadata.course_code} onChange={e => updateField('course_code', e.target.value)} />
             </label>
             <label className="meta-field" htmlFor="upload-course-title">
-              <span>Course title <FieldStatusBadge status={fieldStatus(metadata.course_title, editedFields.has('course_title'), Boolean(metadata.needs_review))} /></span>
+              <span>Course title <FieldStatusBadge status={metadataFieldStatus(metadata, 'course_title', metadata.course_title, editedFields.has('course_title'), Boolean(metadata.needs_review))} /></span>
               <input id="upload-course-title" value={metadata.course_title} onChange={e => updateField('course_title', e.target.value)} />
             </label>
             <label className="meta-field" htmlFor="upload-academic-year">
-              <span>Academic session <FieldStatusBadge status={fieldStatus(metadata.academic_year, editedFields.has('academic_year'), Boolean(metadata.needs_review))} /></span>
+              <span>Academic session <FieldStatusBadge status={metadataFieldStatus(metadata, 'academic_year', metadata.academic_year, editedFields.has('academic_year'), Boolean(metadata.needs_review))} /></span>
               <input id="upload-academic-year" value={metadata.academic_year} onChange={e => updateField('academic_year', e.target.value)} placeholder="e.g. 2024/2025" />
             </label>
             <label className="meta-field" htmlFor="upload-semester">
-              <span>Semester <FieldStatusBadge status={fieldStatus(metadata.semester, editedFields.has('semester'), Boolean(metadata.needs_review))} /></span>
+              <span>Semester <FieldStatusBadge status={metadataFieldStatus(metadata, 'semester', metadata.semester, editedFields.has('semester'), Boolean(metadata.needs_review))} /></span>
               <input id="upload-semester" value={metadata.semester} onChange={e => updateField('semester', e.target.value)} placeholder="e.g. First" />
             </label>
           </>
@@ -565,7 +610,7 @@ function AdvancedMetadataEditor({
           const statusValue = key === 'instructor_names' ? metadata.instructor_names.join(', ') : String(metadata[key] ?? '');
           return (
             <label className={`meta-field${key === 'instructor_names' ? ' wide' : ''}`} key={key} htmlFor={`upload-${key}`}>
-              <span>{label} <FieldStatusBadge status={fieldStatus(statusValue, editedFields.has(key), Boolean(metadata.needs_review))} /></span>
+              <span>{label} <FieldStatusBadge status={metadataFieldStatus(metadata, key, statusValue, editedFields.has(key), Boolean(metadata.needs_review))} /></span>
               {key === 'exam_type' ? (
                 <select id={`upload-${key}`} value={metadata.exam_type} onChange={e => updateField(key, e.target.value)}>
                   {EXAM_TYPES.map(type => <option value={type} key={type}>{type}</option>)}
@@ -608,13 +653,13 @@ function EssentialMetadataEditor({
   return (
     <div className="essential-fields">
       <label className="meta-field wide" htmlFor="review-document-title">
-        <span>Title <FieldStatusBadge status={fieldStatus(metadata.document_title, editedFields.has('document_title'), review)} /></span>
+        <span>Title <FieldStatusBadge status={metadataFieldStatus(metadata, 'document_title', metadata.document_title, editedFields.has('document_title'), review)} /></span>
         <input id="review-document-title" value={metadata.document_title} onChange={e => updateField('document_title', e.target.value)} aria-invalid={Boolean(errors.document_title)} />
         {errors.document_title && <small className="field-error">{errors.document_title}</small>}
       </label>
 
       <label className="meta-field" htmlFor="review-document-type">
-        <span>Type <FieldStatusBadge status={fieldStatus(metadata.document_type === 'unknown' ? '' : metadata.document_type, editedFields.has('document_type'), review)} /></span>
+        <span>Type <FieldStatusBadge status={metadataFieldStatus(metadata, 'document_type', metadata.document_type === 'unknown' ? '' : metadata.document_type, editedFields.has('document_type'), review)} /></span>
         <select id="review-document-type" value={metadata.document_type === 'unknown' ? '' : metadata.document_type} onChange={e => updateField('document_type', e.target.value)} aria-invalid={Boolean(errors.document_type)}>
           <option value="" disabled>Choose a document type</option>
           {DOC_TYPES.filter(type => type !== 'unknown').map(type => <option value={type} key={type}>{DOC_TYPE_LABEL[type]}</option>)}
@@ -623,7 +668,7 @@ function EssentialMetadataEditor({
       </label>
 
       <div className="course-field-group">
-        <div className="field-label-line"><span className="field-label">Course</span><FieldStatusBadge status={fieldStatus(metadata.course_code || metadata.course_title, editedFields.has('course_code') || editedFields.has('course_title'), review)} /></div>
+        <div className="field-label-line"><span className="field-label">Course</span><FieldStatusBadge status={metadataFieldStatus(metadata, 'course_code', metadata.course_code || metadata.course_title, editedFields.has('course_code') || editedFields.has('course_title'), review)} /></div>
         {courseState === 'ready' ? (
           <select id="review-course" value={matchingCourse?.id ? String(matchingCourse.id) : ''} onChange={e => onCourseSelect(e.target.value)} aria-label="Choose a course">
             <option value="">Choose from the course catalogue</option>
@@ -648,14 +693,15 @@ function EssentialMetadataEditor({
       </div>
 
       <label className="meta-field" htmlFor="review-academic-year">
-        <span>Academic session <FieldStatusBadge status={fieldStatus(metadata.academic_year, editedFields.has('academic_year'), review)} /></span>
+        <span>Academic session <FieldStatusBadge status={metadataFieldStatus(metadata, 'academic_year', metadata.academic_year, editedFields.has('academic_year'), review)} /></span>
         <input id="review-academic-year" value={metadata.academic_year} onChange={e => updateField('academic_year', e.target.value)} placeholder="e.g. 2024/2025" aria-invalid={Boolean(errors.academic_year)} />
         {errors.academic_year && <small className="field-error">{errors.academic_year}</small>}
       </label>
 
       <label className="meta-field" htmlFor="review-semester">
-        <span>Semester <FieldStatusBadge status={fieldStatus(metadata.semester, editedFields.has('semester'), review)} /></span>
-        <input id="review-semester" value={metadata.semester} onChange={e => updateField('semester', e.target.value)} placeholder="e.g. First" />
+        <span>Semester <FieldStatusBadge status={metadataFieldStatus(metadata, 'semester', metadata.semester, editedFields.has('semester'), review)} /></span>
+        <input id="review-semester" value={metadata.semester} onChange={e => updateField('semester', e.target.value)} placeholder="e.g. First" aria-invalid={Boolean(errors.semester)} />
+        {errors.semester && <small className="field-error">{errors.semester}</small>}
       </label>
     </div>
   );
@@ -663,12 +709,14 @@ function EssentialMetadataEditor({
 
 function TopicsEditor({
   topics,
+  status,
   draft,
   onDraftChange,
   onAdd,
   onRemove,
 }: {
   topics: string[];
+  status: FieldStatus;
   draft: string;
   onDraftChange: (value: string) => void;
   onAdd: () => void;
@@ -681,7 +729,7 @@ function TopicsEditor({
           <div className="document-summary-label" id="topics-editor-title">Topics</div>
           <p>Review the study topics ExamMind found in this file.</p>
         </div>
-        <FieldStatusBadge status={topics.length ? 'detected' : 'missing'} />
+        <FieldStatusBadge status={status} />
       </div>
       <div className="topic-chip-row">
         {topics.map(topic => (
@@ -766,8 +814,12 @@ function UploadConfirmationCard({
   hasQueue: boolean;
 }) {
   const confidence = confidenceLabel(metadata);
-  const review = confidence === 'Review Recommended';
-  const hasMissingEssentials = !metadata.document_title || metadata.document_type === 'unknown';
+  const attentionEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'missing_required' || item.status === 'conflict' || item.status === 'suggested');
+  const completedEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'catalogue_confirmed' || item.status === 'strong_evidence');
+  const optionalEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'optional' && displayValue(item.value as string | number | null, ''));
+  const evidenceLabel: Record<string, string> = { title: 'Title', document_type: 'Document type', course_code: 'Course', course_title: 'Course title', academic_session: 'Academic session', semester: 'Semester', instructor_or_author: 'Instructor or author', year: 'Year', department: 'Department', exam_type: 'Exam type', topics: 'Topics' };
+  const review = confidence === 'Review Recommended' || attentionEntries.length > 0 || Boolean(metadata.needs_review);
+  const hasMissingEssentials = !metadata.document_title || metadata.document_type === 'unknown' || (!metadata.course_code && !metadata.course_title);
   const validationSummary = Object.values(errors).filter(Boolean);
 
   return (
@@ -780,7 +832,7 @@ function UploadConfirmationCard({
             <p>Confirm the important details before ExamMind adds this document to your library.</p>
           </div>
           <DocumentSummary file={file} metadata={metadata} extraction={extraction} review={review || hasMissingEssentials} />
-          <TopicsEditor topics={metadata.topics_covered} draft={topicDraft} onDraftChange={onTopicDraftChange} onAdd={onAddTopic} onRemove={onRemoveTopic} />
+          <TopicsEditor topics={metadata.topics_covered} status={metadataFieldStatus(metadata, 'topics_covered', metadata.topics_covered.join(', '), editedFields.has('topics_covered'), Boolean(metadata.needs_review))} draft={topicDraft} onDraftChange={onTopicDraftChange} onAdd={onAddTopic} onRemove={onRemoveTopic} />
           <ExtractedContentPreview
             contentPreview={contentPreview}
             sections={previewSections}
@@ -802,6 +854,26 @@ function UploadConfirmationCard({
               <div><h3>Review the highlighted fields</h3><ul>{validationSummary.map(error => <li key={error}>{error}</li>)}</ul></div>
             </div>
           )}
+          {attentionEntries.length > 0 ? (
+            <section className="metadata-attention" aria-labelledby="metadata-attention-heading">
+              <h3 id="metadata-attention-heading">Needs your attention</h3>
+              <ul>{attentionEntries.map(([key, item]) => <li key={key}><strong>{evidenceLabel[key] || key}</strong><span>{item.status === 'conflict' ? 'There are conflicting proposals.' : item.status === 'missing_required' ? 'Select or enter this before continuing.' : 'Review the suggested value.'}</span></li>)}</ul>
+            </section>
+          ) : (
+            <p className="metadata-ready-note"><Check size={15} /> Everything looks ready. Review the details or continue.</p>
+          )}
+          {completedEntries.length > 0 && (
+            <section className="metadata-completed" aria-labelledby="metadata-completed-heading">
+              <h3 id="metadata-completed-heading">Already completed</h3>
+              <p>{completedEntries.map(([key]) => evidenceLabel[key] || key).join(' · ')}</p>
+            </section>
+          )}
+          {optionalEntries.length > 0 && (
+            <section className="metadata-optional" aria-labelledby="metadata-optional-heading">
+              <h3 id="metadata-optional-heading">Additional details</h3>
+              <p>{optionalEntries.map(([key]) => evidenceLabel[key] || key).join(' · ')}</p>
+            </section>
+          )}
           <EssentialMetadataEditor metadata={metadata} courses={courses} courseState={courseState} editedFields={editedFields} errors={errors} updateField={updateField} onCourseSelect={onCourseSelect} />
           {(review || hasMissingEssentials) && (
             <div className="review-warning"><AlertCircle size={16} /><span>ExamMind may misread some details. Review anything marked “Needs review” before adding this material.</span></div>
@@ -817,7 +889,7 @@ function UploadConfirmationCard({
             error={sharingError}
           />
           <button type="button" className="details-disclosure" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}>
-            <span>More details</span><ChevronDown size={17} aria-hidden="true" />
+            <span>Additional details</span><ChevronDown size={17} aria-hidden="true" />
           </button>
           {advancedOpen && <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} showHeading={false} />}
           <div className="review-panel-actions">
@@ -978,8 +1050,6 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [rawOcrText, setRawOcrText] = useState('');
   const [previewQuality, setPreviewQuality] = useState<'high' | 'medium' | 'low'>('low');
   const [extraction, setExtraction] = useState<ExtractionInfo | null>(null);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [clearingMaterials, setClearingMaterials] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [courseState, setCourseState] = useState<CourseState>('loading');
   const [editedFields, setEditedFields] = useState<Set<string>>(new Set());
@@ -998,7 +1068,6 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [recentConsent, setRecentConsent] = useState(false);
   const [recentShareError, setRecentShareError] = useState('');
   const [recentShareBusy, setRecentShareBusy] = useState(false);
-  const [removingRecentKey, setRemovingRecentKey] = useState<string | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1128,8 +1197,14 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       errors.document_type = 'Choose the document type.';
     }
     const courseValues = [metadata.course_code, metadata.course_title].map(value => value.trim().toLowerCase());
-    if (courseValues.some(value => UNKNOWN_VALUES.has(value))) {
-      errors.course = 'Replace “Unknown” with a course code or title, or leave the course blank.';
+    if (!courseValues.some(value => value && !UNKNOWN_VALUES.has(value))) {
+      errors.course = 'Choose a course from the catalogue or enter a course code or title.';
+    }
+    if (metadata.document_type === 'past_question' && !metadata.academic_year.trim() && metadata.year === '') {
+      errors.academic_year = 'Select the academic session for this past question.';
+    }
+    if (metadata.document_type === 'past_question' && (!metadata.semester.trim() || UNKNOWN_VALUES.has(metadata.semester.trim().toLowerCase()))) {
+      errors.semester = 'Select the semester for this past question.';
     }
     if (metadata.year !== '' && (!Number.isInteger(metadata.year) || metadata.year < 1900 || metadata.year > 2100)) {
       errors.year = 'Enter a year between 1900 and 2100.';
@@ -1145,7 +1220,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setValidationErrors(errors);
     setSharingError(errors.sharing || '');
     if (Object.keys(errors).length > 0) {
-      const firstField = errors.document_title ? 'review-document-title' : errors.document_type ? 'review-document-type' : errors.course ? 'review-course-code' : errors.year ? 'upload-year' : undefined;
+      const firstField = errors.document_title ? 'review-document-title' : errors.document_type ? 'review-document-type' : errors.course ? 'review-course-code' : errors.academic_year ? 'review-academic-year' : errors.semester ? 'review-semester' : errors.year ? 'upload-year' : undefined;
       if (firstField) window.setTimeout(() => document.getElementById(firstField)?.focus(), 0);
       return false;
     }
@@ -1253,25 +1328,6 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     }
   };
 
-  const removeRecentUpload = async (upload: RecentUpload) => {
-    const key = `${upload.material_type}:${upload.id}`;
-    if (!window.confirm('Remove this contribution from ExamMind?')) return;
-    setRemovingRecentKey(key);
-    setMessage('');
-    try {
-      await apiDelete('/ingest/documents', {
-        document_type: upload.material_type,
-        document_id: upload.id,
-      });
-      setRecentUploads(current => current?.filter(item => `${item.material_type}:${item.id}` !== key) || current);
-      setMessage('Your contribution was removed from ExamMind.');
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Could not remove this contribution.');
-    } finally {
-      setRemovingRecentKey(null);
-    }
-  };
-
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg'];
@@ -1337,27 +1393,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     if (!course) return;
     updateField('course_code', course.code || '');
     updateField('course_title', course.name || '');
-  };
-
-  const clearUploadedMaterials = async () => {
-    setClearingMaterials(true);
-    setMessage('');
-    try {
-      const summary = await apiDelete('/ingest/clear-materials') as {
-        past_questions_deleted?: number;
-        lecture_notes_deleted?: number;
-        lecture_note_chunks_deleted?: number;
-      };
-      setShowClearConfirm(false);
-      setRecentUploads([]);
-      setMessage(
-        `Uploaded materials cleared. Removed ${summary.past_questions_deleted || 0} past question chunks, ${summary.lecture_notes_deleted || 0} lecture notes, and ${summary.lecture_note_chunks_deleted || 0} note chunks.`
-      );
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Could not clear uploaded materials.');
-    } finally {
-      setClearingMaterials(false);
-    }
+    if (course.department) updateField('department', course.department);
   };
 
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
@@ -1445,14 +1481,6 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
                         {u.visibility === 'public' ? <Globe2 size={12} /> : u.visibility === 'group' ? <Users size={12} /> : <LockKeyhole size={12} />}
                         {visibilityLabel(u.visibility || 'private')}
                       </button>
-                      <button
-                        type="button"
-                        className="ledger-remove"
-                        onClick={() => void removeRecentUpload(u)}
-                        disabled={removingRecentKey === `${u.material_type}:${u.id}`}
-                      >
-                        {removingRecentKey === `${u.material_type}:${u.id}` ? 'Removing...' : 'Remove'}
-                      </button>
                       {editingRecentKey === `${u.material_type}:${u.id}` && (
                         <div className="ledger-editor">
                           <SharingChoice
@@ -1478,14 +1506,6 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
               )}
             </section>
 
-            {(user?.role === 'admin' || import.meta.env.DEV) && (
-              <section className="margin-block margin-block--end">
-                <button type="button" className="margin-action" onClick={() => setShowClearConfirm(true)}>
-                  Clear uploaded materials
-                </button>
-                <p className="margin-note">Removes old uploads so you can re-file them with the current indexer.</p>
-              </section>
-            )}
           </aside>
         </div>
       )}
@@ -1610,21 +1630,6 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         />
       )}
 
-      {showClearConfirm && (
-        <div className="success-modal-backdrop">
-          <div className="success-modal danger-modal">
-            <div className="success-label">Clear uploaded materials</div>
-            <h2>Remove test uploads?</h2>
-            <p>This will remove uploaded past questions and notes from ExamMind, but your account will remain. Continue?</p>
-            <div className="empty-actions">
-              <button type="button" className="cta cta-ghost" onClick={() => setShowClearConfirm(false)} disabled={clearingMaterials}>Cancel</button>
-              <button type="button" className="cta danger-solid" onClick={() => void clearUploadedMaterials()} disabled={clearingMaterials}>
-                {clearingMaterials ? 'Clearing...' : 'Clear materials'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
