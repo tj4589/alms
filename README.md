@@ -17,8 +17,8 @@ Terminal 2 - backend:
 
 ```powershell
 cd backend
+python -m alembic -c alembic.ini upgrade head
 python init_db.py
-python migrate.py
 python -m uvicorn main:app --reload --host 127.0.0.1 --port 8001
 ```
 

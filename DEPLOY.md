@@ -81,13 +81,19 @@ service — the static site stays free regardless.
    ```bash
    cd backend
    # put the Neon URL in .env as DATABASE_URL first
-   .venv/Scripts/python.exe migrate.py     # Windows
-   python migrate.py                        # macOS/Linux
+   .venv/Scripts/python.exe -m alembic -c alembic.ini upgrade head  # Windows
+   python -m alembic -c alembic.ini upgrade head                   # macOS/Linux
+   .venv/Scripts/python.exe init_db.py                             # seed reference data
    ```
-   This also runs `CREATE EXTENSION IF NOT EXISTS vector`, which Neon supports.
+   The migration records the revision in `alembic_version` and intentionally
+   fails if the database role cannot create the `vector` extension. The
+   complete clean-database and existing-database baseline procedures are in
+   [docs/database-migrations.md](docs/database-migrations.md).
 
-You do not need to enable pgvector by hand, and you do not need Alembic — the
-schema is created from the models.
+For an existing ExamMind database, do not run the clean-database command
+blindly. Run `verify_migration.py` first, resolve any reported drift, then
+stamp `0001_initial_schema` only after the schema has been confirmed. No
+production database is reset or recreated by this process.
 
 ---
 
