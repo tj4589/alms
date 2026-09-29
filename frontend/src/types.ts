@@ -196,6 +196,15 @@ export type ChatMessage = {
   content: string;
   msgType?: MsgType;
   sources?: string[];
+  sourceCitations?: MaxeCitation[];
+  mode?: 'source' | 'beyond_materials';
+  knowledgeGap?: boolean;
+  knowledgeGapMessage?: string | null;
+  context?: {
+    active_resource?: { resource_type?: string; resource_id?: number; title?: string } | null;
+    selected_text_used?: boolean;
+    selected_text_source?: string | null;
+  };
   noPastQuestionsFound?: boolean;
   noLectureNotesFound?: boolean;
   wasStudyQuery?: boolean;
@@ -215,4 +224,31 @@ export type ChatMessage = {
     needs_clarification: boolean;
     clarifying_question: string | null;
   } | null;
+};
+
+export type MaxeCitation = {
+  source?: string;
+  material_type?: string;
+  resource_type?: string;
+  resource_id?: number;
+  material_id?: number;
+  chunk_id?: number | null;
+  resource_title?: string;
+  label?: string;
+  page_from?: number | null;
+  page_to?: number | null;
+  slide_from?: number | null;
+  slide_to?: number | null;
+  timestamp_start?: number | null;
+  timestamp_end?: number | null;
+  section?: string | null;
+  target?: {
+    screen?: string;
+    resource_type?: string;
+    resource_id?: number;
+    start_time?: number;
+    end_time?: number | null;
+    page_from?: number | null;
+    slide_from?: number | null;
+  };
 };

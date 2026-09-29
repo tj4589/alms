@@ -123,18 +123,39 @@ def citation_payload(
         "section_index": stored.get("section_index"),
         "evidence_status": "retrieved_source",
     }
-    if resource_type == "audio":
-        title = resource_title or metadata.get("document_title") or metadata.get("source_file") or "Audio recording"
-        result["resource_title"] = title
-        if result["timestamp_start"] is not None:
-            result["label"] = f"{title} · {format_timestamp(float(result['timestamp_start']))}"
-            result["target"] = {
-                "screen": "workspace",
-                "resource_type": "audio",
-                "resource_id": resource_id,
-                "start_time": result["timestamp_start"],
-                "end_time": result["timestamp_end"],
-            }
+    title = resource_title or metadata.get("document_title") or metadata.get("source_file") or "Uploaded source"
+    result["resource_title"] = str(title)
+
+    if resource_type == "audio" and result["timestamp_start"] is not None:
+        result["label"] = f"{title} · {format_timestamp(float(result['timestamp_start']))}"
+        result["target"] = {
+            "screen": "workspace",
+            "resource_type": "audio",
+            "resource_id": resource_id,
+            "start_time": result["timestamp_start"],
+            "end_time": result["timestamp_end"],
+        }
+    else:
+        coordinate_label = None
+        if result["page_from"] is not None:
+            end = result["page_to"] if result["page_to"] is not None else result["page_from"]
+            coordinate_label = f"Page {result['page_from']}" if end == result["page_from"] else f"Pages {result['page_from']}–{end}"
+        elif result["slide_from"] is not None:
+            end = result["slide_to"] if result["slide_to"] is not None else result["slide_from"]
+            coordinate_label = f"Slide {result['slide_from']}" if end == result["slide_from"] else f"Slides {result['slide_from']}–{end}"
+        elif result["section"] or result["heading"]:
+            coordinate_label = str(result["section"] or result["heading"])
+        result["label"] = f"{title} · {coordinate_label}" if coordinate_label else str(title)
+        result["target"] = {
+            "screen": "workspace",
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "page_from": result["page_from"],
+            "page_to": result["page_to"],
+            "slide_from": result["slide_from"],
+            "slide_to": result["slide_to"],
+            "section": result["section"] or result["heading"],
+        }
     return result
 
 

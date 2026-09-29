@@ -1,9 +1,9 @@
 import os
 import re
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy import Text, and_, false, func, or_
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,9 @@ import auth
 import models
 from database import get_db
 
-from ai_clients import AIProviderError, embeddings_model, generate_ai_response
+from ai_clients import AIProviderError, embeddings_model
+from maxe_context import BEYOND_MATERIALS_MODE, SOURCE_MODE, assemble_maxe_context
+from maxe_provider import get_maxe_provider
 from query_understanding import expanded_search_terms, public_understanding, understand_query
 from material_access import accessible_material_filter
 from resource_index import citation_payload
@@ -38,6 +40,16 @@ class AskQuestionRequest(BaseModel):
     # it, rather than that it is the text on the page in front of the student.
     passage: Optional[str] = None
     passage_source: Optional[str] = None
+    mode: Literal["source", "beyond_materials"] = Field(
+        default=SOURCE_MODE,
+        validation_alias=AliasChoices("mode", "knowledge_mode", "source_mode"),
+    )
+    selected_text: Optional[str] = Field(default=None, max_length=4000)
+    selected_text_source: Optional[str] = Field(default=None, max_length=240)
+    active_resource_type: Optional[Literal["past_question", "lecture_note", "audio"]] = None
+    active_resource_id: Optional[int] = Field(default=None, gt=0)
+    active_resource_title: Optional[str] = Field(default=None, max_length=240)
+    active_timestamp: Optional[float] = Field(default=None, ge=0)
 
 
 class AskQuestionResponse(BaseModel):
@@ -50,6 +62,10 @@ class AskQuestionResponse(BaseModel):
     no_past_questions_found: bool = False
     no_lecture_notes_found: bool = False
     understanding: dict | None = None
+    mode: Literal["source", "beyond_materials"] = SOURCE_MODE
+    knowledge_gap: bool = False
+    knowledge_gap_message: str | None = None
+    context: dict = Field(default_factory=dict)
 
 
 def source_from_metadata(prefix: str, year, metadata: dict | None):
@@ -126,17 +142,11 @@ def _source_citation(db: Session, item: Any, source: str, material_type: str) ->
     citation = metadata.get("source_citation") if isinstance(metadata, dict) else None
     if not isinstance(citation, dict):
         citation = {}
-    result = {
-        "source": source,
-        "material_type": material_type,
-        "material_id": getattr(item, "id", None),
-        "page_from": citation.get("page_from"),
-        "page_to": citation.get("page_to"),
-        "section": citation.get("section"),
-        "section_index": citation.get("section_index"),
-        "evidence_status": "retrieved_source",
-    }
-    if material_type == "lecture_note" and not result["section"] and not result["page_from"]:
+    page_from = citation.get("page_from")
+    page_to = citation.get("page_to")
+    section = citation.get("section")
+    section_index = citation.get("section_index")
+    if material_type == "lecture_note" and not section and not page_from:
         sections = (
             db.query(models.LectureNoteSection)
             .filter(models.LectureNoteSection.lecture_note_id == item.lecture_note_id)
@@ -151,14 +161,21 @@ def _source_citation(db: Session, item: Any, source: str, material_type: str) ->
             if best is None or score > best[0]:
                 best = (score, section)
         if best:
-            section = best[1]
-            result.update({
-                "page_from": section.page_from,
-                "page_to": section.page_to,
-                "section": section.heading,
-                "section_index": section.section_index,
-            })
-    return result
+            best_section = best[1]
+            page_from = best_section.page_from
+            page_to = best_section.page_to
+            section = best_section.heading
+            section_index = best_section.section_index
+    return citation_payload(
+        resource_type=material_type,
+        resource_id=getattr(item, "lecture_note_id", None) or getattr(item, "id", None),
+        chunk_id=getattr(item, "id", None),
+        metadata={**metadata, "source_citation": {**citation, "section_index": section_index}},
+        page_from=page_from,
+        page_to=page_to,
+        section=section,
+        resource_title=source,
+    ) | {"source": source, "material_type": material_type}
 
 
 def _topic_list_answer(question: str, rows: list[models.PastQuestion], sources: list[str]) -> str | None:
@@ -178,6 +195,103 @@ def _topic_list_answer(question: str, rows: list[models.PastQuestion], sources: 
     return f"The uploaded {source} appears to cover:\n{bullet_lines}\n\nSource: {source}."
 
 
+def _workspace_name(db: Session, current_user: models.User | None) -> str | None:
+    space_id = getattr(current_user, "active_learning_space_id", None)
+    if not space_id:
+        return None
+    try:
+        space = db.query(models.LearningSpace).filter(models.LearningSpace.id == space_id).first()
+    except Exception:
+        return None
+    return getattr(space, "name", None) if space else None
+
+
+def _active_resource_context(
+    db: Session,
+    current_user: models.User | None,
+    resource_type: str | None,
+    resource_id: int | None,
+    resource_title: str | None,
+    active_timestamp: float | None,
+) -> tuple[dict | None, str]:
+    """Resolve active context only after applying the normal access predicate."""
+    if not current_user or not resource_type or not resource_id:
+        return None, ""
+    try:
+        if resource_type == "past_question":
+            row = (
+                db.query(models.PastQuestion)
+                .filter(models.PastQuestion.id == resource_id)
+                .filter(accessible_material_filter(db, models.PastQuestion, current_user))
+                .first()
+            )
+            if not row:
+                return None, ""
+            metadata = row.metadata_json or {}
+            title = source_from_metadata("Past question", getattr(row, "year", None), metadata)
+            return (
+                {"resource_type": resource_type, "resource_id": row.id, "title": title},
+                _past_question_context(row),
+            )
+
+        row = (
+            db.query(models.LectureNote)
+            .filter(models.LectureNote.id == resource_id)
+            .filter(accessible_material_filter(db, models.LectureNote, current_user))
+            .first()
+        )
+        if not row:
+            return None, ""
+        metadata = row.metadata_json or {}
+        is_audio = resource_type == "audio"
+        if is_audio and metadata.get("document_type") != "audio" and not str(row.file_mime or "").startswith("audio/"):
+            return None, ""
+        title = str(resource_title or row.title or metadata.get("document_title") or row.file_name or "Uploaded source")
+        text = str(row.content_text or metadata.get("cleaned_text") or metadata.get("cleaned_text_sample") or "").strip()
+        if is_audio:
+            segment_query = db.query(models.AudioTranscriptSegment).filter(
+                models.AudioTranscriptSegment.resource_id == row.id,
+            )
+            if active_timestamp is not None:
+                segment_query = segment_query.filter(
+                    models.AudioTranscriptSegment.end_time >= active_timestamp,
+                    models.AudioTranscriptSegment.start_time <= active_timestamp + 90,
+                )
+            segments = segment_query.order_by(models.AudioTranscriptSegment.segment_index).limit(12).all()
+            if segments:
+                text = "\n".join(
+                    f"[{segment.start_time:.2f}-{segment.end_time:.2f}] {segment.text}"
+                    for segment in segments
+                )
+        return (
+            {"resource_type": resource_type, "resource_id": row.id, "title": title},
+            text[:6000],
+        )
+    except Exception:
+        # Context is an enhancement. A malformed or stale client pointer must
+        # never bypass the normal retrieval path or turn into a data leak.
+        return None, ""
+
+
+def _knowledge_gap_response(question: str, mode: str, context: dict) -> dict:
+    message = "I couldn't find a source in the current knowledge base that answers this."
+    return {
+        "answer": message,
+        "sources": [],
+        "past_question_sources": [],
+        "lecture_note_sources": [],
+        "source_citations": [],
+        "insufficient_sources": True,
+        "no_past_questions_found": True,
+        "no_lecture_notes_found": True,
+        "understanding": None,
+        "mode": mode,
+        "knowledge_gap": True,
+        "knowledge_gap_message": message,
+        "context": context,
+    }
+
+
 def run_rag_query(
     question: str,
     course_id: Optional[int],
@@ -185,6 +299,13 @@ def run_rag_query(
     db: Session,
     room_context: Optional[str] = None,
     current_user: models.User | None = None,
+    mode: Literal["source", "beyond_materials"] = SOURCE_MODE,
+    selected_text: Optional[str] = None,
+    selected_text_source: Optional[str] = None,
+    active_resource_type: Optional[str] = None,
+    active_resource_id: Optional[int] = None,
+    active_resource_title: Optional[str] = None,
+    active_timestamp: Optional[float] = None,
 ) -> dict:
     """Core RAG pipeline — reusable across endpoints. Raises HTTPException on failure."""
     understanding = understand_query(question, _metadata_context(db, current_user))
@@ -194,6 +315,24 @@ def run_rag_query(
         if course:
             course_id = course.id
     public_view = public_understanding(understanding)
+    active_resource, active_resource_text = _active_resource_context(
+        db,
+        current_user,
+        active_resource_type,
+        active_resource_id,
+        active_resource_title,
+        active_timestamp,
+    )
+    maxe_context = assemble_maxe_context(
+        mode=mode,
+        workspace_name=_workspace_name(db, current_user),
+        active_resource=active_resource,
+        active_resource_text=active_resource_text,
+        selected_text=selected_text,
+        selected_text_source=selected_text_source,
+        recent_context=room_context,
+    )
+    mode = maxe_context.mode
     if understanding.get("needs_clarification"):
         return {
             "answer": understanding.get("clarifying_question") or "Can you add a course, topic, or phrase you remember?",
@@ -205,6 +344,9 @@ def run_rag_query(
             "no_past_questions_found": False,
             "no_lecture_notes_found": False,
             "understanding": public_view,
+            "mode": mode,
+            "knowledge_gap": False,
+            "context": maxe_context.public_payload(),
         }
 
     terms = expanded_search_terms(understanding)
@@ -227,6 +369,10 @@ def run_rag_query(
         past_query = past_query.filter(models.PastQuestion.course_id == course_id)
     if topic_id is not None:
         past_query = past_query.filter(models.PastQuestion.topic_id == topic_id)
+    if active_resource and active_resource["resource_type"] == "past_question":
+        past_query = past_query.filter(models.PastQuestion.id == active_resource["resource_id"])
+    elif active_resource and active_resource["resource_type"] in {"lecture_note", "audio"}:
+        past_query = past_query.filter(false())
 
     notes_query = db.query(models.ResourceChunk if use_canonical_chunks else models.LectureNoteChunk)
     if current_user is not None:
@@ -242,6 +388,14 @@ def run_rag_query(
             notes_query = notes_query.filter(models.LectureNote.course_id == course_id)
         else:
             notes_query = notes_query.filter(models.LectureNoteChunk.course_id == course_id)
+    if active_resource and active_resource["resource_type"] in {"lecture_note", "audio"}:
+        notes_query = notes_query.filter(models.LectureNote.id == active_resource["resource_id"])
+        if use_canonical_chunks:
+            notes_query = notes_query.filter(
+                models.ResourceChunk.resource_type == active_resource["resource_type"]
+            )
+    elif active_resource and active_resource["resource_type"] == "past_question":
+        notes_query = notes_query.filter(false())
 
     use_keyword_fallback = not embeddings_model
     if embeddings_model:
@@ -263,35 +417,25 @@ def run_rag_query(
             use_keyword_fallback = True
 
     if use_keyword_fallback:
-        similar_questions = past_query.filter(
-            _resource_chunk_filter(terms) if use_canonical_chunks else _past_question_filter(terms)
-        ).limit(5).all()
-        similar_notes = notes_query.filter(
-            _resource_chunk_filter(terms) if use_canonical_chunks else _lecture_chunk_filter(terms)
-        ).limit(5).all()
+        if active_resource:
+            similar_questions = past_query.limit(5).all()
+            similar_notes = notes_query.limit(5).all()
+        else:
+            similar_questions = past_query.filter(
+                _resource_chunk_filter(terms) if use_canonical_chunks else _past_question_filter(terms)
+            ).limit(5).all()
+            similar_notes = notes_query.filter(
+                _resource_chunk_filter(terms) if use_canonical_chunks else _lecture_chunk_filter(terms)
+            ).limit(5).all()
 
     no_past_questions_found = len(similar_questions) == 0
     no_lecture_notes_found = len(similar_notes) == 0
 
-    if no_past_questions_found and no_lecture_notes_found:
-        interpreted = understanding.get("interpreted_topic") or question
-        related = ", ".join((understanding.get("related_terms") or [])[:5])
-        return {
-            "answer": (
-                "I couldn't find enough information in your available materials to answer this confidently. "
-                "Upload a relevant lecture note, past question, course outline, tutorial, assignment, "
-                "revision slide, or exam-prep document"
-                f"{f' mentioning {interpreted} or related terms like {related}' if related else ''}."
-            ),
-            "sources": [],
-            "past_question_sources": [],
-            "lecture_note_sources": [],
-            "source_citations": [],
-            "insufficient_sources": True,
-            "no_past_questions_found": True,
-            "no_lecture_notes_found": True,
-            "understanding": public_view,
-        }
+    has_retrieved_material = not (no_past_questions_found and no_lecture_notes_found)
+    if not has_retrieved_material and not maxe_context.active_resource_text and not maxe_context.selected_text and mode == SOURCE_MODE:
+        response = _knowledge_gap_response(question, mode, maxe_context.public_payload())
+        response["understanding"] = public_view
+        return response
 
     past_context = []
     past_sources = []
@@ -316,7 +460,7 @@ def run_rag_query(
         source_citations.append(_source_citation(db, item, source, "past_question"))
 
     topic_answer = _topic_list_answer(question, similar_questions, past_sources)
-    if topic_answer:
+    if topic_answer and mode == SOURCE_MODE:
         return {
             "answer": topic_answer,
             "sources": past_sources + note_sources,
@@ -327,33 +471,41 @@ def run_rag_query(
             "no_past_questions_found": no_past_questions_found,
             "no_lecture_notes_found": no_lecture_notes_found,
             "understanding": public_view,
+            "mode": mode,
+            "knowledge_gap": False,
+            "context": maxe_context.public_payload(),
         }
 
-    prompt = (
-        "You are ExamMind AI, an exam-intelligent tutor for Nigerian university students.\n"
-        "Answer ONLY from the retrieved past questions and lecture notes below.\n"
-        "Answer the student's focused question directly. Do not solve or summarize the whole past question unless the student explicitly asks for full answers.\n"
-        "For critical path questions, focus on the project network diagram, path lengths, shortest completion time, and PERT duration when those appear in the source.\n"
-        "For topic-list questions, return concise bullet points from detected topics and preview sections.\n"
-        "When the student asks about uploaded content, do not use outside knowledge except to explain terms that appear in the retrieved material.\n"
-        "Cite source names exactly as listed in the source metadata when possible, for example MIS415 Project Management Past Question 2022/2023.\n"
-        "If OCR quality or extraction looks imperfect, say so briefly and answer from the usable text.\n"
-        "If the retrieved sources do not contain enough information, say exactly: I couldn't find enough information in your available materials to answer this confidently. Do not invent exam content.\n\n"
-        f"Room or workflow context:\n{room_context or 'No extra room context.'}\n\n"
-        f"Source metadata:\n{chr(10).join(past_sources + note_sources) or 'No source metadata available.'}\n\n"
-        f"Student's original wording:\n{question}\n\n"
-        f"Interpreted topic:\n{understanding.get('interpreted_topic') or question}\n\n"
-        f"Related search terms:\n{', '.join((understanding.get('related_terms') or [])[:8])}\n\n"
-        f"Past question context:\n{chr(10).join(past_context) or 'No past questions found.'}\n\n"
-        f"Lecture note context:\n{chr(10).join(note_context) or 'No lecture notes found.'}\n\n"
-        f"Missing-source flags:\n"
-        f"- no_past_questions_found: {str(no_past_questions_found).lower()}\n"
-        f"- no_lecture_notes_found: {str(no_lecture_notes_found).lower()}\n\n"
-        f"Question:\n{question}"
+    if mode == BEYOND_MATERIALS_MODE:
+        mode_instruction = (
+            "The student explicitly enabled BEYOND MATERIALS mode. You may use general model knowledge, "
+            "but never present general knowledge as if it came from an uploaded source. "
+            "Use exactly these headings in your answer: FROM YOUR MATERIALS: and BEYOND YOUR MATERIALS:. "
+            "If no material directly supports a point, say so under BEYOND YOUR MATERIALS."
+        )
+    else:
+        mode_instruction = (
+            "SOURCE MODE is active. Answer only from the authorized retrieved material, active source context, "
+            "or student-selected passage below. Do not use outside knowledge to fill gaps. "
+            "If the context is insufficient, say that clearly instead of guessing."
+        )
+    prompt = "\n\n".join(
+        [
+            "You are Maxe, ExamMind's calm, context-aware study tutor.",
+            mode_instruction,
+            "Answer the student's focused question directly. Do not solve or summarize a whole past question unless requested.",
+            "Explain difficult ideas clearly without inventing facts, speakers, timestamps, pages, slides, or citations.",
+            f"Maxe context envelope:\n{maxe_context.prompt_block()}",
+            f"Verified source labels:\n{chr(10).join(past_sources + note_sources) or '(none)'}",
+            f"Past-question retrieval context:\n{chr(10).join(past_context) or '(none)'}",
+            f"Lecture/audio retrieval context:\n{chr(10).join(note_context) or '(none)'}",
+            f"Missing-source flags: past_questions={str(no_past_questions_found).lower()}, notes={str(no_lecture_notes_found).lower()}",
+            f"Student question:\n{question}",
+        ]
     )
 
     try:
-        answer = generate_ai_response(prompt)
+        answer = get_maxe_provider().generate(prompt)
     except AIProviderError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception:
@@ -365,9 +517,12 @@ def run_rag_query(
             ),
         )
 
-    if no_lecture_notes_found:
+    if mode == BEYOND_MATERIALS_MODE and not answer.lstrip().startswith("FROM YOUR MATERIALS:"):
+        material_summary = "The authorized workspace did not contain a directly relevant source." if not has_retrieved_material else "The answer may include relevant workspace material."
+        answer = f"FROM YOUR MATERIALS:\n{material_summary}\n\nBEYOND YOUR MATERIALS:\n{answer.strip()}"
+    if no_lecture_notes_found and mode == SOURCE_MODE and has_retrieved_material:
         answer += "\n\nNo lecture notes on this topic are uploaded yet. Be the first to upload them."
-    if no_past_questions_found:
+    if no_past_questions_found and mode == SOURCE_MODE and has_retrieved_material:
         answer += "\n\nThis topic has not appeared in any uploaded past questions yet."
 
     return {
@@ -380,6 +535,9 @@ def run_rag_query(
         "no_past_questions_found": no_past_questions_found,
         "no_lecture_notes_found": no_lecture_notes_found,
         "understanding": public_view,
+        "mode": mode,
+        "knowledge_gap": False,
+        "context": maxe_context.public_payload(),
     }
 
 
@@ -400,13 +558,6 @@ def ask_question(
     parts: list[str] = []
     if req.recent_context:
         parts.append("Recent conversation:" + NL + req.recent_context[:1200])
-    if req.passage:
-        where = f" (from {req.passage_source})" if req.passage_source else ""
-        parts.append(
-            "The student is reading this passage" + where + " and is asking about it. "
-            "Answer about this passage first, then add what the archive says:"
-            + NL + req.passage[:MAX_PASSAGE_CHARS]
-        )
     room_context = (NL + NL).join(parts) if parts else None
     return run_rag_query(
         question,
@@ -415,6 +566,13 @@ def ask_question(
         db,
         room_context=room_context,
         current_user=current_user,
+        mode=req.mode,
+        selected_text=req.selected_text or req.passage,
+        selected_text_source=req.selected_text_source or req.passage_source,
+        active_resource_type=req.active_resource_type,
+        active_resource_id=req.active_resource_id,
+        active_resource_title=req.active_resource_title,
+        active_timestamp=req.active_timestamp,
     )
 
 

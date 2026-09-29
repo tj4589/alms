@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatMessage, MsgType, ScreenType, User } from '../types';
+import type { ChatMessage, MaxeCitation, MsgType, ScreenType, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 import './Assistant.css';
 
@@ -12,6 +12,11 @@ type AskResponse = {
   lecture_note_sources: string[];
   no_past_questions_found: boolean;
   no_lecture_notes_found: boolean;
+  source_citations?: MaxeCitation[];
+  mode?: 'source' | 'beyond_materials';
+  knowledge_gap?: boolean;
+  knowledge_gap_message?: string | null;
+  context?: ChatMessage['context'];
   understanding?: QueryUnderstanding | null;
 };
 
@@ -64,6 +69,14 @@ type LastRagContext = {
   lastTopic?: string;
   lastSources: string[];
   lastQuestion: string;
+};
+
+export type MaxeResourceContext = {
+  id: number;
+  kind: 'lecture_note' | 'past_question';
+  title: string;
+  courseCode?: string | null;
+  isAudio?: boolean;
 };
 
 // ── Pre-gate types ────────────────────────────────────────────────────────────
@@ -1131,6 +1144,13 @@ function ThinkingBubble({ text }: { text: string }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+function formatCitationTime(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+}
+
 export default function Assistant({
   go,
   selectedQuestion,
@@ -1138,6 +1158,10 @@ export default function Assistant({
   messages,
   onMessagesChange,
   user,
+  activeResource,
+  selectedText,
+  selectedTextSource,
+  onCitationClick,
 }: {
   go: (s: ScreenType) => void;
   selectedQuestion?: string;
@@ -1145,10 +1169,15 @@ export default function Assistant({
   messages: ChatMessage[];
   onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void;
   user: User | null;
+  activeResource?: MaxeResourceContext | null;
+  selectedText?: string;
+  selectedTextSource?: string | null;
+  onCitationClick?: (citation: MaxeCitation) => void;
 }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [thinkingPhase, setThinkingPhase] = useState<ThinkingPhase>('idle');
+  const [knowledgeMode, setKnowledgeMode] = useState<'source' | 'beyond_materials'>('source');
   const [courses, setCourses] = useState<{ id: number; code: string; name: string }[]>([]);
   const [lastRagContext, setLastRagContext] = useState<LastRagContext | null>(null);
   const msgsEndRef = useRef<HTMLDivElement>(null);
@@ -1210,7 +1239,7 @@ export default function Assistant({
     [onMessagesChange],
   );
 
-  // Only path that calls /rag/ask
+  // Only path that calls Maxe's source-aware chat endpoint.
   const callRag = useCallback(
     async (question: string, originalQuestion = question) => {
       setLoading(true);
@@ -1220,12 +1249,22 @@ export default function Assistant({
         const course = courseCode
           ? courses.find(c => c.code.replace(/\s+/g, '').toLowerCase() === courseCode.replace(/\s+/g, '').toLowerCase())
           : null;
-        const data = (await apiPost('/rag/ask', {
+        const data = (await apiPost('/maxe/chat', {
           question,
           course_id: course?.id ?? lastRagContext?.lastCourseId,
           recent_context: buildRecentContext(messages, lastRagContext),
+          mode: knowledgeMode,
+          selected_text: selectedText || undefined,
+          selected_text_source: selectedTextSource || undefined,
+          active_resource_type: activeResource?.isAudio ? 'audio' : activeResource?.kind,
+          active_resource_id: activeResource?.id,
+          active_resource_title: activeResource?.title,
         })) as AskResponse;
-        const noSources = data.no_past_questions_found && data.no_lecture_notes_found;
+        // The backend's explicit knowledge-gap flag is authoritative. A
+        // selected passage or active resource can support an answer even when
+        // retrieval returns no separate past-question or note rows, and
+        // beyond-materials mode may intentionally answer without a source.
+        const noSources = Boolean(data.knowledge_gap);
         if (!noSources) {
           const nextSource = (data.sources || [])[0] || lastRagContext?.lastDocumentTitle;
           const nextCourseCode = extractCourseCode(nextSource || '') || courseCode || data.understanding?.course_code || undefined;
@@ -1243,10 +1282,17 @@ export default function Assistant({
           {
             id: `assistant-${Date.now()}`,
             role: 'assistant',
-            content: noSources ? missingMaterialsReply(question, data.understanding) : data.answer,
+            content: noSources
+              ? (data.knowledge_gap_message || data.answer || missingMaterialsReply(question, data.understanding))
+              : data.answer,
             sources: data.sources || [],
             noPastQuestionsFound: data.no_past_questions_found,
             noLectureNotesFound: data.no_lecture_notes_found,
+            sourceCitations: data.source_citations || [],
+            mode: data.mode || knowledgeMode,
+            knowledgeGap: Boolean(data.knowledge_gap || noSources),
+            knowledgeGapMessage: data.knowledge_gap_message || null,
+            context: data.context,
             wasStudyQuery: true,
             msgType: noSources ? 'missing_materials' : 'academic_answer',
             understanding: data.understanding || null,
@@ -1263,7 +1309,7 @@ export default function Assistant({
         setThinkingPhase('idle');
       }
     },
-    [courses, lastRagContext, messages, onMessagesChange],
+    [activeResource, courses, knowledgeMode, lastRagContext, messages, onMessagesChange, selectedText, selectedTextSource],
   );
 
   const handleSend = useCallback(
@@ -1517,11 +1563,20 @@ export default function Assistant({
         <div className="ai-panel">
           <div className="ai-hd">
             <div className="ai-dot"></div>
-            <div className="ai-hd-title">Your study partner</div>
+            <div className="ai-hd-copy"><div className="ai-hd-title">Your study partner</div>
             <div className="ai-hd-sub">
               {thinkingPhase !== 'idle' ? PHASE_TEXT[thinkingPhase] : 'Ready for your questions'}
+            </div></div>
+            <div className="ai-mode-toggle" role="group" aria-label="Maxe knowledge mode">
+              <button type="button" className={knowledgeMode === 'source' ? 'is-active' : ''} onClick={() => setKnowledgeMode('source')} aria-pressed={knowledgeMode === 'source'}>From sources</button>
+              <button type="button" className={knowledgeMode === 'beyond_materials' ? 'is-active' : ''} onClick={() => setKnowledgeMode('beyond_materials')} aria-pressed={knowledgeMode === 'beyond_materials'}>Beyond materials</button>
             </div>
           </div>
+          {(activeResource || selectedText) && <div className="ai-context-strip" aria-live="polite">
+            <span>{selectedText ? 'Selected text in context' : 'Active source in context'}</span>
+            <strong>{selectedText ? (selectedTextSource || activeResource?.title || 'Current selection') : activeResource?.title}</strong>
+            {knowledgeMode === 'beyond_materials' && <small>Maxe will separate source-grounded and general knowledge.</small>}
+          </div>}
 
           <div className="ai-msgs" role="log" aria-label="Conversation with Maxe" aria-live="polite">
             {messages.map(message => (
@@ -1530,6 +1585,7 @@ export default function Assistant({
                   {message.role === 'user' ? 'You' : 'M'}
                 </div>
                 <div className={`bubble ${message.role === 'user' ? 'usr' : 'ai'}`}>
+                  {message.role === 'assistant' && message.mode === 'beyond_materials' && <div className="ai-mode-note">Beyond your materials</div>}
                   <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>
                   {/* "Understood as" only for real academic search results — never for conversation */}
                   {message.wasStudyQuery && message.showUnderstoodAs && message.understanding?.interpreted_topic && (
@@ -1556,6 +1612,30 @@ export default function Assistant({
                           <div className="pq-ref-q">{source}</div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {message.sourceCitations && message.sourceCitations.length > 0 && (
+                    <div className="ai-citations" aria-label="Verified source citations">
+                      <span className="ai-citations-label">Verified sources</span>
+                      {message.sourceCitations.map((citation, index) => (
+                        <button
+                          type="button"
+                          className="ai-citation"
+                          key={`${citation.resource_id || citation.material_id || 'source'}-${citation.chunk_id || index}`}
+                          onClick={() => onCitationClick?.(citation)}
+                          disabled={!onCitationClick}
+                        >
+                          <span>{citation.label || citation.source || citation.resource_title || 'Uploaded source'}</span>
+                          {citation.timestamp_start != null && <small>{formatCitationTime(citation.timestamp_start)}</small>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {message.knowledgeGap && message.role === 'assistant' && (
+                    <div className="ai-gap-actions">
+                      <span>Have the material?</span>
+                      <button type="button" onClick={() => go('upload')}>Upload privately</button>
+                      {message.mode !== 'beyond_materials' && <button type="button" onClick={() => setKnowledgeMode('beyond_materials')}>Learn beyond materials</button>}
                     </div>
                   )}
                 </div>
