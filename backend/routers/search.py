@@ -17,9 +17,19 @@ from query_understanding import (
     public_understanding,
     understand_query,
 )
-from material_access import accessible_material_filter
+from material_access import OFFICIAL, SPACE_SHARED, accessible_material_filter
 
 router = APIRouter(tags=["search"])
+
+_PUBLIC_METADATA_BLOCKED = {
+    "file_bytes", "file_data", "raw_audio", "audio_bytes", "storage_reference",
+    "raw_extracted_text", "cleaned_text", "cleaned_text_sample", "page_texts",
+    "transcript", "transcript_text", "complete_transcript",
+}
+
+
+def _public_metadata(value: dict | None) -> dict:
+    return {key: item for key, item in (value or {}).items() if key not in _PUBLIC_METADATA_BLOCKED}
 
 
 @router.get("/search")
@@ -497,7 +507,7 @@ def _metadata_snippets(metadata: dict) -> list[str]:
 def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[dict]:
     grouped: dict[str, dict] = {}
     for row in rows:
-        metadata = row.metadata_json or {}
+        metadata = _public_metadata(row.metadata_json)
         key = _document_key(row) or f"row-{row.id}"
         title = _display_title(metadata)
         if key not in grouped:
@@ -518,7 +528,7 @@ def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[d
                 "chunk_ids": [row.id],
                 "matching_sections": 1,
                 "visibility": visibility,
-                "contributor_label": "Shared by a student contributor" if visibility in {"public", "group"} else None,
+                "contributor_label": "Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", "group", SPACE_SHARED} else None,
                 "metadata_json": metadata,
             }
         else:
@@ -531,7 +541,7 @@ def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[d
 
 
 def _pq(r: models.PastQuestion) -> dict:
-    metadata = r.metadata_json or {}
+    metadata = _public_metadata(r.metadata_json)
     visibility = getattr(r, "visibility", None) or metadata.get("visibility") or "private"
     return {
         "id": r.id,
@@ -545,13 +555,13 @@ def _pq(r: models.PastQuestion) -> dict:
         "chunk_ids": [r.id],
         "matching_sections": 1,
         "visibility": visibility,
-        "contributor_label": "Shared by a student contributor" if visibility in {"public", "group"} else None,
+        "contributor_label": "Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", "group", SPACE_SHARED} else None,
         "metadata_json": metadata,
     }
 
 
 def _ln(r: models.LectureNote) -> dict:
-    metadata = r.metadata_json or {}
+    metadata = _public_metadata(r.metadata_json)
     visibility = getattr(r, "visibility", None) or metadata.get("visibility") or "private"
     return {
         "id": r.id,
@@ -561,6 +571,6 @@ def _ln(r: models.LectureNote) -> dict:
         "year": r.year,
         "semester": r.semester,
         "visibility": visibility,
-        "contributor_label": "Shared by a student contributor" if visibility in {"public", "group"} else None,
+        "contributor_label": "Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", "group", SPACE_SHARED} else None,
         "metadata_json": metadata,
     }

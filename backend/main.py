@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from routers import auth, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, search, sessions, understand
+from routers import auth, collaboration, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, search, sessions, understand
 import models as _models  # noqa: F401 — registers all ORM classes with Base
 from database import Base, SessionLocal, engine
 from init_db import seed_courses, seed_learning_spaces
@@ -183,6 +183,7 @@ async def limit_public_feedback_body(request: Request, call_next):
     return await call_next(request)
 
 app.include_router(auth.router)
+app.include_router(collaboration.router)
 app.include_router(community.router)
 app.include_router(feedback.router)
 app.include_router(ingest.router)

@@ -22,13 +22,20 @@ from routers.rag import run_rag_query
 from routers.search import _document_key
 from material_access import (
     GROUP,
+    OFFICIAL,
     PRIVATE,
+    PUBLIC,
+    SPACE_SHARED,
     accessible_material_filter,
     can_view_material,
+    contribution_for_material,
+    contribution_payload,
     material_model,
     material_type_for_model,
     normalize_group_ids,
     normalize_visibility,
+    request_material_contribution,
+    require_contribution_space,
     require_material_owner,
     set_material_visibility,
     sharing_payload,
@@ -444,7 +451,9 @@ def serialize_past_question(row: models.PastQuestion) -> dict:
         "has_text": bool(row.content_text),
         "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
         "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
-        "contributor_label": "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP} else None,
+        "contributor_label": "Official KSA resource" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == OFFICIAL else "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP, SPACE_SHARED} else None,
+        "moderation_status": metadata.get("moderation_status") or "not_submitted",
+        "requested_visibility": metadata.get("requested_visibility"),
         "created_at": row.created_at,
         "metadata_json": metadata,
     }
@@ -492,7 +501,9 @@ def serialize_lecture_note(row: models.LectureNote) -> dict:
         "file_size": row.file_size,
         "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
         "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
-        "contributor_label": "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP} else None,
+        "contributor_label": "Official KSA resource" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == OFFICIAL else "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP, SPACE_SHARED} else None,
+        "moderation_status": metadata.get("moderation_status") or "not_submitted",
+        "requested_visibility": metadata.get("requested_visibility"),
         "created_at": row.created_at,
         "metadata_json": metadata,
     }
@@ -793,7 +804,7 @@ def _file_response(data: bytes, name: str | None, mime: str | None, fallback: st
 
 
 class MaterialVisibilityRequest(BaseModel):
-    visibility: str = Field(default=PRIVATE, pattern="^(private|public|group)$")
+    visibility: str = Field(default=PRIVATE, pattern="^(private|public|group|space_shared|official)$")
     group_ids: list[int] = Field(default_factory=list, max_length=20)
     confirm: bool = False
 
@@ -819,11 +830,8 @@ def update_material_visibility(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if visibility != PRIVATE and not req.confirm:
         raise HTTPException(status_code=400, detail="Confirm who can access this material before sharing it.")
-    if visibility == GROUP:
-        group_ids = validate_share_groups(db, group_ids, current_user)
-    elif group_ids:
-        raise HTTPException(status_code=400, detail="Group IDs are only valid for group sharing.")
-
+    if visibility == OFFICIAL:
+        raise HTTPException(status_code=403, detail="Official publication is controlled by the moderation workflow.")
     rows = [row]
     if material_type == "past_question":
         wanted = _document_key(row)
@@ -834,7 +842,40 @@ def update_material_visibility(
             .all()
             if _document_key(candidate) == wanted
         ]
+    if visibility in {PUBLIC, SPACE_SHARED}:
+        if group_ids:
+            raise HTTPException(status_code=400, detail="Group IDs are not used for academy archive contributions.")
+        space = require_contribution_space(db, current_user)
+        contribution = request_material_contribution(
+            db,
+            rows,
+            current_user,
+            space.id,
+            requested_visibility=SPACE_SHARED,
+        )
+        db.commit()
+        return {
+            "status": "pending_review",
+            "material_type": material_type,
+            "material_id": material_id,
+            "sharing": {
+                **sharing_payload(PRIVATE),
+                **contribution_payload(contribution),
+                "requested_visibility": SPACE_SHARED,
+            },
+        }
+    if visibility == GROUP:
+        group_ids = validate_share_groups(db, group_ids, current_user)
+    elif group_ids:
+        raise HTTPException(status_code=400, detail="Group IDs are only valid for group sharing.")
+
     set_material_visibility(db, rows, visibility, group_ids, current_user.id)
+    if visibility == PRIVATE:
+        for candidate in rows:
+            contribution = contribution_for_material(db, candidate)
+            if contribution and contribution.moderation_status in {"pending_review", "changes_requested", "rejected"}:
+                contribution.moderation_status = "not_submitted"
+                contribution.review_reason = None
     db.commit()
     return {
         "status": "updated",

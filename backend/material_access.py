@@ -6,7 +6,7 @@ import json
 from typing import Any, Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, select, true
+from sqlalchemy import and_, exists, or_, select, true
 from sqlalchemy.orm import Session
 
 import models
@@ -15,7 +15,16 @@ import models
 PRIVATE = "private"
 PUBLIC = "public"
 GROUP = "group"
-VISIBILITIES = frozenset({PRIVATE, PUBLIC, GROUP})
+SPACE_SHARED = "space_shared"
+OFFICIAL = "official"
+VISIBILITIES = frozenset({PRIVATE, PUBLIC, GROUP, SPACE_SHARED, OFFICIAL})
+MODERATION_STATUSES = frozenset({
+    "not_submitted",
+    "pending_review",
+    "approved",
+    "rejected",
+    "changes_requested",
+})
 MATERIAL_TYPES = frozenset({"past_question", "lecture_note"})
 
 
@@ -77,9 +86,104 @@ def material_visibility(row: Any) -> str:
     return normalize_visibility(getattr(row, "visibility", None))
 
 
+def is_moderator(db: Session, current_user: Any, learning_space_id: int | None = None) -> bool:
+    """Return whether the caller can review contributions in this space."""
+    if getattr(current_user, "role", None) in {"admin", "moderator"}:
+        return True
+    if learning_space_id is None or not getattr(current_user, "id", None):
+        return False
+    return db.query(models.LearningSpaceMembership.id).filter(
+        models.LearningSpaceMembership.user_id == current_user.id,
+        models.LearningSpaceMembership.learning_space_id == learning_space_id,
+        models.LearningSpaceMembership.status == "active",
+        models.LearningSpaceMembership.role.in_(("owner", "admin", "moderator")),
+    ).first() is not None
+
+
+def contribution_for_material(db: Session, row_or_type: Any, material_id: int | None = None):
+    try:
+        material_type = row_or_type if isinstance(row_or_type, str) else material_type_for_model(row_or_type)
+    except ValueError:
+        # Lightweight access-test doubles may not carry a mapped SQLAlchemy
+        # class.  They cannot have a contribution row, so stay private-safe.
+        return None
+    row_id = material_id if material_id is not None else getattr(row_or_type, "id", None)
+    if row_id is None:
+        return None
+    return db.query(models.MaterialContribution).filter(
+        models.MaterialContribution.material_type == material_type,
+        models.MaterialContribution.material_id == row_id,
+    ).first()
+
+
+def contribution_payload(contribution: Any | None) -> dict[str, Any]:
+    if contribution is None:
+        return {
+            "moderation_status": "not_submitted",
+            "requested_visibility": None,
+            "review_reason": None,
+        }
+    return {
+        "contribution_id": contribution.id,
+        "moderation_status": contribution.moderation_status,
+        "requested_visibility": contribution.requested_visibility,
+        "review_reason": contribution.review_reason,
+        "learning_space_id": contribution.learning_space_id,
+        "submitted_at": contribution.submitted_at,
+        "reviewed_at": contribution.reviewed_at,
+    }
+
+
+def _contribution_exists(model: Any, *, status: str | None = None):
+    material_type = material_type_for_model(model)
+    conditions = [
+        models.MaterialContribution.material_type == material_type,
+        models.MaterialContribution.material_id == model.id,
+    ]
+    if status is not None:
+        conditions.append(models.MaterialContribution.moderation_status == status)
+    return exists(select(models.MaterialContribution.id).where(*conditions))
+
+
+def _space_member_exists(model: Any, current_user: Any):
+    material_type = material_type_for_model(model)
+    return exists(
+        select(models.LearningSpaceMembership.id)
+        .join(
+            models.MaterialContribution,
+            models.MaterialContribution.learning_space_id == models.LearningSpaceMembership.learning_space_id,
+        )
+        .where(
+            models.MaterialContribution.material_type == material_type,
+            models.MaterialContribution.material_id == model.id,
+            models.LearningSpaceMembership.user_id == current_user.id,
+            models.LearningSpaceMembership.status == "active",
+        )
+    )
+
+
+def _moderator_contribution_exists(model: Any, current_user: Any):
+    material_type = material_type_for_model(model)
+    return exists(
+        select(models.LearningSpaceMembership.id)
+        .join(
+            models.MaterialContribution,
+            models.MaterialContribution.learning_space_id == models.LearningSpaceMembership.learning_space_id,
+        )
+        .where(
+            models.MaterialContribution.material_type == material_type,
+            models.MaterialContribution.material_id == model.id,
+            models.MaterialContribution.moderation_status != "not_submitted",
+            models.LearningSpaceMembership.user_id == current_user.id,
+            models.LearningSpaceMembership.status == "active",
+            models.LearningSpaceMembership.role.in_(("owner", "admin", "moderator")),
+        )
+    )
+
+
 def accessible_material_filter(db: Session, model: Any, current_user: Any):
     """SQL predicate for materials visible to the verified current user."""
-    if getattr(current_user, "role", None) == "admin":
+    if getattr(current_user, "role", None) in {"admin", "moderator"}:
         return true()
 
     material_type = material_type_for_model(model)
@@ -99,23 +203,47 @@ def accessible_material_filter(db: Session, model: Any, current_user: Any):
             models.StudyGroupMember.user_id == current_user.id,
         )
     )
+    shared_visibility = and_(
+        model.visibility.in_((SPACE_SHARED, OFFICIAL)),
+        _contribution_exists(model, status="approved"),
+        _space_member_exists(model, current_user),
+    )
+    moderator_visibility = and_(
+        model.visibility.in_((PRIVATE, SPACE_SHARED, OFFICIAL)),
+        _moderator_contribution_exists(model, current_user),
+    )
     return or_(
         model.uploaded_by == current_user.id,
         model.visibility == PUBLIC,
         and_(model.visibility == GROUP, model.id.in_(group_material_ids)),
+        shared_visibility,
+        moderator_visibility,
     )
 
 
 def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
-    if getattr(current_user, "role", None) == "admin":
+    if getattr(current_user, "role", None) in {"admin", "moderator"}:
         return True
     if getattr(row, "uploaded_by", None) == getattr(current_user, "id", None):
+        return True
+    contribution = contribution_for_material(db, row)
+    if contribution is not None and is_moderator(db, current_user, contribution.learning_space_id):
         return True
     visibility = material_visibility(row)
     if visibility == PUBLIC:
         return True
     if visibility != GROUP:
-        return False
+        if visibility not in {SPACE_SHARED, OFFICIAL}:
+            return False
+        if contribution is None:
+            return False
+        if contribution.moderation_status != "approved":
+            return False
+        return db.query(models.LearningSpaceMembership.id).filter(
+            models.LearningSpaceMembership.user_id == current_user.id,
+            models.LearningSpaceMembership.learning_space_id == contribution.learning_space_id,
+            models.LearningSpaceMembership.status == "active",
+        ).first() is not None
     material_type = material_type_for_model(row)
     return (
         db.query(models.MaterialGroupShare)
@@ -139,8 +267,83 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
 
 
 def require_material_owner(row: Any, current_user: Any) -> None:
-    if getattr(current_user, "role", None) != "admin" and getattr(row, "uploaded_by", None) != getattr(current_user, "id", None):
+    if getattr(current_user, "role", None) not in {"admin", "moderator"} and getattr(row, "uploaded_by", None) != getattr(current_user, "id", None):
         raise HTTPException(status_code=403, detail="Only the uploader can change this material's sharing.")
+
+
+def request_material_contribution(
+    db: Session,
+    rows: Iterable[Any],
+    current_user: Any,
+    learning_space_id: int,
+    requested_visibility: str = SPACE_SHARED,
+    group_ids: Iterable[int] = (),
+):
+    """Record explicit contribution consent while keeping material private."""
+    rows = list(rows)
+    if not rows:
+        raise ValueError("At least one material row is required.")
+    requested_visibility = normalize_visibility(requested_visibility)
+    if requested_visibility not in {SPACE_SHARED, OFFICIAL, PUBLIC}:
+        raise ValueError("Only shared archive contributions can be submitted for review.")
+    material_type = material_type_for_model(rows[0])
+    material_ids = [row.id for row in rows if getattr(row, "id", None) is not None]
+    primary_id = material_ids[0]
+    contribution = None
+    from datetime import datetime, timezone
+    submitted_at = datetime.now(timezone.utc)
+    for row in rows:
+        row_contribution = db.query(models.MaterialContribution).filter(
+            models.MaterialContribution.material_type == material_type,
+            models.MaterialContribution.material_id == row.id,
+        ).first()
+        if row_contribution is None:
+            row_contribution = models.MaterialContribution(
+                material_type=material_type,
+                material_id=row.id,
+                learning_space_id=learning_space_id,
+                submitted_by=getattr(current_user, "id", None),
+            )
+            db.add(row_contribution)
+        if contribution is None:
+            contribution = row_contribution
+        row_contribution.learning_space_id = learning_space_id
+        row_contribution.submitted_by = getattr(current_user, "id", None)
+        row_contribution.requested_visibility = SPACE_SHARED if requested_visibility == PUBLIC else requested_visibility
+        row_contribution.requested_group_ids = list(group_ids)
+        row_contribution.moderation_status = "pending_review"
+        row_contribution.review_reason = None
+        row_contribution.reviewed_by = None
+        row_contribution.reviewed_at = None
+        row_contribution.submitted_at = submitted_at
+        row.visibility = PRIVATE
+        metadata = dict(getattr(row, "metadata_json", None) or {})
+        metadata["visibility"] = PRIVATE
+        metadata["requested_visibility"] = row_contribution.requested_visibility
+        metadata["moderation_status"] = "pending_review"
+        row.metadata_json = metadata
+    return contribution
+
+
+def require_contribution_space(db: Session, current_user: Any) -> models.LearningSpace:
+    """Contributions are currently anchored to a verified active KSA space."""
+    space = db.query(models.LearningSpace).filter(
+        models.LearningSpace.id == getattr(current_user, "active_learning_space_id", None),
+        models.LearningSpace.status == "active",
+    ).first()
+    if space is None or space.slug != "ksa":
+        raise HTTPException(
+            status_code=403,
+            detail="Verify your Kora Sales Academy membership before contributing to the academy archive.",
+        )
+    membership = db.query(models.LearningSpaceMembership.id).filter(
+        models.LearningSpaceMembership.user_id == current_user.id,
+        models.LearningSpaceMembership.learning_space_id == space.id,
+        models.LearningSpaceMembership.status == "active",
+    ).first()
+    if membership is None:
+        raise HTTPException(status_code=403, detail="Join the Kora Sales Academy space before contributing material.")
+    return space
 
 
 def validate_share_groups(db: Session, group_ids: Iterable[int], current_user: Any) -> list[int]:

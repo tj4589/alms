@@ -19,10 +19,16 @@ from sectioniser import split_into_sections
 from database import get_db
 from material_access import (
     GROUP,
+    OFFICIAL,
     PRIVATE,
+    PUBLIC,
+    SPACE_SHARED,
     accessible_material_filter,
+    contribution_payload,
     normalize_group_ids,
     normalize_visibility,
+    request_material_contribution,
+    require_contribution_space,
     set_material_visibility,
     sharing_payload,
     validate_share_groups,
@@ -2541,7 +2547,14 @@ def _normalise_audio_transcription(result: Any) -> tuple[str, str, list[dict[str
     return provider, model, validated
 
 
-def _audio_response(note: models.LectureNote, metadata: Dict[str, Any], status: str, message: str, chunks: int = 0) -> dict:
+def _audio_response(
+    note: models.LectureNote,
+    metadata: Dict[str, Any],
+    status: str,
+    message: str,
+    chunks: int = 0,
+    sharing: dict | None = None,
+) -> dict:
     return {
         "status": status,
         "document_id": note.id,
@@ -2550,8 +2563,37 @@ def _audio_response(note: models.LectureNote, metadata: Dict[str, Any], status: 
         "indexed": bool(chunks),
         "searchable": bool(chunks),
         "metadata": metadata,
+        "sharing": sharing or sharing_payload(PRIVATE),
         "message": message,
     }
+
+
+def _apply_upload_sharing(
+    db: Session,
+    rows: list[Any],
+    requested_visibility: str,
+    requested_group_ids: list[int],
+    current_user: models.User,
+) -> dict:
+    """Persist a safe visibility and, for archive uploads, a review request."""
+    if requested_visibility == OFFICIAL:
+        raise HTTPException(status_code=403, detail="Only an authorized moderator can mark a material official.")
+    if requested_visibility in {PUBLIC, SPACE_SHARED}:
+        space = require_contribution_space(db, current_user)
+        contribution = request_material_contribution(
+            db,
+            rows,
+            current_user,
+            space.id,
+            requested_visibility=SPACE_SHARED if requested_visibility == PUBLIC else requested_visibility,
+        )
+        return {
+            **sharing_payload(PRIVATE),
+            **contribution_payload(contribution),
+            "requested_visibility": contribution.requested_visibility,
+        }
+    set_material_visibility(db, rows, requested_visibility, requested_group_ids, current_user.id)
+    return {**sharing_payload(requested_visibility, requested_group_ids), **contribution_payload(None)}
 
 
 def _persist_audio_upload(
@@ -2597,6 +2639,7 @@ def _persist_audio_upload(
     db.add(note)
     db.flush()
     note_metadata["storage_reference"] = f"lecture_note:{note.id}"
+    sharing = _apply_upload_sharing(db, [note], requested_visibility, requested_group_ids, current_user)
 
     try:
         transcription = transcribe_audio(
@@ -2616,9 +2659,8 @@ def _persist_audio_upload(
             "transcription_error": "Audio transcription could not be completed. Check the transcription provider configuration or try again.",
         })
         note.metadata_json = note_metadata
-        set_material_visibility(db, [note], requested_visibility, requested_group_ids, current_user.id)
         db.commit()
-        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription could not be completed. Check the transcription provider configuration or try again.")
+        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription could not be completed. Check the transcription provider configuration or try again.", sharing=sharing)
     except Exception:
         note_metadata.update({
             "processing_status": "failed",
@@ -2629,9 +2671,8 @@ def _persist_audio_upload(
             "transcription_error": "Audio transcription returned an invalid result. Try another recording.",
         })
         note.metadata_json = note_metadata
-        set_material_visibility(db, [note], requested_visibility, requested_group_ids, current_user.id)
         db.commit()
-        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription returned an invalid result. Try another recording.")
+        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription returned an invalid result. Try another recording.", sharing=sharing)
 
     for segment in segments:
         segment_topic = (_infer_topics_covered(segment["text"]) or [None])[0]
@@ -2691,11 +2732,10 @@ def _persist_audio_upload(
         "needs_review": indexing_warning,
     })
     note.metadata_json = note_metadata
-    set_material_visibility(db, [note], requested_visibility, requested_group_ids, current_user.id)
     db.commit()
     if indexing_warning:
-        return _audio_response(note, note_metadata, "audio_warning", "The recording was saved and transcribed, but search indexing is waiting for the embedding service.")
-    return _audio_response(note, note_metadata, "success", "Audio recording transcribed and added to your workspace.", len(groups))
+        return _audio_response(note, note_metadata, "audio_warning", "The recording was saved and transcribed, but search indexing is waiting for the embedding service.", sharing=sharing)
+    return _audio_response(note, note_metadata, "success", "Audio recording transcribed and added to your workspace.", len(groups), sharing)
 
 
 def _empty_delete_summary() -> Dict[str, int]:
@@ -3064,7 +3104,9 @@ def upload_document(
             requested_group_ids = validate_share_groups(db, requested_group_ids, current_user)
         elif requested_group_ids:
             raise HTTPException(status_code=400, detail="Group IDs are only valid for group sharing.")
-    metadata["visibility"] = requested_visibility
+    metadata["visibility"] = PRIVATE if requested_visibility in {PUBLIC, SPACE_SHARED, OFFICIAL} else requested_visibility
+    if requested_visibility in {PUBLIC, SPACE_SHARED}:
+        metadata["requested_visibility"] = SPACE_SHARED
     preview_snippets = [
         item["text"]
         for section in preview_sections
@@ -3248,13 +3290,7 @@ def upload_document(
                 )
             )
         document_id = note.id
-        set_material_visibility(
-            db,
-            [note],
-            requested_visibility,
-            requested_group_ids,
-            current_user.id,
-        )
+        sharing = _apply_upload_sharing(db, [note], requested_visibility, requested_group_ids, current_user)
     else:
         document_id = None
         indexed_chunks = chunks or [""]
@@ -3301,13 +3337,7 @@ def upload_document(
                 )
             )
 
-        set_material_visibility(
-            db,
-            question_rows,
-            requested_visibility,
-            requested_group_ids,
-            current_user.id,
-        )
+        sharing = _apply_upload_sharing(db, question_rows, requested_visibility, requested_group_ids, current_user)
 
     db.commit()
     return {
@@ -3317,6 +3347,6 @@ def upload_document(
         "chunks_indexed": len(chunks),
         "indexed": bool(chunks),
         "searchable": metadata.get("searchable", bool(chunks)),
-        "sharing": sharing_payload(requested_visibility, requested_group_ids),
+        "sharing": sharing,
         "metadata": metadata,
     }

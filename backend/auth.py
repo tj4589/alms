@@ -303,6 +303,21 @@ def delete_user_account(db: Session, user: models.User) -> None:
             models.MaterialGroupShare.material_type == "past_question",
             models.MaterialGroupShare.material_id.in_(private_question_ids),
         ).delete(synchronize_session=False)
+        contribution_ids = [row.id for row in db.query(models.MaterialContribution.id).filter(
+            models.MaterialContribution.material_type == "past_question",
+            models.MaterialContribution.material_id.in_(private_question_ids),
+        ).all()]
+        if contribution_ids:
+            db.query(models.ModerationAudit).filter(
+                models.ModerationAudit.contribution_id.in_(contribution_ids),
+            ).delete(synchronize_session=False)
+            db.query(models.MaterialContribution).filter(
+                models.MaterialContribution.id.in_(contribution_ids),
+            ).delete(synchronize_session=False)
+        db.query(models.SecureShareLink).filter(
+            models.SecureShareLink.material_type == "past_question",
+            models.SecureShareLink.material_id.in_(private_question_ids),
+        ).update({models.SecureShareLink.revoked_at: datetime.now(timezone.utc)}, synchronize_session=False)
     if private_question_ids:
         db.query(models.DiscussionThread).filter(
             models.DiscussionThread.past_question_id.in_(private_question_ids)
@@ -325,6 +340,21 @@ def delete_user_account(db: Session, user: models.User) -> None:
             models.MaterialGroupShare.material_type == "lecture_note",
             models.MaterialGroupShare.material_id.in_(private_note_ids),
         ).delete(synchronize_session=False)
+        contribution_ids = [row.id for row in db.query(models.MaterialContribution.id).filter(
+            models.MaterialContribution.material_type == "lecture_note",
+            models.MaterialContribution.material_id.in_(private_note_ids),
+        ).all()]
+        if contribution_ids:
+            db.query(models.ModerationAudit).filter(
+                models.ModerationAudit.contribution_id.in_(contribution_ids),
+            ).delete(synchronize_session=False)
+            db.query(models.MaterialContribution).filter(
+                models.MaterialContribution.id.in_(contribution_ids),
+            ).delete(synchronize_session=False)
+        db.query(models.SecureShareLink).filter(
+            models.SecureShareLink.material_type == "lecture_note",
+            models.SecureShareLink.material_id.in_(private_note_ids),
+        ).update({models.SecureShareLink.revoked_at: datetime.now(timezone.utc)}, synchronize_session=False)
     if private_note_ids:
         db.query(models.LectureNoteSection).filter(
             models.LectureNoteSection.lecture_note_id.in_(private_note_ids)
@@ -342,6 +372,26 @@ def delete_user_account(db: Session, user: models.User) -> None:
     db.query(models.LectureNote).filter(models.LectureNote.uploaded_by == user_id).delete(
         synchronize_session=False
     )
+
+    # Links owned by a deleted account cannot remain usable, and moderation
+    # history keeps no dangling actor identity. Shared resource ownership is
+    # handled by the material deletion policy above; this only revokes access
+    # tokens and clears audit actor references.
+    db.query(models.SecureShareLink).filter(
+        models.SecureShareLink.owner_id == user_id,
+    ).update({
+        models.SecureShareLink.owner_id: None,
+        models.SecureShareLink.revoked_at: datetime.now(timezone.utc),
+    }, synchronize_session=False)
+    db.query(models.ModerationAudit).filter(
+        models.ModerationAudit.actor_id == user_id,
+    ).update({models.ModerationAudit.actor_id: None}, synchronize_session=False)
+    db.query(models.MaterialContribution).filter(
+        or_(
+            models.MaterialContribution.submitted_by == user_id,
+            models.MaterialContribution.reviewed_by == user_id,
+        )
+    ).update({models.MaterialContribution.submitted_by: None, models.MaterialContribution.reviewed_by: None}, synchronize_session=False)
 
     # Preserve community writing while removing the author identity.
     for model, field in (

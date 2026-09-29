@@ -476,6 +476,81 @@ class MaterialGroupShare(Base):
     )
 
 
+class MaterialContribution(Base):
+    """A deliberate contribution request, kept separate from publication state.
+
+    A material can remain private while it is waiting for review.  The
+    requested visibility records the uploader's consent without allowing the
+    retrieval layer to treat a pending contribution as published.
+    """
+
+    __tablename__ = "material_contributions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    material_type = Column(String(32), nullable=False, index=True)
+    material_id = Column(Integer, nullable=False, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id"), nullable=False, index=True)
+    submitted_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    requested_visibility = Column(String(16), nullable=False, default="space_shared", server_default="space_shared")
+    requested_group_ids = Column(JSON, nullable=True)
+    moderation_status = Column(String(32), nullable=False, default="not_submitted", server_default="not_submitted", index=True)
+    review_reason = Column(Text, nullable=True)
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("material_type", "material_id", name="uq_material_contribution_material"),
+        Index("ix_material_contribution_status_space", "moderation_status", "learning_space_id"),
+    )
+
+
+class ModerationAudit(Base):
+    """Append-only moderation history; no content or storage bytes are copied."""
+
+    __tablename__ = "moderation_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    contribution_id = Column(Integer, ForeignKey("material_contributions.id"), nullable=True, index=True)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    action = Column(String(48), nullable=False)
+    material_type = Column(String(32), nullable=False)
+    material_id = Column(Integer, nullable=False, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id"), nullable=True, index=True)
+    previous_state = Column(JSON, nullable=True)
+    new_state = Column(JSON, nullable=True)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class SecureShareLink(Base):
+    """A revocable, policy-bound link to one explicitly shared item."""
+
+    __tablename__ = "secure_share_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    content_type = Column(String(40), nullable=False, index=True)
+    content_id = Column(String(160), nullable=True)
+    material_type = Column(String(32), nullable=True)
+    material_id = Column(Integer, nullable=True, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id"), nullable=True, index=True)
+    group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=True, index=True)
+    access_policy = Column(String(24), nullable=False, default="owner", server_default="owner")
+    payload_json = Column(JSON, nullable=True)
+    settings_json = Column(JSON, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_secure_share_links_content", "content_type", "content_id"),
+    )
+
+
 class UserCourse(Base):
     __tablename__ = "user_courses"
 
