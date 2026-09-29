@@ -102,7 +102,7 @@
 #s-practice .question.is-incorrect .answer-review{border-left-color:var(--coral);background:var(--coral2)}
 #s-practice .answer-review strong{display:block;color:var(--text)}
 #s-practice .answer-review p{margin:4px 0}
-#s-practice .answer-review small{color:var(--text3)}
+#s-practice .answer-review small{display:block;margin-top:5px;color:var(--text3)}
 #s-practice .practice-notice{border-color:color-mix(in srgb,var(--teal) 35%,var(--border));background:var(--teal2)}
 #s-practice .practice-result{margin:22px 32px 28px}
 #s-practice .practice-history-panel{max-width:1240px;margin:28px auto 0;padding:26px 28px;border:1px solid var(--border);border-radius:16px;background:var(--surface)}

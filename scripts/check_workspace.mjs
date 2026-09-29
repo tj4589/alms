@@ -40,7 +40,7 @@ if (sessionStorage.getItem('exammind-workspace-public-check') !== 'true') {
 }
 window.__workspaceFixture = 'empty';
 window.__fixtureRequests = [];
-window.__learningAttemptRecorded = false;
+window.__learningAttemptRecorded = 0;
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (...args) => {
   const url = String(args[0]);
@@ -66,15 +66,21 @@ window.fetch = async (...args) => {
       : {answer:mode === 'beyond_materials' ? 'FROM YOUR MATERIALS:\\nThe selected source provides the study context.\\n\\nBEYOND YOUR MATERIALS:\\nHere is a general explanation kept separate from the uploaded source.' : 'This answer is grounded in the authorized uploaded source.',sources:[citation.source],past_question_sources:[],lecture_note_sources:[citation.source],source_citations:[citation],insufficient_sources:false,no_past_questions_found:false,no_lecture_notes_found:false,understanding:{interpreted_topic:'the uploaded source',related_terms:[],possible_courses:[],possible_people:[],intent:'academic_explanation',confidence:0.95,needs_clarification:false,clarifying_question:null},mode,knowledge_gap:false,learning_suggestion:window.__learningAttemptRecorded ? {message:'You have missed Market structures questions twice. Review these sections, then try again.',topic:'Market structures',action:'practice',evidence:{answers:5,missed:2}} : null,context:{mode,active_resource:activeId ? {resource_type:activeId === 3 ? 'audio' : 'lecture_note',resource_id:activeId,title:citation.resource_title} : null,selected_text_used:Boolean(request.selected_text),selected_text_source:request.selected_text_source || null,recent_context_used:false}};
   }
   else if (url.endsWith('/learning/profile')) data = {explicit_preferences:{},inferred_preferences:{}};
-  else if (url.endsWith('/learning/readiness')) data = window.__learningAttemptRecorded
-    ? {available:true,score:60,formula:'correct answers ÷ answered questions × 100',thresholds:{minimum_answers_for_readiness:3,minimum_answers_for_topic:2,strong:80,weak_below:60},evidence_used:{answered_questions:5,correct_answers:3,attempts:1,latest_answered_at:'2026-09-29T10:00:00Z'},topics:[{topic:'Market structures',score:60,classification:'weak',answers:5,correct:3,missed:2,attempts:1,last_answered_at:'2026-09-29T10:00:00Z'}],assessed_topics:['Market structures'],unassessed_topics:['Opportunity cost'],recommended_next_action:'You have missed Market structures questions twice. Review these sections, then try again.'}
-    : {available:false,score:null,formula:'correct answers ÷ answered questions × 100',thresholds:{minimum_answers_for_readiness:3,minimum_answers_for_topic:2,strong:80,weak_below:60},evidence_used:{answered_questions:0,correct_answers:0,attempts:0,latest_answered_at:null},topics:[],assessed_topics:[],unassessed_topics:['Market structures','Opportunity cost'],recommended_next_action:'Complete a short cited quiz to begin tracking readiness.'};
-  else if (url.includes('/learning/attempts')) data = window.__learningAttemptRecorded
-    ? [{id:1,quiz_id:1,score:3,total_questions:5,percentage:60,topic:'Market structures',completed_at:'2026-09-29T10:00:00Z',review:[{question_id:1,position:1,prompt:'Which structure has many competing firms?',answer:'0',correct_answer:'Many competing firms',is_correct:true,explanation:'The source describes this structure as having many competing firms.',citation:{label:'Week 4 slides · Slide 8',source:'Week 4 slides',slide_from:8},topic:'Market structures'}]}]
-    : [];
+  else if (url.endsWith('/learning/readiness')) {
+    const attemptCount = Number(window.__learningAttemptRecorded || 0);
+    if (attemptCount >= 2) data = {available:true,score:60,formula:'correct graded answers ÷ total graded answers × 100',thresholds:{minimum_answers_for_readiness:10,minimum_attempts_for_readiness:2,minimum_answers_for_topic:4,minimum_topics_for_readiness:2,strong:80,weak_below:60},evidence_used:{answered_questions:10,graded_answers:10,correct_answers:6,attempts:2,distinct_topics:2,known_topics:2,latest_answered_at:'2026-09-29T10:00:00Z'},topics:[{topic:'Market structures',score:60,classification:'weak',answers:5,required_answers:4,correct:3,missed:2,attempts:2,last_answered_at:'2026-09-29T10:00:00Z'},{topic:'Opportunity cost',score:60,classification:'developing',answers:5,required_answers:4,correct:3,missed:2,attempts:2,last_answered_at:'2026-09-29T10:00:00Z'}],assessed_topics:['Market structures','Opportunity cost'],unassessed_topics:[],recommended_next_action:'You have missed Market structures questions twice. Review these sections, then try again.'};
+    else if (attemptCount === 1) data = {available:false,score:null,formula:'correct graded answers ÷ total graded answers × 100',thresholds:{minimum_answers_for_readiness:10,minimum_attempts_for_readiness:2,minimum_answers_for_topic:4,minimum_topics_for_readiness:2,strong:80,weak_below:60},evidence_used:{answered_questions:4,graded_answers:4,correct_answers:2,attempts:1,distinct_topics:1,known_topics:2,latest_answered_at:'2026-09-29T10:00:00Z'},topics:[{topic:'Market structures',score:null,classification:'insufficient_evidence',answers:4,required_answers:4,correct:2,missed:2,attempts:1,last_answered_at:'2026-09-29T10:00:00Z'}],assessed_topics:[],unassessed_topics:['Opportunity cost'],recommended_next_action:'Readiness is still gathering evidence. Complete 6 more questions across another quiz.'};
+    else data = {available:false,score:null,formula:'correct graded answers ÷ total graded answers × 100',thresholds:{minimum_answers_for_readiness:10,minimum_attempts_for_readiness:2,minimum_answers_for_topic:4,minimum_topics_for_readiness:2,strong:80,weak_below:60},evidence_used:{answered_questions:0,graded_answers:0,correct_answers:0,attempts:0,distinct_topics:0,known_topics:2,latest_answered_at:null},topics:[],assessed_topics:[],unassessed_topics:['Market structures','Opportunity cost'],recommended_next_action:'Readiness is still gathering evidence. Complete 10 more questions across another quiz.'};
+  }
+  else if (url.includes('/learning/attempts')) {
+    const attemptCount = Number(window.__learningAttemptRecorded || 0);
+    if (attemptCount >= 2) data = [{id:2,quiz_id:1,score:3,total_questions:5,graded_questions:5,needs_review_count:0,percentage:60,topic:'Market structures',completed_at:'2026-09-29T10:05:00Z',review:[{question_id:1,position:1,prompt:'Which structure has many competing firms?',answer:'0',correct_answer:'Many competing firms',is_correct:true,status:'correct',explanation:'The source describes this structure as having many competing firms.',citation:{label:'Week 4 slides - Slide 8',source:'Week 4 slides',slide_from:8},topic:'Market structures'}]},{id:1,quiz_id:1,score:3,total_questions:5,graded_questions:5,needs_review_count:0,percentage:60,topic:'Market structures',completed_at:'2026-09-29T10:00:00Z',review:[{question_id:1,position:1,prompt:'Which structure has many competing firms?',answer:'0',correct_answer:'Many competing firms',is_correct:true,status:'correct',explanation:'The source describes this structure as having many competing firms.',citation:{label:'Week 4 slides - Slide 8',source:'Week 4 slides',slide_from:8},topic:'Market structures'}]}];
+    else if (attemptCount === 1) data = [{id:1,quiz_id:1,score:2,total_questions:5,graded_questions:5,needs_review_count:0,percentage:40,topic:'Market structures',completed_at:'2026-09-29T10:00:00Z',review:[{question_id:1,position:1,prompt:'Which structure has many competing firms?',answer:'0',correct_answer:'Many competing firms',is_correct:true,status:'correct',explanation:'The source describes this structure as having many competing firms.',citation:{label:'Week 4 slides - Slide 8',source:'Week 4 slides',slide_from:8},topic:'Market structures'}]}];
+    else data = [];
+  }
   else if (url.endsWith('/learning/quizzes') && String(args[1]?.method || 'GET').toUpperCase() === 'POST') data = {id:1,topic:'Market structures',source_scope:'workspace',resource_type:null,resource_id:null,difficulty:'mixed',question_type:'multiple_choice',question_count:5,questions:[1,2,3,4,5].map((position) => ({id:position,position,question_type:'multiple_choice',prompt:'Which statement is supported by the authorized source? ('+position+')',options:['Many competing firms','One exclusive seller','No firms compete','The source does not discuss firms'],topic:'Market structures',difficulty:'mixed',citation:{source:'Week 4 slides',resource_type:'lecture_note',resource_id:1,resource_title:'Week 4 slides',label:'Week 4 slides · Slide '+(position + 3),slide_from:position + 3,slide_to:position + 3}}))};
   else if (url.includes('/learning/quizzes/') && url.endsWith('/attempts')) {
-    window.__learningAttemptRecorded = true;
+    window.__learningAttemptRecorded = Number(window.__learningAttemptRecorded || 0) + 1;
     data = {id:1,quiz_id:1,score:3,total_questions:5,percentage:60,topic:'Market structures',completed_at:'2026-09-29T10:00:00Z',review:[1,2,3,4,5].map((questionId) => ({question_id:questionId,position:questionId,prompt:'Which statement is supported by the authorized source? ('+questionId+')',answer:'0',correct_answer:'Many competing firms',is_correct:questionId <= 3,explanation:questionId <= 3 ? 'The source supports this answer.' : 'Review the source section before trying this question again.',citation:{label:'Week 4 slides · Slide '+(questionId + 3),source:'Week 4 slides',slide_from:questionId + 3},topic:'Market structures'})),readiness:{available:true,score:60}};
   }
   else if (url.includes('/analytics/student/')) data = populated ? {readiness:[{id:1,topic:'Opportunity cost',score:62,course_id:1}],attempts:[{id:1,score:70,total_questions:10,topic:'Demand and supply',course_id:1,completed_at:'2026-09-15T14:00:00Z'}]} : {readiness:[],attempts:[]};
@@ -273,7 +279,7 @@ assert.ok((afterMotion.TaskDuration - beforeMotion.TaskDuration) < 0.5,'Maxe idl
 await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
 await evaluate(`document.querySelector('button[aria-label="Progress"]').click()`);
 await waitFor(`document.querySelector('#s-progress .progress-decision')`);
-assert.ok(await evaluate(`document.querySelector('#s-progress').textContent.includes('Not enough evidence yet. Complete a short quiz to begin tracking readiness.')`),'Insufficient-evidence readiness guidance missing');
+assert.ok(await evaluate(`document.querySelector('#s-progress').textContent.includes('Readiness is still gathering evidence')`),'Insufficient-evidence readiness guidance missing');
 assert.equal(await evaluate(`document.querySelector('#s-progress .progress-primary-measure strong').textContent.trim()`),'—','Readiness percentage appeared without evidence');
 await captureViewport(1440,'phase-f-progress-insufficient',1000);
 
@@ -290,6 +296,17 @@ await waitFor(`document.querySelector('#s-practice .practice-result')`);
 assert.ok(await evaluate(`document.querySelectorAll('#s-practice .answer-review').length === 5`),'Answer review did not render for every question');
 assert.ok(await evaluate(`document.querySelector('#s-practice .practice-result').textContent.includes('Private attempt stored')`),'Attempt storage confirmation missing');
 await captureViewport(1440,'phase-f-practice-desktop',1000);
+await evaluate(`document.querySelector('button[aria-label="Progress"]').click()`);
+await waitFor(`document.querySelector('#s-progress .progress-decision')`);
+assert.ok(await evaluate(`document.querySelector('#s-progress').textContent.includes('Complete 6 more questions')`),'Evidence progress message missing after the first quiz');
+await evaluate(`document.querySelector('button[aria-label="Practice"]').click()`);
+await waitFor(`document.querySelector('#s-practice #practice-scope')`);
+await evaluate(`document.querySelector('#s-practice .practice-primary').click()`);
+await waitFor(`document.querySelector('#s-practice .paper')`);
+await evaluate(`document.querySelectorAll('#s-practice .quiz-options').forEach(group => group.querySelector('button').click())`);
+await evaluate(`document.querySelector('#s-practice .paper-foot .practice-primary').click()`);
+await waitFor(`document.querySelector('#s-practice .practice-result')`);
+assert.ok(await evaluate(`document.querySelector('#s-practice .practice-result').textContent.includes('Private attempt stored')`),'Second attempt storage confirmation missing');
 await evaluate(`document.querySelector('#s-practice .paper-foot .mark').click()`);
 await waitFor(`document.querySelector('#s-practice .practice-history-row')`);
 await evaluate(`document.querySelector('#s-practice .practice-history-row .mark').click()`);

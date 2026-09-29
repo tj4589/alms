@@ -21,8 +21,9 @@ from material_access import accessible_material_filter
 from resource_index import citation_payload
 
 
-MIN_READINESS_ANSWERS = 3
-MIN_TOPIC_ANSWERS = 2
+MIN_READINESS_ANSWERS = 10
+MIN_READINESS_ATTEMPTS = 2
+MIN_TOPIC_ANSWERS = 4
 STRONG_TOPIC_THRESHOLD = 80
 WEAK_TOPIC_THRESHOLD = 60
 MAX_QUIZ_QUESTIONS = 20
@@ -30,6 +31,13 @@ STOP_WORDS = {
     "about", "after", "again", "also", "because", "being", "between", "could",
     "does", "from", "have", "into", "more", "over", "should", "that", "their",
     "there", "these", "they", "this", "those", "under", "which", "with", "would",
+}
+CONCEPT_ALIASES = {
+    "linear": {"linear", "straight"},
+    "equation": {"equation", "equations", "formula"},
+    "variable": {"variable", "unknown", "symbol"},
+    "substitution": {"substitution", "replace", "replacing", "replacement", "plug"},
+    "balanced": {"balanced", "equal", "equals", "same"},
 }
 
 
@@ -40,6 +48,7 @@ class AuthorizedSource:
     title: str
     course_id: int | None
     topic: str
+    topics: tuple[str, ...]
     text: str
     citation: dict[str, Any]
 
@@ -87,6 +96,16 @@ def _resource_topic(row: Any, chunk: models.ResourceChunk | None, requested: str
     if isinstance(topics, list) and topics:
         return _normalise_text(topics[0])[:160]
     return "Mixed revision"
+
+
+def _resource_topics(row: Any, chunk: models.ResourceChunk | None, requested: str | None, primary: str) -> tuple[str, ...]:
+    values: list[str] = [primary]
+    if not requested and chunk and chunk.topic:
+        values.append(_normalise_text(chunk.topic)[:160])
+    metadata_topics = _metadata(row).get("topics_covered")
+    if not requested and isinstance(metadata_topics, list):
+        values.extend(_normalise_text(value)[:160] for value in metadata_topics if _normalise_text(value))
+    return tuple(dict.fromkeys(value for value in values if value and value != "Mixed revision"))
 
 
 def _chunks_for_source(db: Session, resource_type: str, resource_id: int) -> list[models.ResourceChunk]:
@@ -157,14 +176,17 @@ def _source_from_row(db: Session, row: Any, requested_topic: str | None) -> Auth
     if len(text) < 20:
         return None
     chunk = chunks[0] if chunks else None
+    title = _resource_title(row)
+    primary_topic = _resource_topic(row, chunk, requested_topic)
     return AuthorizedSource(
         resource_type=resource_type,
         resource_id=int(row.id),
-        title=_resource_title(row),
+        title=title,
         course_id=getattr(row, "course_id", None),
-        topic=_resource_topic(row, chunk, requested_topic),
+        topic=primary_topic,
+        topics=_resource_topics(row, chunk, requested_topic, primary_topic),
         text=text,
-        citation=_citation_for_source(row, resource_type, _resource_title(row), chunk),
+        citation=_citation_for_source(row, resource_type, title, chunk),
     )
 
 
@@ -347,16 +369,33 @@ def _normalise_answer(value: Any) -> str:
     return _normalise_text(value).lower()
 
 
-def grade_question(question: models.LearningQuizQuestion, answer: Any) -> bool:
+def _concept_matches(keyword: str, candidate: set[str]) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", keyword.lower())
+    aliases = CONCEPT_ALIASES.get(normalized, {normalized})
+    return bool(aliases & candidate)
+
+
+def grade_question_result(question: models.LearningQuizQuestion, answer: Any) -> dict[str, Any]:
     if question.question_type == "multiple_choice":
         candidate = _normalise_answer(answer)
         if candidate.isdigit():
-            return candidate == str(question.correct_answer)
-        options = question.options if isinstance(question.options, list) else []
-        return any(index == int(question.correct_answer) and _normalise_answer(option) == candidate for index, option in enumerate(options)) if candidate else False
+            is_correct = candidate == str(question.correct_answer)
+        else:
+            options = question.options if isinstance(question.options, list) else []
+            is_correct = any(index == int(question.correct_answer) and _normalise_answer(option) == candidate for index, option in enumerate(options)) if candidate else False
+        return {"status": "correct" if is_correct else "incorrect", "is_correct": is_correct, "graded": True, "identified_concepts": [], "missing_concepts": []}
     candidate = set(re.findall(r"[a-z0-9]{4,}", _normalise_answer(answer)))
     keywords = [str(item).lower() for item in (question.grading_keywords or [])]
-    return bool(keywords) and all(keyword in candidate for keyword in keywords)
+    identified = [keyword for keyword in keywords if _concept_matches(keyword, candidate)]
+    missing = [keyword for keyword in keywords if keyword not in identified]
+    if keywords and not missing:
+        return {"status": "correct", "is_correct": True, "graded": True, "identified_concepts": identified, "missing_concepts": []}
+    return {"status": "needs_review", "is_correct": None, "graded": False, "identified_concepts": identified, "missing_concepts": missing}
+
+
+def grade_question(question: models.LearningQuizQuestion, answer: Any) -> bool:
+    """Compatibility helper: only reliably graded correct answers return True."""
+    return bool(grade_question_result(question, answer)["is_correct"] is True)
 
 
 def quiz_public_payload(quiz: models.LearningQuiz, questions: Iterable[models.LearningQuizQuestion] | None = None) -> dict[str, Any]:
@@ -443,26 +482,35 @@ def record_quiz_attempt(
     for item in answers:
         question = by_id[int(item["question_id"])]
         submitted = item.get("answer")
-        is_correct = grade_question(question, submitted)
-        score += int(is_correct)
+        result = grade_question_result(question, submitted)
+        score += int(result["is_correct"] is True)
         review.append({
             "question_id": question.id,
             "position": question.position,
             "prompt": question.prompt,
             "answer": submitted,
             "correct_answer": question.correct_answer,
-            "is_correct": is_correct,
+            "is_correct": result["is_correct"],
+            "status": result["status"],
+            "graded": result["graded"],
+            "identified_concepts": result["identified_concepts"],
+            "missing_concepts": result["missing_concepts"],
+            "model_answer": question.correct_answer,
             "explanation": question.explanation,
             "citation": question.citation_json,
             "topic": question.topic,
         })
 
+    graded_questions = sum(1 for item in review if item["graded"])
+    needs_review_count = len(review) - graded_questions
     attempt = models.LearningQuizAttempt(
         quiz_id=quiz.id,
         user_id=user.id,
         score=score,
         total_questions=len(questions),
-        percentage=round(score / len(questions) * 100),
+        graded_questions=graded_questions,
+        needs_review_count=needs_review_count,
+        percentage=round(score / graded_questions * 100) if graded_questions else None,
         review_json=review,
         completed_at=now,
     )
@@ -470,6 +518,8 @@ def record_quiz_attempt(
     db.flush()
     for item in review:
         question = by_id[item["question_id"]]
+        if not item["graded"]:
+            continue
         evidence.append(models.LearningEvidence(
             user_id=user.id,
             attempt_id=attempt.id,
@@ -495,6 +545,8 @@ def attempt_payload(attempt: models.LearningQuizAttempt, quiz: models.LearningQu
         "topic": quiz.topic if quiz else None,
         "score": attempt.score,
         "total_questions": attempt.total_questions,
+        "graded_questions": attempt.graded_questions,
+        "needs_review_count": attempt.needs_review_count,
         "percentage": attempt.percentage,
         "completed_at": attempt.completed_at,
         "review": attempt.review_json or [],
@@ -535,6 +587,8 @@ def readiness_payload(db: Session, user: models.User) -> dict[str, Any]:
             "score": score if answers >= MIN_TOPIC_ANSWERS else None,
             "classification": classification,
             "answers": answers,
+            "required_answers": MIN_TOPIC_ANSWERS,
+            "progress_message": f"{answers} of {MIN_TOPIC_ANSWERS} answers collected for {topic}." if answers < MIN_TOPIC_ANSWERS else None,
             "correct": item["correct"],
             "missed": item["missed"],
             "attempts": len(item["attempt_ids"]),
@@ -547,30 +601,47 @@ def readiness_payload(db: Session, user: models.User) -> dict[str, Any]:
     score = round(total_correct / total_answers * 100) if total_answers >= MIN_READINESS_ANSWERS else None
     known_topics: set[str] = set()
     for source in authorized_sources(db, user, source_scope="workspace"):
-        if source.topic != "Mixed revision":
-            known_topics.add(source.topic)
+        known_topics.update(source.topics)
+    evidence_topics = {topic["topic"] for topic in topics}
+    topic_coverage_required = len(known_topics) >= 2
+    enough_answers = total_answers >= MIN_READINESS_ANSWERS
+    completed_attempts = len({row.attempt_id for row in evidence_rows})
+    enough_attempts = completed_attempts >= MIN_READINESS_ATTEMPTS
+    enough_topic_coverage = not topic_coverage_required or len(evidence_topics & known_topics) >= 2
+    overall_ready = enough_answers and enough_attempts and enough_topic_coverage
     unassessed = sorted(known_topics - {topic["topic"] for topic in assessed})
-    if score is None:
-        recommendation = "Not enough evidence yet. Complete a short quiz to begin tracking readiness."
+    if not enough_answers:
+        remaining = MIN_READINESS_ANSWERS - total_answers
+        suffix = " across another quiz" if completed_attempts < MIN_READINESS_ATTEMPTS else ""
+        recommendation = f"Readiness is still gathering evidence. Complete {remaining} more questions{suffix}."
+    elif not enough_attempts:
+        recommendation = "You have enough graded answers, but complete another quiz attempt to confirm the evidence."
+    elif not enough_topic_coverage:
+        recommendation = "You have enough answers, but not enough topic coverage to calculate overall readiness."
     elif any(topic["classification"] == "weak" for topic in assessed):
         weakest = next(topic for topic in assessed if topic["classification"] == "weak")
         recommendation = f"Review {weakest['topic']}, then complete another short quiz to check the change."
     else:
         recommendation = "Keep taking short quizzes across your unassessed topics to broaden the evidence."
     return {
-        "available": score is not None,
-        "score": score,
-        "formula": "correct answers / answered questions x 100; topic scores require at least 2 answers and overall readiness requires at least 3",
+        "available": overall_ready,
+        "score": score if overall_ready else None,
+        "formula": "correct graded answers ÷ total graded answers × 100",
         "thresholds": {
             "minimum_answers_for_readiness": MIN_READINESS_ANSWERS,
+            "minimum_attempts_for_readiness": MIN_READINESS_ATTEMPTS,
             "minimum_answers_for_topic": MIN_TOPIC_ANSWERS,
+            "minimum_topics_for_readiness": 2,
             "strong": STRONG_TOPIC_THRESHOLD,
             "weak_below": WEAK_TOPIC_THRESHOLD,
         },
         "evidence_used": {
             "answered_questions": total_answers,
+            "graded_answers": total_answers,
             "correct_answers": total_correct,
-            "attempts": len({row.attempt_id for row in evidence_rows}),
+            "attempts": completed_attempts,
+            "distinct_topics": len(evidence_topics),
+            "known_topics": len(known_topics),
             "latest_answered_at": evidence_rows[0].answered_at if evidence_rows else None,
         },
         "topics": topics,

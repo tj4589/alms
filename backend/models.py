@@ -368,7 +368,9 @@ class LearningQuizAttempt(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     score = Column(Integer, nullable=False, default=0)
     total_questions = Column(Integer, nullable=False, default=0)
-    percentage = Column(Integer, nullable=False, default=0)
+    graded_questions = Column(Integer, nullable=False, default=0)
+    needs_review_count = Column(Integer, nullable=False, default=0)
+    percentage = Column(Integer, nullable=True)
     review_json = Column(JSON, nullable=False, default=list)
     completed_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
 

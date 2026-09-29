@@ -117,6 +117,7 @@
 .progress-report .progress-evidence{max-width:980px;margin-inline:auto;margin-bottom:48px;}
 .progress-report .progress-report-note{max-width:980px;margin-inline:auto;}
 .progress-report .progress-topic-name{display:flex;align-items:center;gap:8px;min-width:0;}
+.progress-report .topic-progress{flex-basis:100%;color:#77786c;font-size:10px;font-weight:400;line-height:1.35;white-space:normal;}
 .progress-report .topic-signal{display:inline-flex;align-items:center;min-height:18px;padding:2px 6px;border:1px solid currentColor;border-radius:999px;font:600 9px 'JetBrains Mono',monospace;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;}
 .progress-report .topic-signal-strong{color:#3f6d45;background:#e5efdf;}
 .progress-report .topic-signal-developing{color:#8a6a2d;background:#f8efd8;}
