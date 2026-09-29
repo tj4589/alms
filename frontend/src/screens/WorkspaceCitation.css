@@ -1,0 +1,16 @@
+.ws-citation-target {
+  margin: 0 0 14px;
+  padding: 8px 11px;
+  border: 1px solid #d5ddc3;
+  border-radius: 8px;
+  background: #f1f4e9;
+  color: #536047;
+  font: 600 10px 'JetBrains Mono', monospace;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.ws-citation-target::before {
+  content: 'Citation target - ';
+  color: #ac401e;
+}
