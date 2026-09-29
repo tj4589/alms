@@ -265,6 +265,30 @@ def delete_user_account(db: Session, user: models.User) -> None:
     for model, field in private_records:
         db.query(model).filter(field == user_id).delete(synchronize_session=False)
 
+    # Learning intelligence is private account data. Remove child answer
+    # evidence, retakes and quiz questions before the owning quiz/profile rows.
+    quiz_ids = {
+        row.id for row in db.query(models.LearningQuiz.id).filter(
+            models.LearningQuiz.user_id == user_id
+        ).all()
+    }
+    db.query(models.LearningEvidence).filter(
+        models.LearningEvidence.user_id == user_id
+    ).delete(synchronize_session=False)
+    if quiz_ids:
+        db.query(models.LearningQuizAttempt).filter(
+            models.LearningQuizAttempt.user_id == user_id
+        ).delete(synchronize_session=False)
+        db.query(models.LearningQuizQuestion).filter(
+            models.LearningQuizQuestion.quiz_id.in_(quiz_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.LearningQuiz).filter(
+            models.LearningQuiz.id.in_(quiz_ids)
+        ).delete(synchronize_session=False)
+    db.query(models.LearningProfile).filter(
+        models.LearningProfile.user_id == user_id
+    ).delete(synchronize_session=False)
+
     # ExamMind uploads are account-private today, so remove the file, extracted
     # text and retrieval/index rows. Admin/global rows have uploaded_by=NULL
     # and remain in the shared archive. Discussions that pointed at a deleted

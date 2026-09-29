@@ -17,6 +17,7 @@ from maxe_provider import get_maxe_provider
 from query_understanding import expanded_search_terms, public_understanding, understand_query
 from material_access import accessible_material_filter
 from resource_index import citation_payload
+from learning_intelligence import learning_suggestion
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 MAX_RAG_QUESTION_CHARS = int(os.getenv("MAX_RAG_QUESTION_CHARS", "2000"))
@@ -66,6 +67,7 @@ class AskQuestionResponse(BaseModel):
     knowledge_gap: bool = False
     knowledge_gap_message: str | None = None
     context: dict = Field(default_factory=dict)
+    learning_suggestion: dict | None = None
 
 
 def source_from_metadata(prefix: str, year, metadata: dict | None):
@@ -347,6 +349,7 @@ def run_rag_query(
             "mode": mode,
             "knowledge_gap": False,
             "context": maxe_context.public_payload(),
+            "learning_suggestion": learning_suggestion(db, current_user, question) if current_user else None,
         }
 
     terms = expanded_search_terms(understanding)
@@ -435,6 +438,7 @@ def run_rag_query(
     if not has_retrieved_material and not maxe_context.active_resource_text and not maxe_context.selected_text and mode == SOURCE_MODE:
         response = _knowledge_gap_response(question, mode, maxe_context.public_payload())
         response["understanding"] = public_view
+        response["learning_suggestion"] = learning_suggestion(db, current_user, question) if current_user else None
         return response
 
     past_context = []
@@ -474,6 +478,7 @@ def run_rag_query(
             "mode": mode,
             "knowledge_gap": False,
             "context": maxe_context.public_payload(),
+            "learning_suggestion": learning_suggestion(db, current_user, question) if current_user else None,
         }
 
     if mode == BEYOND_MATERIALS_MODE:
@@ -538,6 +543,7 @@ def run_rag_query(
         "mode": mode,
         "knowledge_gap": False,
         "context": maxe_context.public_payload(),
+        "learning_suggestion": learning_suggestion(db, current_user, question) if current_user else None,
     }
 
 

@@ -34,6 +34,13 @@ from material_access import (
     sharing_payload,
     validate_share_groups,
 )
+from learning_intelligence import (
+    attempt_payload,
+    create_grounded_quiz,
+    quiz_public_payload,
+    readiness_payload,
+    record_quiz_attempt,
+)
 
 router = APIRouter(tags=["mvp"])
 
@@ -42,13 +49,27 @@ class PracticeGenerateRequest(BaseModel):
     course_id: Optional[int] = None
     topic: Optional[str] = None
     count: int = 5
+    source_scope: str = "workspace"
+    resource_type: Optional[str] = None
+    resource_id: Optional[int] = None
+    difficulty: str = "mixed"
+    question_type: str = "multiple_choice"
+
+
+class PracticeAnswer(BaseModel):
+    question_id: int
+    answer: str | int | None = None
 
 
 class PracticeSubmitRequest(BaseModel):
+    quiz_id: Optional[int] = None
+    answers: Optional[list[PracticeAnswer]] = None
+    # Retained for older clients so validation can return a safe migration
+    # message instead of silently trusting a client-provided score.
     course_id: Optional[int] = None
     topic: Optional[str] = None
-    score: int
-    total_questions: int
+    score: Optional[int] = None
+    total_questions: Optional[int] = None
 
 
 MAX_NOTE_PRACTICE_CHUNKS = 6
@@ -992,8 +1013,42 @@ def student_analytics(
 ):
     if current_user.id != student_id:
         raise HTTPException(status_code=403, detail="Not enough permissions.")
-    readiness = db.query(models.ReadinessScore).filter(models.ReadinessScore.user_id == student_id).all()
-    attempts = db.query(models.PracticeAttempt).filter(models.PracticeAttempt.user_id == student_id).all()
+    learning = readiness_payload(db, current_user)
+    readiness = [
+        {
+            "id": index,
+            "user_id": student_id,
+            "course_id": None,
+            "topic": item["topic"],
+            "score": item["score"],
+        }
+        for index, item in enumerate(learning["topics"], start=1)
+        if item["score"] is not None
+    ]
+    attempts = []
+    learning_attempts = db.query(models.LearningQuizAttempt).filter(
+        models.LearningQuizAttempt.user_id == student_id,
+    ).order_by(models.LearningQuizAttempt.completed_at.desc()).all()
+    quizzes = {
+        quiz.id: quiz
+        for quiz in db.query(models.LearningQuiz).filter(
+            models.LearningQuiz.id.in_({attempt.quiz_id for attempt in learning_attempts} or {-1}),
+            models.LearningQuiz.user_id == student_id,
+        ).all()
+    }
+    for attempt in learning_attempts:
+        quiz = quizzes.get(attempt.quiz_id)
+        attempts.append({
+            "id": attempt.id,
+            "course_id": quiz.course_id if quiz else None,
+            "topic": quiz.topic if quiz else None,
+            "score": attempt.percentage,
+            "total_questions": attempt.total_questions,
+            "completed_at": attempt.completed_at,
+        })
+    if not attempts:
+        readiness = db.query(models.ReadinessScore).filter(models.ReadinessScore.user_id == student_id).all()
+        attempts = db.query(models.PracticeAttempt).filter(models.PracticeAttempt.user_id == student_id).all()
     return {"readiness": readiness, "attempts": attempts}
 
 
@@ -1003,74 +1058,32 @@ def generate_practice(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    safe_count = max(1, min(req.count, 30))
-    query = db.query(models.PastQuestion).filter(
-        accessible_material_filter(db, models.PastQuestion, current_user),
-    )
-    if req.course_id is not None:
-        query = query.filter(models.PastQuestion.course_id == req.course_id)
-
-    warning = None
-    if req.topic:
-        topic_conditions = []
-        for term in _topic_terms(req.topic):
-            topic_pattern = f"%{term}%"
-            topic_conditions.extend(
-                [
-                    models.PastQuestion.content_text.ilike(topic_pattern),
-                    models.PastQuestion.metadata_json.cast(Text).ilike(topic_pattern),
-                ]
-            )
-        topic_query = query.filter(
-            or_(
-                *(topic_conditions or [models.PastQuestion.content_text.ilike("%__never_match__%")])
-            )
+    try:
+        quiz = create_grounded_quiz(
+            db,
+            current_user,
+            source_scope=req.source_scope,
+            resource_type=req.resource_type,
+            resource_id=req.resource_id,
+            course_id=req.course_id,
+            topic=req.topic,
+            count=req.count,
+            difficulty=req.difficulty,
+            question_type=req.question_type,
         )
-        questions = (
-            topic_query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
-            .limit(max(safe_count, 20))
-            .all()
-        )
-        if not questions and req.course_id is not None:
-            questions = (
-                query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
-                .limit(max(safe_count, 20))
-                .all()
-            )
-            if questions:
-                warning = (
-                    f"No exact topic match for '{req.topic}' yet, so ExamMind generated practice "
-                    "from broader past questions in the selected course."
-                )
-    else:
-        questions = (
-            query.order_by(models.PastQuestion.year.desc().nullslast(), models.PastQuestion.id.desc())
-        .limit(max(safe_count, 20))
-        .all()
-        )
-    practice_items = _serialize_practice_items(questions, req.topic, safe_count)
-    if questions and not practice_items:
-        warning = warning or "ExamMind found uploaded material, but it could not extract clean practice prompts from it yet."
-
-    generated_items: list[dict] = []
-    generation_warning: str | None = None
-    remaining_count = max(safe_count - len(practice_items), 0)
-    note_chunks = _relevant_note_chunks(db, req.course_id, req.topic, current_user)
-    if note_chunks and remaining_count > 0:
-        generated_items, generation_warning = _generated_practice_from_notes(note_chunks, req.topic, remaining_count)
-    elif note_chunks and not practice_items:
-        generated_items, generation_warning = _generated_practice_from_notes(note_chunks, req.topic, safe_count)
-
-    combined_items = _merge_practice_items(practice_items, generated_items, safe_count)
-    if generation_warning:
-        warning = f"{warning} {generation_warning}".strip() if warning else generation_warning
-    if note_chunks and not generated_items and not practice_items and not warning:
-        warning = "ExamMind found uploaded notes, but could not generate clean practice questions from them yet."
-
+    except LookupError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    questions = db.query(models.LearningQuizQuestion).filter(
+        models.LearningQuizQuestion.quiz_id == quiz.id,
+    ).order_by(models.LearningQuizQuestion.position.asc()).all()
+    payload = quiz_public_payload(quiz, questions)
     return {
-        "topic": req.topic or "Mixed revision",
-        "warning": warning,
-        "questions": combined_items,
+        "quiz_id": quiz.id,
+        "topic": quiz.topic or "Mixed revision",
+        "warning": None,
+        "questions": payload["questions"],
     }
 
 
@@ -1080,46 +1093,37 @@ def submit_practice(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    if req.total_questions <= 0:
-        raise HTTPException(status_code=400, detail="total_questions must be greater than zero.")
-    if req.score < 0 or req.score > req.total_questions:
-        raise HTTPException(status_code=400, detail="score must be between 0 and total_questions.")
-
-    total = req.total_questions
-    percent = round((req.score / total) * 100)
-    debrief = (
-        f"You scored {percent}%. Review the questions you missed, then retry the same topic. "
-        "ExamMind updates readiness from repeated practice, so improvement matters more than one score."
-    )
-    attempt = models.PracticeAttempt(
-        user_id=current_user.id,
-        course_id=req.course_id,
-        topic=req.topic,
-        score=percent,
-        total_questions=total,
-        debrief_generated=True,
-        debrief=debrief,
-    )
-    db.add(attempt)
-
-    readiness = (
-        db.query(models.ReadinessScore)
-        .filter(
-            models.ReadinessScore.user_id == current_user.id,
-            models.ReadinessScore.course_id == req.course_id,
-            models.ReadinessScore.topic == req.topic,
+    if req.quiz_id is None or req.answers is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Practice scores are no longer accepted directly. Submit answers for the generated quiz.",
         )
-        .first()
+    quiz = db.query(models.LearningQuiz).filter(
+        models.LearningQuiz.id == req.quiz_id,
+        models.LearningQuiz.user_id == current_user.id,
+    ).first()
+    if quiz is None:
+        raise HTTPException(status_code=404, detail="Quiz not found.")
+    try:
+        attempt = record_quiz_attempt(
+            db,
+            current_user,
+            quiz,
+            [answer.model_dump() for answer in req.answers],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    readiness = readiness_payload(db, current_user)
+    debrief = (
+        f"You scored {attempt.percentage}%. Review the questions you missed, then retry the same topic. "
+        "Readiness is based on your completed answers, not passive reading."
     )
-    if readiness:
-        readiness.score = round((readiness.score + percent) / 2)
-    else:
-        readiness = models.ReadinessScore(user_id=current_user.id, course_id=req.course_id, topic=req.topic, score=percent)
-        db.add(readiness)
-
-    db.commit()
-    db.refresh(attempt)
-    return {"attempt_id": attempt.id, "readiness_score": readiness.score, "debrief": debrief}
+    return {
+        "attempt_id": attempt.id,
+        "readiness_score": readiness["score"],
+        "debrief": debrief,
+        "review": attempt.review_json,
+    }
 
 
 THREAD_FEEDS = {"for-you", "latest", "my-courses", "my-groups"}

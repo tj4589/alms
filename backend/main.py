@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from routers import auth, community, feedback, ingest, learning_spaces, maxe, mvp, rag, search, sessions, understand
+from routers import auth, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, search, sessions, understand
 import models as _models  # noqa: F401 — registers all ORM classes with Base
 from database import Base, SessionLocal, engine
 from init_db import seed_courses, seed_learning_spaces
@@ -183,6 +183,7 @@ app.include_router(auth.router)
 app.include_router(community.router)
 app.include_router(feedback.router)
 app.include_router(ingest.router)
+app.include_router(learning.router)
 app.include_router(learning_spaces.router)
 app.include_router(rag.router)
 app.include_router(maxe.router)

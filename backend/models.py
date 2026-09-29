@@ -303,6 +303,91 @@ class ReadinessScore(Base):
     score = Column(Integer, default=0)
     updated_at = Column(DateTime(timezone=True), default=utc_now)
 
+
+class LearningProfile(Base):
+    """Private learning preferences and behaviour-derived observations."""
+
+    __tablename__ = "learning_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    explicit_preferences = Column(JSON, nullable=True)
+    inferred_preferences = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class LearningQuiz(Base):
+    """A generated quiz owned by one student."""
+
+    __tablename__ = "learning_quizzes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
+    topic = Column(String, nullable=True, index=True)
+    source_scope = Column(String(24), nullable=False, default="workspace")
+    resource_type = Column(String(32), nullable=True)
+    resource_id = Column(Integer, nullable=True)
+    difficulty = Column(String(16), nullable=False, default="mixed")
+    question_type = Column(String(24), nullable=False, default="multiple_choice")
+    question_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class LearningQuizQuestion(Base):
+    """A quiz item with private grading data and public source provenance."""
+
+    __tablename__ = "learning_quiz_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quiz_id = Column(Integer, ForeignKey("learning_quizzes.id", ondelete="CASCADE"), nullable=False, index=True)
+    position = Column(Integer, nullable=False)
+    question_type = Column(String(24), nullable=False, default="multiple_choice")
+    prompt = Column(Text, nullable=False)
+    options = Column(JSON, nullable=True)
+    correct_answer = Column(Text, nullable=False)
+    grading_keywords = Column(JSON, nullable=True)
+    explanation = Column(Text, nullable=False)
+    topic = Column(String, nullable=True, index=True)
+    difficulty = Column(String(16), nullable=False, default="medium")
+    citation_json = Column(JSON, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("quiz_id", "position", name="uq_learning_quiz_question_position"),
+    )
+
+
+class LearningQuizAttempt(Base):
+    """One immutable retake; previous attempts are never overwritten."""
+
+    __tablename__ = "learning_quiz_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quiz_id = Column(Integer, ForeignKey("learning_quizzes.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    score = Column(Integer, nullable=False, default=0)
+    total_questions = Column(Integer, nullable=False, default=0)
+    percentage = Column(Integer, nullable=False, default=0)
+    review_json = Column(JSON, nullable=False, default=list)
+    completed_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+
+
+class LearningEvidence(Base):
+    """One observable answer event used for topic evidence and readiness."""
+
+    __tablename__ = "learning_evidence"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    attempt_id = Column(Integer, ForeignKey("learning_quiz_attempts.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("learning_quiz_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
+    topic = Column(String, nullable=True, index=True)
+    evidence_type = Column(String(32), nullable=False, default="quiz_answer")
+    is_correct = Column(Boolean, nullable=False)
+    answered_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+
 class DiscussionThread(Base):
     __tablename__ = "discussion_threads"
 
