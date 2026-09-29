@@ -1,6 +1,4 @@
-from sqlalchemy import text
-
-from database import SessionLocal, engine, Base
+from database import SessionLocal
 import models
 from learning_spaces import seed_learning_spaces as _seed_learning_spaces
 
@@ -43,14 +41,11 @@ def seed_learning_spaces():
         db.close()
 
 if __name__ == "__main__":
-    print("Creating database tables...")
+    print("Seeding reference data; schema changes must be applied with Alembic first.")
     try:
-        if engine.url.get_backend_name().startswith("postgresql"):
-            with engine.begin() as conn:
-                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        Base.metadata.create_all(bind=engine)
         seed_courses()
         seed_learning_spaces()
-        print("Done!")
+        print("Seed complete.")
     except Exception as e:
-        print(f"Error creating tables: {e}")
+        print(f"Error seeding reference data: {e}")
+        raise
