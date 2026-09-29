@@ -52,6 +52,7 @@ import Reader from './screens/Reader';
 import Workspace from './screens/Workspace';
 import Onboarding from './screens/Onboarding';
 import LearningSpaces from './screens/LearningSpaces';
+import Moderation from './screens/Moderation';
 import Logo from './components/Logo';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
@@ -121,6 +122,12 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
     items: [
       { label: 'Discussions', screen: 'collab', icon: ChatsCircleIcon },
       { label: 'Study Groups', screen: 'groups', icon: UsersThreeIcon },
+    ],
+  },
+  {
+    label: 'Stewardship',
+    items: [
+      { label: 'Review contributions', screen: 'moderation', icon: ListIcon },
     ],
   },
 ];
@@ -893,6 +900,11 @@ export default function App() {
       ? (communityContext as SearchActionContext & { action: 'study_group' | 'reading_room' })
       : null;
   const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
+  const activeSpaceRole = learningSpaces?.active_space?.membership?.role;
+  const canModerate = user?.role === 'admin' || user?.role === 'moderator' || ['owner', 'admin', 'moderator'].includes(activeSpaceRole || '');
+  const visibleNavGroups = NAV_GROUPS
+    .map(group => ({ ...group, items: group.items.filter(item => item.screen !== 'moderation' || canModerate) }))
+    .filter(group => group.items.length > 0);
 
   // Keep the authenticated rail compact so the active workspace owns the
   // screen. Navigation.css expands it on hover/focus for quick wayfinding.
@@ -906,7 +918,7 @@ export default function App() {
           <div className="logo-name">Exam<span>Mind.</span></div>
         </div>
         <nav className="nav">
-          {NAV_GROUPS.map((group) => (
+          {visibleNavGroups.map((group) => (
             <div className="nav-group" role="group" aria-label={group.label} key={group.label}>
               <div className="nav-section">{group.label}</div>
               {group.items.map((item) => {
@@ -999,7 +1011,7 @@ export default function App() {
           >
             {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
           </button>
-          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{NAV_GROUPS.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'reader' ? 'Reading' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
+          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{visibleNavGroups.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'reader' ? 'Reading' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
           <div className="search global-search" ref={searchBoxRef}>
             <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
@@ -1190,6 +1202,7 @@ export default function App() {
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'workspace' && <Workspace go={go} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
+        {activeScreen === 'moderation' && canModerate && <Moderation go={go} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}
@@ -1244,7 +1257,7 @@ export default function App() {
             </button>
           </header>
           <div className="mobile-nav-sheet-groups">
-            {NAV_GROUPS.map((group) => (
+            {visibleNavGroups.map((group) => (
               <div className="mobile-nav-sheet-group" key={`mobile-${group.label}`}>
                 <p>{group.label}</p>
                 <div>

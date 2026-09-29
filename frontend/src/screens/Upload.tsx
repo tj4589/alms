@@ -12,6 +12,8 @@ type RecentUpload = {
   title?: string | null;
   year: number | null;
   visibility?: ShareVisibility;
+  moderation_status?: string;
+  requested_visibility?: ShareVisibility;
   shared_group_ids?: number[];
   created_at?: string | null;
   metadata_json: {
@@ -23,7 +25,7 @@ type RecentUpload = {
   } | null;
 };
 
-type ShareVisibility = 'public' | 'group' | 'private';
+type ShareVisibility = 'space_shared' | 'official' | 'group' | 'private' | 'public';
 type ShareGroup = { id: number; name: string; is_member?: boolean; status?: string };
 type DuplicateDocument = {
   id: number;
@@ -221,7 +223,8 @@ function normalizeMetadata(value: Record<string, unknown> = {}) : Metadata {
 }
 
 function visibilityLabel(visibility: ShareVisibility) {
-  if (visibility === 'public') return 'Academy archive';
+  if (visibility === 'official') return 'Official resource';
+  if (visibility === 'space_shared' || visibility === 'public') return 'Academy archive';
   if (visibility === 'group') return 'Study group only';
   return 'Only me';
 }
@@ -304,7 +307,7 @@ function SharingChoice({
       <div className="sharing-choice-head">
         <div>
           <div className="document-summary-label" id="sharing-choice-title">Where should this material be available?</div>
-          <p>The academy archive is the recommended path for course resources. You will confirm before anything is shared.</p>
+          <p>Contributing to Kora Sales Academy is the recommended path for course resources. You will confirm before anything is shared.</p>
         </div>
         <span className="sharing-safe-note"><LockKeyhole size={13} /> Consent required</span>
       </div>
@@ -315,14 +318,14 @@ function SharingChoice({
       </p>
 
       <div className="sharing-options" role="radiogroup" aria-label="Where this material should be available">
-        <label className={`sharing-option sharing-option--recommended${visibility === 'public' ? ' is-selected' : ''}`}>
-          <input type="radio" name="upload-visibility" value="public" checked={visibility === 'public'} onChange={() => { onVisibilityChange('public'); onConsentChange(false); }} />
+        <label className={`sharing-option sharing-option--recommended${visibility === 'space_shared' ? ' is-selected' : ''}`}>
+          <input type="radio" name="upload-visibility" value="space_shared" checked={visibility === 'space_shared'} onChange={() => { onVisibilityChange('space_shared'); onConsentChange(false); }} />
           <span className="sharing-option-icon"><Globe2 size={17} /></span>
           <span className="sharing-option-copy">
-            <strong>Academy archive <em>Recommended</em></strong>
-            <span>Help everyone studying this course find and use this resource.</span>
+            <strong>Contribute to KSA <em>Recommended</em></strong>
+            <span>Help everyone studying this course find and use this resource. It stays private until moderation approves it.</span>
             <ul className="sharing-benefits">
-              <li>Build a reliable CU course archive</li>
+              <li>Build a reliable KSA course archive</li>
               <li>Keep useful materials from getting lost in chats</li>
               <li>Make resources searchable by course and session</li>
               <li>Help other students study and practise from the same resource</li>
@@ -366,10 +369,10 @@ function SharingChoice({
         </div>
       )}
 
-      {visibility === 'public' && (
+      {visibility === 'space_shared' && (
         <label className="sharing-consent">
           <input type="checkbox" checked={consent} onChange={event => onConsentChange(event.target.checked)} />
-          <span>You are sharing this material with all verified ExamMind students. It may appear in course search, AI study answers and practice generation.</span>
+          <span>You are submitting this material for review. If approved, it will be available to verified KSA students in course search, AI study answers and practice generation.</span>
         </label>
       )}
 
@@ -937,6 +940,8 @@ function ContributionSuccessModal({
   documentId,
   documentType,
   initialVisibility,
+  initialModerationStatus,
+  initialRequestedVisibility,
   initialGroupIds,
   groups,
   onViewLibrary,
@@ -949,6 +954,8 @@ function ContributionSuccessModal({
   documentId: number | null;
   documentType: 'past_question' | 'lecture_note' | null;
   initialVisibility: ShareVisibility;
+  initialModerationStatus?: string;
+  initialRequestedVisibility?: ShareVisibility;
   initialGroupIds: number[];
   groups: ShareGroup[];
   onViewLibrary: () => void;
@@ -956,6 +963,8 @@ function ContributionSuccessModal({
   onDismiss: () => void;
 }) {
   const [currentVisibility, setCurrentVisibility] = useState<ShareVisibility>(initialVisibility);
+  const [moderationStatus, setModerationStatus] = useState(initialModerationStatus || 'not_submitted');
+  const requestedVisibility = initialRequestedVisibility || (moderationStatus === 'pending_review' ? 'space_shared' : currentVisibility);
   const [currentGroupIds, setCurrentGroupIds] = useState<number[]>(initialGroupIds);
   const [editorVisibility, setEditorVisibility] = useState<ShareVisibility | null>(null);
   const [editorGroupIds, setEditorGroupIds] = useState<number[]>(initialGroupIds);
@@ -970,19 +979,20 @@ function ContributionSuccessModal({
       setError('Choose at least one study group.');
       return;
     }
-    if (editorVisibility === 'public' && !consent) {
-      setError('Confirm that all verified ExamMind students may access this material.');
+    if (editorVisibility === 'space_shared' && !consent) {
+      setError('Confirm that this material may be reviewed for the KSA archive.');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await apiPatch(`/materials/${documentType}/${documentId}/visibility`, {
+      const result = await apiPatch(`/materials/${documentType}/${documentId}/visibility`, {
         visibility: editorVisibility,
         group_ids: editorGroupIds,
         confirm: editorVisibility === 'private' ? true : consent,
       });
-      setCurrentVisibility(editorVisibility);
+      setCurrentVisibility((result as { sharing?: { visibility?: ShareVisibility } })?.sharing?.visibility || editorVisibility);
+      setModerationStatus((result as { sharing?: { moderation_status?: string } })?.sharing?.moderation_status || (editorVisibility === 'space_shared' ? 'pending_review' : 'not_submitted'));
       setCurrentGroupIds(editorVisibility === 'group' ? editorGroupIds : []);
       setEditorVisibility(null);
       setConsent(false);
@@ -1004,10 +1014,12 @@ function ContributionSuccessModal({
     <div className="success-modal-backdrop">
       <div className="success-modal">
         <div className="success-label">Upload complete</div>
-        <h2>{currentVisibility === 'private' ? 'Saved to your workspace' : 'Thank you for contributing'}</h2>
+        <h2>{moderationStatus === 'pending_review' ? 'Contribution submitted for review' : currentVisibility === 'private' ? 'Saved to your workspace' : 'Thank you for contributing'}</h2>
         <p>
-          {currentVisibility === 'public'
-            ? 'Resource shared successfully. Students studying this course can now find it in the CU archive.'
+          {moderationStatus === 'pending_review'
+            ? 'Your resource is currently private while a KSA moderator reviews it. We will keep your personal study data private.'
+            : requestedVisibility === 'space_shared'
+            ? 'Resource shared successfully. Students studying this course can now find it in the KSA archive.'
             : currentVisibility === 'group'
               ? `Resource shared with ${selectedGroups.map(group => group.name).join(', ')}. Only members of ${selectedGroups.length > 1 ? 'these groups' : 'this group'} can access it.`
               : 'This resource is currently private. Would you like to help other students by sharing it with your study group or the CU archive?'}
@@ -1019,9 +1031,9 @@ function ContributionSuccessModal({
           <span>{searchable ? 'Searchable' : 'Record only'}</span>
           <span>{visibilityLabel(currentVisibility)}</span>
         </div>
-        {currentVisibility === 'private' && !editorVisibility && (
+        {(currentVisibility === 'private' || moderationStatus === 'pending_review') && !editorVisibility && (
           <div className="success-sharing-actions">
-            <button type="button" className="cta" onClick={() => startSharing('public')}><Globe2 size={15} /> Share to academy archive</button>
+            <button type="button" className="cta" onClick={() => startSharing('space_shared')}><Globe2 size={15} /> Share to KSA archive</button>
             <button type="button" className="cta cta-ghost" onClick={() => startSharing('group')}><Users size={15} /> Share with a study group</button>
             <button type="button" className="success-keep-private" onClick={onDismiss}>Keep visible only to me</button>
           </div>
@@ -1080,13 +1092,15 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const [editedFields, setEditedFields] = useState<Set<string>>(new Set());
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [topicDraft, setTopicDraft] = useState('');
-  const [sharingVisibility, setSharingVisibility] = useState<ShareVisibility>('public');
+  const [sharingVisibility, setSharingVisibility] = useState<ShareVisibility>('private');
   const [shareGroups, setShareGroups] = useState<ShareGroup[]>([]);
   const [selectedShareGroupIds, setSelectedShareGroupIds] = useState<number[]>([]);
   const [sharingConsent, setSharingConsent] = useState(false);
   const [sharingError, setSharingError] = useState('');
   const [lastDocumentId, setLastDocumentId] = useState<number | null>(null);
   const [lastDocumentType, setLastDocumentType] = useState<'past_question' | 'lecture_note' | null>(null);
+  const [lastModerationStatus, setLastModerationStatus] = useState('not_submitted');
+  const [lastRequestedVisibility, setLastRequestedVisibility] = useState<ShareVisibility | undefined>(undefined);
   const [editingRecentKey, setEditingRecentKey] = useState<string | null>(null);
   const [recentVisibility, setRecentVisibility] = useState<ShareVisibility>('private');
   const [recentGroupIds, setRecentGroupIds] = useState<number[]>([]);
@@ -1149,7 +1163,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setEditedFields(new Set());
     setValidationErrors({});
     setTopicDraft('');
-    setSharingVisibility('public');
+    setSharingVisibility('private');
     setSelectedShareGroupIds([]);
     setSharingConsent(false);
     setSharingError('');
@@ -1246,8 +1260,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     }
     if (sharingVisibility === 'group' && selectedShareGroupIds.length === 0) {
       errors.sharing = 'Choose at least one study group, or choose Only me.';
-    } else if (sharingVisibility === 'public' && !sharingConsent) {
-      errors.sharing = 'Confirm that you want all verified ExamMind students to access this material.';
+    } else if (sharingVisibility === 'space_shared' && !sharingConsent) {
+      errors.sharing = 'Confirm that this material may be reviewed for the KSA archive.';
     }
     setValidationErrors(errors);
     setSharingError(errors.sharing || '');
@@ -1302,6 +1316,9 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         setLastIndexed(data.indexed !== false);
         setLastDocumentId(typeof data.document_id === 'number' ? data.document_id : null);
         setLastDocumentType(data.document_type === 'past_question' ? 'past_question' : 'lecture_note');
+        setLastModerationStatus(data.sharing?.moderation_status || 'not_submitted');
+        setLastRequestedVisibility(data.sharing?.requested_visibility || undefined);
+        if (data.sharing?.visibility) setSharingVisibility(data.sharing.visibility as ShareVisibility);
         setMetadata(normalizeMetadata({ ...submissionMetadata, ...(data.metadata || {}) }));
         setState('success');
         setMessage(data.status === 'audio_warning' ? (data.message || 'The recording was saved and transcribed, but search indexing is still pending.') : '');
@@ -1334,7 +1351,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
 
   const openRecentVisibility = (upload: RecentUpload) => {
     setEditingRecentKey(`${upload.material_type}:${upload.id}`);
-    setRecentVisibility(upload.visibility || 'private');
+    setRecentVisibility(upload.visibility === 'public' ? 'space_shared' : upload.visibility || 'private');
     setRecentGroupIds(upload.shared_group_ids || []);
     setRecentConsent(false);
     setRecentShareError('');
@@ -1345,8 +1362,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       setRecentShareError('Choose at least one study group.');
       return;
     }
-    if (recentVisibility === 'public' && !recentConsent) {
-      setRecentShareError('Confirm that all verified students may access this material.');
+    if (recentVisibility === 'space_shared' && !recentConsent) {
+      setRecentShareError('Confirm that this material may be reviewed for the KSA archive.');
       return;
     }
     setRecentShareBusy(true);
@@ -1526,8 +1543,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
                         <span className="ledger-year">{u.year ?? '--'}</span>
                       </div>
                       <button type="button" className="ledger-visibility" onClick={() => openRecentVisibility(u)} aria-label={`Change access for ${u.title || u.metadata_json?.course_code || 'this material'}`}>
-                        {u.visibility === 'public' ? <Globe2 size={12} /> : u.visibility === 'group' ? <Users size={12} /> : <LockKeyhole size={12} />}
-                        {visibilityLabel(u.visibility || 'private')}
+                        {u.visibility === 'space_shared' || u.visibility === 'public' ? <Globe2 size={12} /> : u.visibility === 'group' ? <Users size={12} /> : <LockKeyhole size={12} />}
+                        {u.moderation_status === 'pending_review' ? 'Under review' : visibilityLabel(u.visibility || 'private')}
                       </button>
                       {editingRecentKey === `${u.material_type}:${u.id}` && (
                         <div className="ledger-editor">
@@ -1669,6 +1686,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
           documentId={lastDocumentId}
           documentType={lastDocumentType}
           initialVisibility={sharingVisibility}
+          initialModerationStatus={lastModerationStatus}
+          initialRequestedVisibility={lastRequestedVisibility}
           initialGroupIds={selectedShareGroupIds}
           groups={shareGroups}
           onViewLibrary={() => go('questions')}

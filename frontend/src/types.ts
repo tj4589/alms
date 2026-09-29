@@ -1,4 +1,4 @@
-export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'spaces' | 'workspace';
+export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'spaces' | 'workspace' | 'moderation';
 
 export type Course = {
   id: number;
@@ -101,7 +101,7 @@ export type PastQuestion = {
   snippets?: string[];
   chunk_ids?: number[];
   matching_sections?: number;
-  visibility?: 'public' | 'group' | 'private';
+  visibility?: 'space_shared' | 'official' | 'public' | 'group' | 'private';
   contributor_label?: string | null;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
 };
@@ -122,7 +122,7 @@ export type LectureNote = {
   title: string;
   year?: number | null;
   semester?: string | null;
-  visibility?: 'public' | 'group' | 'private';
+  visibility?: 'space_shared' | 'official' | 'public' | 'group' | 'private';
   contributor_label?: string | null;
   metadata_json?: AcademicMetadata | Record<string, unknown> | null;
 };
