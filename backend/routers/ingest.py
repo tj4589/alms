@@ -29,7 +29,7 @@ from material_access import (
 )
 from resource_index import chunk_provenance_fields, classify_workspace_relevance
 
-from ai_clients import AIProviderError, embeddings_model, generate_ai_response
+from ai_clients import AIProviderError, embeddings_model, generate_ai_response, normalize_transcript_segments, transcribe_audio
 
 try:
     import fitz  # PyMuPDF
@@ -78,7 +78,16 @@ MIN_INDEXABLE_TEXT_CHARS = int(os.getenv("MIN_INDEXABLE_TEXT_CHARS", "80"))
 MAX_OCR_PAGES = int(os.getenv("MAX_OCR_PAGES", "20"))
 OCR_RENDER_SCALE = float(os.getenv("OCR_RENDER_SCALE", "4"))
 OCR_FALLBACK_RENDER_SCALE = float(os.getenv("OCR_FALLBACK_RENDER_SCALE", "3"))
-SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg"}
+AUDIO_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm"}
+AUDIO_MIME_TYPES = {
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".webm": "audio/webm",
+}
+SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg", *AUDIO_UPLOAD_EXTENSIONS}
 IMAGE_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 OCR_CONFIGS = [
     "--oem 3 --psm 6 -c preserve_interword_spaces=1",
@@ -91,6 +100,7 @@ OCR_CONFIGS = [
 # and other fields used only while indexing; none of those belong in JSON.
 PUBLIC_EXTRACTION_FIELDS = (
     "method",
+    "processing_status",
     "page_count",
     "text_char_count",
     "cleaned_text_char_count",
@@ -132,6 +142,7 @@ DOCUMENT_TYPES = {
     "assignment",
     "revision_slide",
     "exam_prep",
+    "audio",
     "unknown",
 }
 EXAM_TYPES = {"quiz", "test", "midterm", "continuous_assessment", "final", "unknown"}
@@ -231,6 +242,7 @@ class StructuredMetadataResponse(BaseModel):
         "assignment",
         "revision_slide",
         "exam_prep",
+        "audio",
         "unknown",
     ] | None = None
     course_code: str | None = None
@@ -979,13 +991,68 @@ def _extract_pdf_content(content: bytes, warnings: list[str]) -> Dict[str, Any]:
     }
 
 
+def _audio_signature_matches(content: bytes, extension: str) -> bool:
+    """Reject renamed executables and unrelated files before transcription."""
+    if not content:
+        return False
+    if extension == ".wav":
+        return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WAVE"
+    if extension in {".ogg", ".oga"}:
+        return content.startswith(b"OggS")
+    if extension == ".flac":
+        return content.startswith(b"fLaC")
+    if extension == ".webm":
+        return content.startswith(b"\x1a\x45\xdf\xa3")
+    if extension == ".m4a":
+        return len(content) >= 12 and content[4:8] == b"ftyp" and content[8:12] in {b"M4A ", b"M4B ", b"mp41", b"mp42", b"isom", b"iso2", b"qt  "}
+    if extension == ".mp3":
+        return content.startswith(b"ID3") or (len(content) >= 2 and content[0] == 0xFF and content[1] & 0xE0 == 0xE0)
+    return False
+
+
+def _audio_mime_type(file: UploadFile, extension: str) -> str:
+    supplied = (file.content_type or "").strip().lower()
+    if supplied and supplied not in {"application/octet-stream", "binary/octet-stream"} and not (
+        supplied.startswith("audio/") or supplied in {"application/ogg", "video/webm", "video/mp4"}
+    ):
+        raise HTTPException(status_code=400, detail="The uploaded audio MIME type is not supported.")
+    return supplied if supplied and supplied not in {"application/octet-stream", "binary/octet-stream"} else AUDIO_MIME_TYPES[extension]
+
+
+def _audio_extraction(file: UploadFile, content: bytes, extension: str) -> Dict[str, Any]:
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded audio file is empty.")
+    mime_type = _audio_mime_type(file, extension)
+    if not _audio_signature_matches(content, extension):
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid supported audio recording.")
+    return {
+        "text": "",
+        "raw_extracted_text": "",
+        "cleaned_text": "",
+        "method": "audio_pending",
+        "page_count": 0,
+        "text_char_count": 0,
+        "cleaned_text_char_count": 0,
+        "ocr_used": False,
+        "extraction_confidence": 0.0,
+        "failure_reason": None,
+        "indexed_status": "processing",
+        "processing_status": "uploaded",
+        "searchable": False,
+        "needs_review": False,
+        "warnings": ["Audio will be transcribed after you confirm the material details."],
+        "resource_type": "audio",
+        "file_mime": mime_type,
+    }
+
+
 def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     filename = file.filename or ""
     extension = os.path.splitext(filename.lower())[1]
     if extension not in SUPPORTED_UPLOAD_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="Only PDF, Word, PowerPoint, PNG, JPG, and JPEG files are supported.",
+            detail="Only PDF, Word, PowerPoint, image, and supported audio files are supported.",
         )
 
     content = file.file.read(MAX_UPLOAD_BYTES + 1)
@@ -996,7 +1063,9 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
         )
 
     warnings: list[str] = []
-    if extension == ".pdf":
+    if extension in AUDIO_UPLOAD_EXTENSIONS:
+        result = _audio_extraction(file, content, extension)
+    elif extension == ".pdf":
         result = _extract_pdf_content(content, warnings)
     elif extension == ".docx":
         result = _extract_docx_text(content, warnings)
@@ -1013,7 +1082,7 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     result["file_bytes"] = content
     result["source_checksum"] = sha256(content).hexdigest()
     result["file_name"] = filename or "upload"
-    result["file_mime"] = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    result["file_mime"] = result.get("file_mime") or file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     if extension == ".pdf":
         result["page_texts"] = _page_texts(content)
     else:
@@ -1367,6 +1436,8 @@ def _metadata_field_value(metadata: Dict[str, Any], strict_field: str) -> Any:
 
 def _required_metadata_fields(metadata: Dict[str, Any]) -> set[str]:
     required = {"title", "document_type", "course_code"}
+    if metadata.get("document_type") == "audio":
+        required.discard("course_code")
     if not _metadata_value_is_good(metadata.get("course_code")) and _metadata_value_is_good(metadata.get("course_title")):
         required.remove("course_code")
         required.add("course_title")
@@ -1761,6 +1832,7 @@ DOC_TYPE_TITLE = {
     "assignment": "Assignment",
     "revision_slide": "Revision Slide",
     "exam_prep": "Exam Prep",
+    "audio": "Audio Recording",
     "unknown": "Academic Document",
 }
 
@@ -2182,7 +2254,7 @@ def metadata_required_errors(metadata: Dict[str, Any]) -> list[str]:
         errors.append("title")
     if metadata.get("document_type") in {None, "", "unknown"}:
         errors.append("document_type")
-    if not _metadata_value_is_good(metadata.get("course_code")) and not _metadata_value_is_good(metadata.get("course_title")):
+    if metadata.get("document_type") != "audio" and not _metadata_value_is_good(metadata.get("course_code")) and not _metadata_value_is_good(metadata.get("course_title")):
         errors.append("course")
     if metadata.get("document_type") == "past_question":
         if not _metadata_value_is_good(metadata.get("academic_year")) and not metadata.get("year"):
@@ -2293,7 +2365,7 @@ def find_duplicate(
 
     document_type = metadata.get("document_type")
     model = models.PastQuestion if document_type == "past_question" else models.LectureNote
-    material_type = "past_question" if document_type == "past_question" else "lecture_note"
+    material_type = "past_question" if document_type == "past_question" else "audio" if document_type == "audio" else "lecture_note"
     query = db.query(model).filter(accessible_material_filter(db, model, current_user))
     candidates = query.limit(200).all()
     if not candidates:
@@ -2309,7 +2381,10 @@ def find_duplicate(
     for row in candidates:
         row_metadata = row.metadata_json or {}
         row_type = row_metadata.get("document_type") or material_type
-        if row_type != material_type:
+        allowed_row_types = {material_type}
+        if material_type == "audio":
+            allowed_row_types.add("lecture_note")
+        if row_type not in allowed_row_types:
             continue
         row_course = str(row_metadata.get("course_code") or "").strip().upper()
         if course_code and course_code != "UNKNOWN" and row_course and row_course != course_code:
@@ -2401,6 +2476,226 @@ def _citation_for_chunk(text: str, sections: list[Any]) -> dict[str, Any] | None
         "page_to": section.page_to,
         "cut_by": section.cut_by,
     }
+
+
+def _audio_chunk_groups(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group ordered transcript segments without changing their timestamps."""
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for segment in segments:
+        candidate_length = len(" ".join(item["text"] for item in [*current, segment]))
+        candidate_duration = segment["end_time"] - (current[0]["start_time"] if current else segment["start_time"])
+        if current and (candidate_length > 1000 or candidate_duration > 45):
+            groups.append(current)
+            current = []
+        current.append(segment)
+    if current:
+        groups.append(current)
+
+    result: list[dict[str, Any]] = []
+    for index, group in enumerate(groups):
+        text = " ".join(item["text"] for item in group).strip()
+        topics = _infer_topics_covered(text)
+        result.append({
+            "chunk_index": index,
+            "text": text,
+            "start_time": group[0]["start_time"],
+            "end_time": group[-1]["end_time"],
+            "topic": topics[0] if topics else None,
+        })
+    return result
+
+
+def _normalise_audio_transcription(result: Any) -> tuple[str, str, list[dict[str, Any]]]:
+    provider = "openai"
+    model = ""
+    payload = result
+    if isinstance(result, dict):
+        provider = str(result.get("provider") or provider)
+        model = str(result.get("model") or "")
+        payload = result.get("segments", result)
+    if isinstance(payload, list) and payload and "start_time" in payload[0]:
+        segments = payload
+    else:
+        segments = normalize_transcript_segments(payload)
+    # Re-check fixture/provider output after normalization so production and
+    # tests follow the same ordering and timestamp rules.
+    validated: list[dict[str, Any]] = []
+    ordered_segments = sorted(enumerate(segments), key=lambda pair: (float(pair[1]["start_time"]), pair[0]))
+    for segment_index, (_, segment) in enumerate(ordered_segments):
+        start_time = float(segment["start_time"])
+        end_time = float(segment["end_time"])
+        text = str(segment.get("text") or "").strip()
+        if not text or start_time < 0 or end_time < start_time:
+            continue
+        item = {"segment_index": segment_index, "start_time": start_time, "end_time": end_time, "text": text}
+        if isinstance(segment.get("speaker"), str) and segment["speaker"].strip():
+            item["speaker"] = segment["speaker"].strip()
+        if isinstance(segment.get("confidence"), (int, float)) and 0 <= float(segment["confidence"]) <= 1:
+            item["confidence"] = float(segment["confidence"])
+        validated.append(item)
+    if not validated:
+        raise AIProviderError("Audio transcription returned no readable timestamped speech.")
+    for index, segment in enumerate(validated):
+        segment["segment_index"] = index
+    return provider, model, validated
+
+
+def _audio_response(note: models.LectureNote, metadata: Dict[str, Any], status: str, message: str, chunks: int = 0) -> dict:
+    return {
+        "status": status,
+        "document_id": note.id,
+        "document_type": "audio",
+        "chunks_indexed": chunks,
+        "indexed": bool(chunks),
+        "searchable": bool(chunks),
+        "metadata": metadata,
+        "message": message,
+    }
+
+
+def _persist_audio_upload(
+    db: Session,
+    *,
+    file: UploadFile,
+    extraction: Dict[str, Any],
+    metadata: Dict[str, Any],
+    current_user: models.User,
+    requested_visibility: str,
+    requested_group_ids: list[int],
+    version_parent_id: int | None,
+    version_number: int,
+) -> dict:
+    """Store an audio source, then add transcript/index data only when valid."""
+    note_metadata = dict(metadata)
+    note_metadata.update({
+        "processing_status": "processing",
+        "transcription_status": "processing",
+        "searchable": False,
+        "indexed_status": "processing",
+        "transcript_available": False,
+    })
+    course = match_course(db, metadata)
+    note = models.LectureNote(
+        course_id=course.id if course else None,
+        uploaded_by=current_user.id,
+        content_text=None,
+        file_data=extraction.get("file_bytes"),
+        file_name=extraction.get("file_name") or file.filename,
+        file_mime=extraction.get("file_mime"),
+        file_size=len(extraction.get("file_bytes") or b"") or None,
+        source_checksum=extraction.get("source_checksum") or metadata.get("source_checksum"),
+        version_of_id=version_parent_id,
+        version_number=version_number,
+        topic=", ".join(metadata.get("topics_covered", [])[:3]) or None,
+        title=metadata.get("document_title") or metadata.get("source_file") or "Audio recording",
+        year=metadata.get("year"),
+        semester=metadata.get("semester"),
+        file_url=file.filename,
+        metadata_json=note_metadata,
+    )
+    db.add(note)
+    db.flush()
+    note_metadata["storage_reference"] = f"lecture_note:{note.id}"
+
+    try:
+        transcription = transcribe_audio(
+            extraction.get("file_name") or file.filename or "recording",
+            extraction.get("file_mime") or "audio/mpeg",
+            extraction.get("file_bytes") or b"",
+        )
+        provider, model, segments = _normalise_audio_transcription(transcription)
+    except AIProviderError:
+        note_metadata.update({
+            "processing_status": "failed",
+            "transcription_status": "failed",
+            "transcription_provider": "openai",
+            "indexed_status": "unindexed",
+            "searchable": False,
+            "needs_review": True,
+            "transcription_error": "Audio transcription could not be completed. Check the transcription provider configuration or try again.",
+        })
+        note.metadata_json = note_metadata
+        set_material_visibility(db, [note], requested_visibility, requested_group_ids, current_user.id)
+        db.commit()
+        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription could not be completed. Check the transcription provider configuration or try again.")
+    except Exception:
+        note_metadata.update({
+            "processing_status": "failed",
+            "transcription_status": "failed",
+            "indexed_status": "unindexed",
+            "searchable": False,
+            "needs_review": True,
+            "transcription_error": "Audio transcription returned an invalid result. Try another recording.",
+        })
+        note.metadata_json = note_metadata
+        set_material_visibility(db, [note], requested_visibility, requested_group_ids, current_user.id)
+        db.commit()
+        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription returned an invalid result. Try another recording.")
+
+    for segment in segments:
+        segment_topic = (_infer_topics_covered(segment["text"]) or [None])[0]
+        db.add(models.AudioTranscriptSegment(
+            resource_id=note.id,
+            segment_index=segment["segment_index"],
+            start_time=segment["start_time"],
+            end_time=segment["end_time"],
+            text=segment["text"],
+            speaker=segment.get("speaker"),
+            confidence=segment.get("confidence"),
+            topic=segment_topic,
+            metadata_json={"provider": provider, "model": model, "segment_index": segment["segment_index"]},
+        ))
+
+    groups = _audio_chunk_groups(segments)
+    embeddings: list[list[float]] = []
+    indexing_warning = False
+    if len(groups) > MAX_INDEX_CHUNKS:
+        indexing_warning = True
+    else:
+        try:
+            embeddings = [embed_or_fail(group["text"]) for group in groups]
+        except Exception:
+            indexing_warning = True
+
+    if not indexing_warning:
+        for group, embedding in zip(groups, embeddings):
+            citation = {
+                "section": group.get("topic"),
+                "timestamp_start": group["start_time"],
+                "timestamp_end": group["end_time"],
+                "chunk_index": group["chunk_index"],
+            }
+            db.add(models.ResourceChunk(
+                resource_type="audio",
+                resource_id=note.id,
+                chunk_index=group["chunk_index"],
+                chunk_text=group["text"],
+                embedding=embedding,
+                timestamp_start=group["start_time"],
+                timestamp_end=group["end_time"],
+                section=group.get("topic"),
+                topic=group.get("topic"),
+                metadata_json={**metadata, "source_citation": citation},
+            ))
+
+    note_metadata.update({
+        "processing_status": "warning" if indexing_warning else "ready",
+        "transcription_status": "ready",
+        "transcription_provider": provider,
+        "transcription_model": model,
+        "transcript_available": True,
+        "transcript_segment_count": len(segments),
+        "indexed_status": "unindexed" if indexing_warning else "indexed",
+        "searchable": not indexing_warning,
+        "needs_review": indexing_warning,
+    })
+    note.metadata_json = note_metadata
+    set_material_visibility(db, [note], requested_visibility, requested_group_ids, current_user.id)
+    db.commit()
+    if indexing_warning:
+        return _audio_response(note, note_metadata, "audio_warning", "The recording was saved and transcribed, but search indexing is waiting for the embedding service.")
+    return _audio_response(note, note_metadata, "success", "Audio recording transcribed and added to your workspace.", len(groups))
 
 
 def _empty_delete_summary() -> Dict[str, int]:
@@ -2566,8 +2861,11 @@ def _delete_lecture_notes(db: Session, rows: list[models.LectureNote]) -> Dict[s
         .filter(models.LectureNoteChunk.lecture_note_id.in_(ids))
         .delete(synchronize_session=False)
     )
+    db.query(models.AudioTranscriptSegment).filter(
+        models.AudioTranscriptSegment.resource_id.in_(ids),
+    ).delete(synchronize_session=False)
     db.query(models.ResourceChunk).filter(
-        models.ResourceChunk.resource_type == "lecture_note",
+        models.ResourceChunk.resource_type.in_(["lecture_note", "audio"]),
         models.ResourceChunk.resource_id.in_(ids),
     ).delete(synchronize_session=False)
     for row in rows:
@@ -2589,6 +2887,8 @@ def embed_or_fail(text: str):
 
 
 def extraction_message(extraction: Dict[str, Any]) -> str:
+    if extraction.get("resource_type") == "audio":
+        return "Audio is ready for confirmation. ExamMind will transcribe it after you confirm the material details."
     if extraction.get("indexed_status") == "indexed_review_required":
         return "OCR extracted text, but review is recommended."
     if extraction.get("method") in {"ocr", "mixed"}:
@@ -2627,6 +2927,7 @@ def upload_document(
     current_user: models.User = Depends(auth.require_role("student")),
 ):
     extraction = extract_pdf_text(file)
+    is_audio = extraction.get("resource_type") == "audio"
     raw_extracted_text = extraction.get("raw_extracted_text") or extraction.get("text") or ""
     cleaned_text = extraction.get("cleaned_text") or _clean_ocr_text(raw_extracted_text)
     operational_text = cleaned_text if len(cleaned_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS else raw_extracted_text
@@ -2634,7 +2935,27 @@ def upload_document(
         len(operational_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS or bool(extraction.get("searchable"))
     )
 
-    if extraction_succeeded:
+    if is_audio:
+        audio_title = re.sub(r"[_-]+", " ", os.path.splitext(file.filename or "Audio recording")[0]).strip().title()
+        heuristic = normalize_metadata_fields({
+            "document_type": "audio",
+            "document_title": audio_title or "Audio recording",
+            "course_code": "",
+            "course_title": "",
+            "topics_covered": [],
+            "confidence_score": 0.5,
+        })
+        ai_metadata = _attach_metadata_review(
+            heuristic,
+            heuristic=heuristic,
+            ai_metadata={},
+            filename=file.filename or "recording",
+            text="",
+            page_texts=None,
+            extraction_method="audio_pending",
+        )
+        extraction_succeeded = True
+    elif extraction_succeeded:
         ai_metadata = extract_metadata(
             file.filename or "upload.pdf",
             operational_text,
@@ -2666,6 +2987,8 @@ def upload_document(
         }
     )
     metadata = normalized_metadata(confirmed_metadata, ai_metadata)
+    if is_audio:
+        metadata["document_type"] = "audio"
     metadata["source_file"] = file.filename
     metadata["source_checksum"] = extraction.get("source_checksum") or metadata.get("source_checksum") or ""
     metadata["extraction_method"] = metadata.get("extraction_method") or extraction["method"]
@@ -2675,6 +2998,10 @@ def upload_document(
     metadata["indexed_status"] = extraction.get("indexed_status") or metadata.get("indexed_status") or "indexed"
     metadata["searchable"] = bool(extraction.get("searchable", metadata.get("searchable", extraction_succeeded)))
     metadata["needs_review"] = bool(extraction.get("needs_review", False) or metadata.get("needs_review", False))
+    if is_audio:
+        metadata["processing_status"] = "awaiting_confirmation"
+        metadata["transcription_status"] = "pending"
+        metadata["transcript_available"] = False
     metadata["pages_read"] = extraction.get("page_count") or 0
     detected_topics = _infer_topics_covered(operational_text)
     metadata["topics_covered"] = list(dict.fromkeys([*(metadata.get("topics_covered") or []), *detected_topics]))[:24]
@@ -2810,6 +3137,19 @@ def upload_document(
         raise HTTPException(
             status_code=400,
             detail="Complete the required metadata before indexing: " + ", ".join(readable.get(item, item) for item in required_errors) + ".",
+        )
+
+    if is_audio:
+        return _persist_audio_upload(
+            db,
+            file=file,
+            extraction=extraction,
+            metadata=metadata,
+            current_user=current_user,
+            requested_visibility=requested_visibility,
+            requested_group_ids=requested_group_ids,
+            version_parent_id=version_parent_id,
+            version_number=version_number,
         )
 
     course = match_course(db, metadata)

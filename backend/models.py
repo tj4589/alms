@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, LargeBinary, String, Text, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, LargeBinary, String, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from database import Base
@@ -235,8 +235,8 @@ class ResourceChunk(Base):
     page_to = Column(Integer, nullable=True)
     slide_from = Column(Integer, nullable=True)
     slide_to = Column(Integer, nullable=True)
-    timestamp_start = Column(Integer, nullable=True)
-    timestamp_end = Column(Integer, nullable=True)
+    timestamp_start = Column(Float, nullable=True)
+    timestamp_end = Column(Float, nullable=True)
     section = Column(String, nullable=True)
     heading = Column(String, nullable=True)
     topic = Column(String, nullable=True)
@@ -246,6 +246,29 @@ class ResourceChunk(Base):
     __table_args__ = (
         UniqueConstraint("resource_type", "resource_id", "chunk_index", name="uq_resource_chunk_position"),
         Index("ix_resource_chunks_resource", "resource_type", "resource_id"),
+    )
+
+
+class AudioTranscriptSegment(Base):
+    """Timestamped provider output for an audio-backed lecture note."""
+
+    __tablename__ = "audio_transcript_segments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    resource_id = Column(Integer, ForeignKey("lecture_notes.id", ondelete="CASCADE"), nullable=False, index=True)
+    segment_index = Column(Integer, nullable=False)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float, nullable=False)
+    text = Column(Text, nullable=False)
+    speaker = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
+    topic = Column(String, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("resource_id", "segment_index", name="uq_audio_transcript_segment_position"),
+        Index("ix_audio_transcript_segments_resource", "resource_id", "segment_index"),
     )
 
 class StudentProgress(Base):

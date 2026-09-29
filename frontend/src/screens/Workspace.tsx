@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownToLine, BookOpen, File, FileQuestion, FileText, Image as ImageIcon,
   LoaderCircle, Music, PanelLeftClose, PanelLeftOpen, PanelRightClose,
@@ -10,7 +10,25 @@ import Assistant from './Assistant';
 import './Workspace.css';
 
 type ResourceKind = 'lecture_note' | 'past_question';
-type ResourceStatus = 'ready' | 'review' | 'unavailable';
+type ResourceStatus = 'ready' | 'review' | 'unavailable' | 'processing' | 'warning' | 'failed';
+type TranscriptSegment = {
+  id: number;
+  segment_index: number;
+  start_time: number;
+  end_time: number;
+  text: string;
+  speaker?: string | null;
+  confidence?: number | null;
+  topic?: string | null;
+};
+type AudioTranscriptPayload = {
+  resource_id: number;
+  title: string;
+  processing_status?: string;
+  transcription_status?: string;
+  message?: string;
+  segments?: TranscriptSegment[];
+};
 type RawResource = {
   id: number; title?: string | null; topic?: string | null; file_name?: string | null;
   file_size?: number | null; has_file?: boolean; content_text?: string | null;
@@ -23,7 +41,7 @@ type Resource = {
   fileSize: number | null; hasFile: boolean; contentText: string; courseCode: string | null;
   courseTitle: string | null; year: number | null; semester: string | null;
   visibility: 'public' | 'group' | 'private'; metadata: Record<string, unknown>;
-  status: ResourceStatus; statusLabel: string; createdAt: string | null;
+  status: ResourceStatus; statusLabel: string; createdAt: string | null; isAudio: boolean;
 };
 type ReaderDetail = Resource & { sections: { id: number; heading: string | null; body: string; page_from?: number | null; page_to?: number | null }[] };
 type WorkspaceProps = {
@@ -41,17 +59,23 @@ function metadataValue(metadata: Record<string, unknown>, key: string): string |
 }
 function extensionOf(fileName: string | null): string { return fileName?.split('.').pop()?.toLowerCase() || ''; }
 function typeLabel(resource: Pick<Resource, 'fileName' | 'kind' | 'metadata'>): string {
+  if (metadataValue(resource.metadata, 'document_type') === 'audio') return 'Audio recording';
   const extension = extensionOf(resource.fileName);
   if (['ppt', 'pptx'].includes(extension)) return 'PowerPoint';
   if (['doc', 'docx'].includes(extension)) return 'Word document';
   if (extension === 'pdf') return 'PDF';
   if (['png', 'jpg', 'jpeg', 'webp'].includes(extension)) return 'Image';
-  if (['mp3', 'wav', 'm4a', 'ogg'].includes(extension)) return 'Audio';
+  if (['mp3', 'wav', 'm4a', 'ogg', 'flac', 'webm'].includes(extension)) return 'Audio';
   if (['mp4', 'webm', 'mov'].includes(extension)) return 'Video';
   return resource.kind === 'past_question' ? 'Past question' : metadataValue(resource.metadata, 'document_type') || 'Study note';
 }
 function statusFor(raw: RawResource): Pick<Resource, 'status' | 'statusLabel'> {
   const metadata = raw.metadata_json || {};
+  const processingStatus = metadataValue(metadata, 'processing_status');
+  const transcriptionStatus = metadataValue(metadata, 'transcription_status');
+  if (processingStatus === 'processing' || processingStatus === 'awaiting_confirmation' || transcriptionStatus === 'processing') return { status: 'processing', statusLabel: 'Processing audio' };
+  if (processingStatus === 'failed' || transcriptionStatus === 'failed') return { status: 'failed', statusLabel: 'Transcript unavailable' };
+  if (processingStatus === 'warning') return { status: 'warning', statusLabel: 'Ready with warning' };
   const indexedStatus = metadataValue(metadata, 'indexed_status');
   if (indexedStatus === 'indexed_review_required' || metadata.needs_review === true) return { status: 'review', statusLabel: 'Review recommended' };
   if (indexedStatus === 'unindexed' || metadata.searchable === false) return { status: 'unavailable', statusLabel: 'Not indexed' };
@@ -68,6 +92,7 @@ function normalizeResource(raw: RawResource, kind: ResourceKind): Resource {
     courseCode: metadataValue(metadata, 'course_code'), courseTitle: metadataValue(metadata, 'course_title'),
     year: raw.year || null, semester: raw.semester || null, visibility: raw.visibility || 'private', metadata,
     status: status.status, statusLabel: status.statusLabel, createdAt: raw.created_at || null,
+    isAudio: metadataValue(metadata, 'document_type') === 'audio' || ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'webm'].includes(extensionOf(raw.file_name || null)),
   };
 }
 function iconFor(resource: Resource) {
@@ -75,14 +100,22 @@ function iconFor(resource: Resource) {
   if (resource.kind === 'past_question') return FileQuestion;
   if (['ppt', 'pptx'].includes(extension)) return Presentation;
   if (['png', 'jpg', 'jpeg', 'webp'].includes(extension)) return ImageIcon;
-  if (['mp3', 'wav', 'm4a', 'ogg'].includes(extension)) return Music;
+  if (['mp3', 'wav', 'm4a', 'ogg', 'flac', 'webm'].includes(extension)) return Music;
   if (['mp4', 'webm', 'mov'].includes(extension)) return Video;
   if (extension === 'pdf') return FileText;
   return File;
 }
 function visibilityLabel(visibility: Resource['visibility']): string { return visibility === 'public' ? 'Academy archive' : visibility === 'group' ? 'Study group' : 'Only me'; }
 function splitParagraphs(value: string): string[] { return value.split(/\n\s*\n|\n/).map(item => item.trim()).filter(Boolean); }
-function resourceDownloadPath(resource: Resource): string { return resource.kind === 'lecture_note' ? `/materials/lecture-notes/${resource.id}/download` : `/materials/past-questions/${resource.id}/download`; }
+function resourceDownloadPath(resource: Resource): string { return resource.isAudio ? `/materials/audio/${resource.id}/download` : resource.kind === 'lecture_note' ? `/materials/lecture-notes/${resource.id}/download` : `/materials/past-questions/${resource.id}/download`; }
+
+function formatTimestamp(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}` : `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+}
 
 function ResourceSidebar({ resources, activeKey, search, onSearch, onSelect, onUpload, onRefresh, loading }: {
   resources: Resource[]; activeKey: string | null; search: string; onSearch: (value: string) => void;
@@ -100,7 +133,7 @@ function ResourceSidebar({ resources, activeKey, search, onSearch, onSelect, onU
     <div className="ws-source-meta"><span>{filtered.length} source{filtered.length === 1 ? '' : 's'}</span><span>Accessible here</span></div>
     <div className="ws-source-list" aria-live="polite">
       {loading && resources.length === 0 && <p className="ws-muted">Gathering your sources...</p>}
-      {!loading && filtered.length === 0 && <div className="ws-empty-small"><BookOpen size={22} aria-hidden="true" /><strong>{resources.length ? 'No source matches' : 'Your workspace is empty'}</strong><span>{resources.length ? 'Try a different title, course or file type.' : 'Add a note, slide deck or past question to begin.'}</span></div>}
+      {!loading && filtered.length === 0 && <div className="ws-empty-small"><BookOpen size={22} aria-hidden="true" /><strong>{resources.length ? 'No source matches' : 'Your workspace is empty'}</strong><span>{resources.length ? 'Try a different title, course or file type.' : 'Add a note, slide deck, recording or past question to begin.'}</span></div>}
       {filtered.map(resource => { const Icon = iconFor(resource); return <button type="button" className={`ws-source-row${activeKey === resource.key ? ' is-active' : ''}`} key={resource.key} onClick={() => onSelect(resource)}>
         <span className={`ws-source-icon is-${resource.status}`}><Icon size={17} strokeWidth={1.7} aria-hidden="true" /></span><span className="ws-source-copy"><strong>{resource.title}</strong><small>{[resource.courseCode, typeLabel(resource)].filter(Boolean).join(' · ')}</small><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></span><span className={`ws-visibility ws-visibility-${resource.visibility}`}>{visibilityLabel(resource.visibility)}</span>
       </button>; })}
@@ -108,14 +141,90 @@ function ResourceSidebar({ resources, activeKey, search, onSearch, onSelect, onU
   </div>;
 }
 
+function AudioTranscriptReader({ resource, sourceUrl }: { resource: Resource; sourceUrl: string | null }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const segmentRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const autoScrolling = useRef(false);
+  const [payload, setPayload] = useState<AudioTranscriptPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [following, setFollowing] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet(`/materials/audio/${resource.id}/transcript`).then(value => {
+      if (!cancelled) setPayload(value as AudioTranscriptPayload);
+    }).catch(failure => {
+      if (!cancelled) setError(failure instanceof Error ? failure.message : 'The transcript could not be opened.');
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [resource.id]);
+
+  const segments = useMemo(() => payload?.segments || [], [payload?.segments]);
+  const filteredSegments = useMemo(() => {
+    const value = query.trim().toLowerCase();
+    return value ? segments.filter(segment => segment.text.toLowerCase().includes(value) || segment.topic?.toLowerCase().includes(value)) : segments;
+  }, [query, segments]);
+  const activeSegment = segments.find(segment => currentTime >= segment.start_time && currentTime <= segment.end_time) || null;
+
+  useEffect(() => {
+    if (!following || !activeSegment) return;
+    const target = segmentRefs.current[activeSegment.id];
+    if (!target) return;
+    autoScrolling.current = true;
+    target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const timer = window.setTimeout(() => { autoScrolling.current = false; }, 450);
+    return () => window.clearTimeout(timer);
+  }, [activeSegment, following]);
+
+  const seek = (seconds: number) => {
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = seconds;
+    setCurrentTime(seconds);
+    void audioRef.current.play().catch(() => undefined);
+  };
+
+  return <section className="ws-audio-reader" aria-labelledby="audio-transcript-heading">
+    <div className="ws-audio-player-shell">
+      <audio ref={audioRef} className="ws-audio-player" controls preload="metadata" src={sourceUrl || undefined} onLoadedMetadata={event => setDuration(event.currentTarget.duration)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} aria-label={`Play ${resource.title}`} />
+      <div className="ws-audio-player-meta"><span>{formatTimestamp(currentTime)}{duration && Number.isFinite(duration) ? ` / ${formatTimestamp(duration)}` : ''}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div>
+    </div>
+    <div className="ws-transcript-heading"><div><p className="ws-eyebrow">Timestamped source</p><h2 id="audio-transcript-heading">Transcript</h2></div>{!following && <button type="button" className="ws-follow-button" onClick={() => setFollowing(true)}>Resume following</button>}</div>
+    <label className="ws-transcript-search"><Search size={14} aria-hidden="true" /><span className="sr-only">Search transcript</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search transcript" /></label>
+    {loading && <div className="ws-audio-state"><LoaderCircle size={17} className="ws-spin" aria-hidden="true" /> Loading transcript...</div>}
+    {!loading && error && <div className="ws-audio-state is-error" role="alert">{error}</div>}
+    {!loading && !error && segments.length === 0 && <div className="ws-audio-state"><strong>{payload?.transcription_status === 'failed' ? 'Transcript unavailable' : 'Transcript is still processing'}</strong><span>{payload?.message || 'ExamMind will show timestamped text here when processing finishes.'}</span></div>}
+    {!loading && !error && segments.length > 0 && filteredSegments.length === 0 && <div className="ws-audio-state"><strong>No transcript matches</strong><span>Try another word or clear the search.</span></div>}
+    {!loading && !error && filteredSegments.length > 0 && <div className="ws-transcript-list" ref={transcriptScrollRef} onScroll={() => { if (!autoScrolling.current) setFollowing(false); }} aria-label="Transcript segments">
+      {filteredSegments.map(segment => <button
+        type="button"
+        key={segment.id}
+        ref={node => { segmentRefs.current[segment.id] = node; }}
+        className={`ws-transcript-segment${activeSegment?.id === segment.id ? ' is-active' : ''}`}
+        aria-current={activeSegment?.id === segment.id ? 'true' : undefined}
+        onClick={() => seek(segment.start_time)}
+      >
+        <span className="ws-transcript-time">{formatTimestamp(segment.start_time)}</span>
+        <span className="ws-transcript-copy">{segment.speaker && <small>{segment.speaker}</small>}<span>{segment.text}</span>{segment.topic && <small className="ws-transcript-topic">{segment.topic}</small>}</span>
+      </button>)}
+    </div>}
+  </section>;
+}
+
 function ResourceReader({ resource, go }: { resource: Resource; go: (screen: ScreenType) => void }) {
   const [detail, setDetail] = useState<ReaderDetail | null>(resource.kind === 'past_question' ? { ...resource, sections: [] } : null);
-  const [loading, setLoading] = useState(resource.kind === 'lecture_note');
+  const [loading, setLoading] = useState(resource.kind === 'lecture_note' && !resource.isAudio);
   const [error, setError] = useState(''); const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false); const [downloadError, setDownloadError] = useState(''); const [previewError, setPreviewError] = useState(false);
   useEffect(() => {
     let cancelled = false; setError(''); setPreviewError(false); setSourceUrl(null);
-    if (resource.kind === 'past_question') { setDetail({ ...resource, sections: [] }); setLoading(false); return () => { cancelled = true; }; }
+    if (resource.kind === 'past_question' || resource.isAudio) { setDetail({ ...resource, sections: [] }); setLoading(false); return () => { cancelled = true; }; }
     setLoading(true); apiGet(`/materials/lecture-notes/${resource.id}`).then(payload => {
       if (cancelled) return; const data = payload as RawResource & { sections?: ReaderDetail['sections'] };
       setDetail({ ...resource, ...normalizeResource(data, 'lecture_note'), sections: data.sections || [] });
@@ -123,7 +232,7 @@ function ResourceReader({ resource, go }: { resource: Resource; go: (screen: Scr
     return () => { cancelled = true; };
   }, [resource]);
   const extension = extensionOf(resource.fileName);
-  const canNativePreview = resource.hasFile && ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'webm', 'mov'].includes(extension);
+  const canNativePreview = resource.hasFile && (resource.isAudio || ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov'].includes(extension));
   useEffect(() => {
     let cancelled = false; if (!canNativePreview) return () => { cancelled = true; };
     apiBlob(resourceDownloadPath(resource)).then(blob => { if (!cancelled) setSourceUrl(URL.createObjectURL(blob)); }).catch(() => { if (!cancelled) setPreviewError(true); });
@@ -134,7 +243,7 @@ function ResourceReader({ resource, go }: { resource: Resource; go: (screen: Scr
   return <div className="ws-reader-content">
     <header className="ws-reader-header"><div className="ws-reader-kicker"><span>{resource.courseCode || 'Archive'}</span><span>{typeLabel(resource)}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div><h1>{resource.title}</h1><p>{[resource.courseTitle, resource.year && String(resource.year), resource.semester, visibilityLabel(resource.visibility)].filter(Boolean).join(' · ')}</p><div className="ws-reader-actions">{resource.hasFile && <button type="button" className="ws-download-button" onClick={() => void download()} disabled={downloading}><ArrowDownToLine size={15} aria-hidden="true" />{downloading ? 'Preparing...' : 'Download original'}</button>}<button type="button" className="ws-text-action" onClick={() => go('upload')}>Add another source <Plus size={15} aria-hidden="true" /></button></div>{downloadError && <p className="ws-reader-error" role="alert">{downloadError}</p>}</header>
     {loading && <div className="ws-reader-state"><LoaderCircle size={19} className="ws-spin" aria-hidden="true" /> Opening source...</div>}{error && <div className="ws-reader-state is-error" role="alert">{error}</div>}
-    {!loading && !error && <>{canNativePreview && sourceUrl && extension === 'pdf' && <iframe className="ws-native-preview" title={`Preview of ${resource.title}`} src={sourceUrl} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp3', 'wav', 'm4a', 'ogg'].includes(extension) && <audio className="ws-media-preview" controls src={sourceUrl} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section> : <div className="ws-reader-state">No readable text was kept for this source.</div>}</>}
+    {!loading && !error && <>{resource.isAudio ? <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} /> : <>{canNativePreview && sourceUrl && extension === 'pdf' && <iframe className="ws-native-preview" title={`Preview of ${resource.title}`} src={sourceUrl} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section> : <div className="ws-reader-state">No readable text was kept for this source.</div>}</>}</>}
   </div>;
 }
 

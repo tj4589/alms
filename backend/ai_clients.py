@@ -160,6 +160,110 @@ def generate_ai_response(prompt: str, temperature: float = 0.3) -> str:
     raise AIProviderError(BOTH_PROVIDERS_UNAVAILABLE_MESSAGE) from deepseek_error
 
 
+TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai").strip().lower()
+OPENAI_TRANSCRIPTION_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1").strip()
+OPENAI_TRANSCRIPTION_BASE_URL = os.getenv("OPENAI_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+TRANSCRIPTION_TIMEOUT_SECONDS = float(os.getenv("TRANSCRIPTION_TIMEOUT_SECONDS", "90"))
+
+
+def _multipart_form_data(fields: dict[str, str], file_name: str, mime_type: str, content: bytes) -> tuple[bytes, str]:
+    boundary = f"----ExamMindBoundary{os.urandom(12).hex()}"
+    boundary_bytes = boundary.encode("ascii")
+    safe_file_name = Path(file_name).name.replace('"', "'").replace("\r", "").replace("\n", "") or "recording"
+    body = bytearray()
+    for name, value in fields.items():
+        body.extend(b"--" + boundary_bytes + b"\r\n")
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        body.extend(str(value).encode("utf-8"))
+        body.extend(b"\r\n")
+    body.extend(b"--" + boundary_bytes + b"\r\n")
+    body.extend(f'Content-Disposition: form-data; name="file"; filename="{safe_file_name}"\r\n'.encode("utf-8"))
+    body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8"))
+    body.extend(content)
+    body.extend(b"\r\n--" + boundary_bytes + b"--\r\n")
+    return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
+def _openai_transcription_request(file_name: str, mime_type: str, content: bytes) -> dict:
+    if not OPENAI_API_KEY:
+        raise AIProviderError("Audio transcription is not configured. Set OPENAI_API_KEY for the OpenAI transcription provider.")
+    body, content_type = _multipart_form_data(
+        {"model": OPENAI_TRANSCRIPTION_MODEL, "response_format": "verbose_json"},
+        file_name,
+        mime_type,
+        content,
+    )
+    request = urllib.request.Request(
+        f"{OPENAI_TRANSCRIPTION_BASE_URL}/audio/transcriptions",
+        data=body,
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": content_type},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TRANSCRIPTION_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise AIProviderError(f"Audio transcription provider returned HTTP {exc.code}.") from exc
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        raise AIProviderError("Audio transcription timed out or could not reach the provider.") from exc
+    except json.JSONDecodeError as exc:
+        raise AIProviderError("Audio transcription provider returned an invalid response.") from exc
+
+
+def normalize_transcript_segments(payload: dict | list) -> list[dict]:
+    """Validate provider segments without inventing timestamps or speakers."""
+    raw_segments = payload.get("segments") if isinstance(payload, dict) else payload
+    if not isinstance(raw_segments, list):
+        raise AIProviderError("Audio transcription did not return timestamped segments.")
+
+    normalized: list[dict] = []
+    for original_index, raw in enumerate(raw_segments):
+        if not isinstance(raw, dict):
+            continue
+        text = str(raw.get("text") or "").strip()
+        try:
+            start = float(raw.get("start"))
+            end = float(raw.get("end"))
+        except (TypeError, ValueError):
+            raise AIProviderError("Audio transcription returned a segment without valid timestamps.")
+        if not text or start < 0 or end < start:
+            continue
+        item = {
+            "start_time": start,
+            "end_time": end,
+            "text": text,
+            "_provider_index": original_index,
+        }
+        speaker = raw.get("speaker")
+        if isinstance(speaker, str) and speaker.strip():
+            item["speaker"] = speaker.strip()
+        confidence = raw.get("confidence")
+        if isinstance(confidence, (int, float)) and 0 <= float(confidence) <= 1:
+            item["confidence"] = float(confidence)
+        normalized.append(item)
+
+    normalized.sort(key=lambda item: (item["start_time"], item["_provider_index"]))
+    if not normalized:
+        raise AIProviderError("Audio transcription returned no readable timestamped speech.")
+    for index, item in enumerate(normalized):
+        item["segment_index"] = index
+        item.pop("_provider_index", None)
+    return normalized
+
+
+def transcribe_audio(file_name: str, mime_type: str, content: bytes) -> dict:
+    """Transcribe audio through the configured provider and return safe segments."""
+    if TRANSCRIPTION_PROVIDER != "openai":
+        raise AIProviderError(f"Unsupported audio transcription provider '{TRANSCRIPTION_PROVIDER}'.")
+    payload = _openai_transcription_request(file_name, mime_type, content)
+    return {
+        "provider": "openai",
+        "model": OPENAI_TRANSCRIPTION_MODEL,
+        "segments": normalize_transcript_segments(payload),
+    }
+
+
 EMBEDDING_DIM = 384
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 

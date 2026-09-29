@@ -27,7 +27,7 @@ type ShareVisibility = 'public' | 'group' | 'private';
 type ShareGroup = { id: number; name: string; is_member?: boolean; status?: string };
 type DuplicateDocument = {
   id: number;
-  type: 'past_question' | 'lecture_note';
+  type: 'past_question' | 'lecture_note' | 'audio';
   title?: string | null;
   match_type?: 'exact_checksum' | 'filename_or_title' | 'text_similarity';
   similarity?: number;
@@ -139,6 +139,7 @@ const STEP_LABELS = [
   'Extracting text / running OCR if needed',
   'Understanding academic metadata',
   'Checking duplicates',
+  'Transcribing audio if needed',
   'Preparing for indexing',
 ];
 
@@ -157,6 +158,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   assignment: 'Assignment',
   revision_slide: 'Revision Slide',
   exam_prep: 'Exam Prep',
+  audio: 'Audio recording',
   unknown: 'Academic Document',
 };
 
@@ -422,6 +424,7 @@ function methodLabel(method: string) {
   if (method === 'ocr') return 'OCR';
   if (method === 'mixed') return 'Mixed extraction';
   if (method === 'manual') return 'Manual details';
+  if (method === 'audio_pending') return 'Transcription after confirmation';
   if (method === 'failed') return 'Could not read';
   return 'Embedded text';
 }
@@ -681,7 +684,12 @@ function EssentialMetadataEditor({
         {errors.document_type && <small className="field-error">{errors.document_type}</small>}
       </label>
 
-      <div className="course-field-group">
+      {metadata.document_type === 'audio' ? (
+        <div className="course-field-group course-audio-note">
+          <div className="field-label-line"><span className="field-label">Course</span><FieldStatusBadge status="optional" /></div>
+          <p>Optional for audio recordings. Add a course later if you want this recording to appear in course-specific search.</p>
+        </div>
+      ) : <div className="course-field-group">
         <div className="field-label-line"><span className="field-label">Course</span><FieldStatusBadge status={metadataFieldStatus(metadata, 'course_code', metadata.course_code || metadata.course_title, editedFields.has('course_code') || editedFields.has('course_title'), review)} /></div>
         {courseState === 'ready' ? (
           <select id="review-course" value={matchingCourse?.id ? String(matchingCourse.id) : ''} onChange={e => onCourseSelect(e.target.value)} aria-label="Choose a course">
@@ -704,7 +712,7 @@ function EssentialMetadataEditor({
           </div>
         )}
         {errors.course && <small className="field-error">{errors.course}</small>}
-      </div>
+      </div>}
 
       <label className="meta-field" htmlFor="review-academic-year">
         <span>Academic session <FieldStatusBadge status={metadataFieldStatus(metadata, 'academic_year', metadata.academic_year, editedFields.has('academic_year'), review)} /></span>
@@ -1194,8 +1202,12 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         setProcessingSteps(failSteps(1));
         setState('manual_metadata_required');
         setMessage(data.message || rescueMessage(data.metadata?.extraction_failure_reason));
+      } else if (data.status === 'audio_failed') {
+        setProcessingSteps(failSteps(4));
+        setState('error');
+        setMessage(data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.');
       } else {
-        setProcessingSteps(doneSteps(4));
+        setProcessingSteps(doneSteps());
         setMessage('');
         setState('confirm');
       }
@@ -1217,7 +1229,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       errors.document_type = 'Choose the document type.';
     }
     const courseValues = [metadata.course_code, metadata.course_title].map(value => value.trim().toLowerCase());
-    if (!courseValues.some(value => value && !UNKNOWN_VALUES.has(value))) {
+    if (metadata.document_type !== 'audio' && !courseValues.some(value => value && !UNKNOWN_VALUES.has(value))) {
       errors.course = 'Choose a course from the catalogue or enter a course code or title.';
     }
     if (metadata.document_type === 'past_question' && !metadata.academic_year.trim() && metadata.year === '') {
@@ -1279,15 +1291,20 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         setProcessingSteps(failSteps(3));
         setState('duplicate');
         setMessage('A matching document already exists.');
+      } else if (data.status === 'audio_failed') {
+        setProcessingSteps(failSteps(4));
+        setState('error');
+        setMessage(data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.');
       } else {
         setDuplicateDocument(null);
-        setProcessingSteps(doneSteps(4));
+        setProcessingSteps(doneSteps());
         setChunksIndexed(data.chunks_indexed || 0);
         setLastIndexed(data.indexed !== false);
         setLastDocumentId(typeof data.document_id === 'number' ? data.document_id : null);
         setLastDocumentType(data.document_type === 'past_question' ? 'past_question' : 'lecture_note');
         setMetadata(normalizeMetadata({ ...submissionMetadata, ...(data.metadata || {}) }));
         setState('success');
+        setMessage(data.status === 'audio_warning' ? (data.message || 'The recording was saved and transcribed, but search indexing is still pending.') : '');
       }
     } catch (err) {
       setProcessingSteps(failSteps(4));
@@ -1353,13 +1370,21 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg'];
+    const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.webm'];
     const supportedMimeTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'image/png',
       'image/jpeg',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/x-wav',
+      'audio/mp4',
+      'audio/ogg',
+      'audio/flac',
+      'audio/webm',
+      'video/webm',
     ];
     const selectedFiles = Array.from(files);
     const supportedFiles = selectedFiles.filter((f) => {
@@ -1374,7 +1399,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       oversizedFiles.length > 0 ? `${oversizedFiles.map(item => item.name).join(', ')} exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} limit` : '',
     ].filter(Boolean).join('. ');
     if (acceptedFiles.length === 0) {
-      setMessage(rejectionMessage || 'Only PDF, Word, PowerPoint, PNG, JPG, and JPEG files are supported.');
+      setMessage(rejectionMessage || 'Supported files include PDF, Word, PowerPoint, images, and MP3, WAV, M4A, OGG, FLAC, or WEBM audio.');
       return;
     }
     if (acceptedFiles.length === 1) {
@@ -1433,7 +1458,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     <div className="page" id="s-upload">
       <div className="pg-head">
         <div className="pg-title">Upload <em>Knowledge</em></div>
-        <div className="pg-sub">Drop a PDF, Word document, PowerPoint, or image. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
+        <div className="pg-sub">Drop a PDF, Word document, PowerPoint, image, or audio recording. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
       </div>
 
       {message && <div className={`upload-alert${reviewRequired ? ' review' : ''}`} style={{ marginBottom: 16 }}>{message}</div>}
@@ -1457,7 +1482,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
             tabIndex={0}
             aria-label="Choose academic files to upload"
           >
-            <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" multiple onChange={e => handleFiles(e.target.files)} />
+            <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.mp3,.wav,.m4a,.ogg,.flac,.webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm" multiple onChange={e => handleFiles(e.target.files)} />
             <span className="sheet-margin" aria-hidden="true"><i /><i /><i /></span>
             <span className="sheet-frame" aria-hidden="true"><i /><i /><i /><i /></span>
             <span className="sheet-body">

@@ -53,6 +53,30 @@ class PracticeSubmitRequest(BaseModel):
 
 MAX_NOTE_PRACTICE_CHUNKS = 6
 MAX_NOTE_PRACTICE_CONTEXT_CHARS = 4500
+PUBLIC_METADATA_EXCLUDED_FIELDS = frozenset({
+    "file_bytes",
+    "file_data",
+    "raw_audio",
+    "audio_bytes",
+    "storage_reference",
+    "page_texts",
+    "raw_extracted_text",
+    "cleaned_text",
+    "cleaned_text_sample",
+    "transcript",
+    "transcript_text",
+    "complete_transcript",
+})
+
+
+def public_material_metadata(value: dict | None) -> dict:
+    """Keep list/read metadata useful without exposing storage or full text."""
+    metadata = value or {}
+    return {
+        key: item
+        for key, item in metadata.items()
+        if key not in PUBLIC_METADATA_EXCLUDED_FIELDS
+    }
 
 
 def _topic_terms(topic: str | None) -> list[str]:
@@ -380,7 +404,7 @@ def serialize_course(row: models.Course) -> dict:
 
 
 def serialize_past_question(row: models.PastQuestion) -> dict:
-    metadata = row.metadata_json or {}
+    metadata = public_material_metadata(row.metadata_json)
     return {
         "id": row.id,
         "course_id": row.course_id,
@@ -432,7 +456,7 @@ def _document_keys(rows) -> set:
 
 
 def serialize_lecture_note(row: models.LectureNote) -> dict:
-    metadata = row.metadata_json or {}
+    metadata = public_material_metadata(row.metadata_json)
     return {
         "id": row.id,
         "course_id": row.course_id,
@@ -628,6 +652,70 @@ def download_lecture_note(
             detail="This material was uploaded before files were kept, so the original is not stored.",
         )
     return _file_response(note.file_data, note.file_name, note.file_mime, note.title)
+
+
+def _audio_note_or_404(audio_id: int, db: Session, current_user: models.User) -> models.LectureNote:
+    note = db.query(models.LectureNote).filter(models.LectureNote.id == audio_id).first()
+    if not note or not can_view_material(db, note, current_user):
+        raise HTTPException(status_code=404, detail="That audio resource does not exist.")
+    metadata = note.metadata_json or {}
+    if metadata.get("document_type") != "audio" and not str(note.file_mime or "").startswith("audio/"):
+        raise HTTPException(status_code=404, detail="That audio resource does not exist.")
+    return note
+
+
+@router.get("/materials/audio/{audio_id}/transcript")
+def read_audio_transcript(
+    audio_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    note = _audio_note_or_404(audio_id, db, current_user)
+    metadata = note.metadata_json or {}
+    segments = (
+        db.query(models.AudioTranscriptSegment)
+        .filter(models.AudioTranscriptSegment.resource_id == note.id)
+        .order_by(models.AudioTranscriptSegment.segment_index)
+        .all()
+    )
+    return {
+        "resource_id": note.id,
+        "title": note.title,
+        "file_name": note.file_name,
+        "processing_status": metadata.get("processing_status") or "unknown",
+        "transcription_status": metadata.get("transcription_status") or "unknown",
+        "message": (
+            "Transcript is ready."
+            if segments
+            else metadata.get("transcription_error")
+            or "A timestamped transcript is not available for this recording yet."
+        ),
+        "segments": [
+            {
+                "id": segment.id,
+                "segment_index": segment.segment_index,
+                "start_time": segment.start_time,
+                "end_time": segment.end_time,
+                "text": segment.text,
+                "speaker": segment.speaker,
+                "confidence": segment.confidence,
+                "topic": segment.topic,
+            }
+            for segment in segments
+        ],
+    }
+
+
+@router.get("/materials/audio/{audio_id}/download")
+def download_audio(
+    audio_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    note = _audio_note_or_404(audio_id, db, current_user)
+    if not note.file_data:
+        raise HTTPException(status_code=404, detail="The original audio file is not stored.")
+    return _file_response(note.file_data, note.file_name, note.file_mime, "audio-recording")
 
 
 @router.get("/materials/past-questions/{question_id}/download")

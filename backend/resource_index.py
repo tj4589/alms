@@ -102,11 +102,12 @@ def citation_payload(
     timestamp_end: float | None = None,
     section: str | None = None,
     heading: str | None = None,
+    resource_title: str | None = None,
 ) -> dict[str, Any]:
     """Create citation coordinates without including chunk text."""
     metadata = metadata or {}
     stored = metadata.get("source_citation") if isinstance(metadata.get("source_citation"), dict) else {}
-    return {
+    result = {
         "resource_type": resource_type,
         "resource_id": resource_id,
         "material_id": resource_id,
@@ -122,6 +123,27 @@ def citation_payload(
         "section_index": stored.get("section_index"),
         "evidence_status": "retrieved_source",
     }
+    if resource_type == "audio":
+        title = resource_title or metadata.get("document_title") or metadata.get("source_file") or "Audio recording"
+        result["resource_title"] = title
+        if result["timestamp_start"] is not None:
+            result["label"] = f"{title} · {format_timestamp(float(result['timestamp_start']))}"
+            result["target"] = {
+                "screen": "workspace",
+                "resource_type": "audio",
+                "resource_id": resource_id,
+                "start_time": result["timestamp_start"],
+                "end_time": result["timestamp_end"],
+            }
+    return result
+
+
+def format_timestamp(seconds: float) -> str:
+    """Format stored seconds for citations without rounding away the position."""
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, remaining = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{remaining:02d}" if hours else f"{minutes:02d}:{remaining:02d}"
 
 
 def chunk_provenance_fields(metadata: dict[str, Any] | None, citation: dict[str, Any] | None) -> dict[str, Any]:

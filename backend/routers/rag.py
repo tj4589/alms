@@ -106,8 +106,10 @@ def _source_citation(db: Session, item: Any, source: str, material_type: str) ->
     """Return a concise, user-safe citation without exposing stored content."""
     metadata = getattr(item, "metadata_json", None) or {}
     if isinstance(item, models.ResourceChunk):
+        canonical_type = item.resource_type
+        source_label = "Audio" if canonical_type == "audio" else material_type
         return citation_payload(
-            resource_type=material_type,
+            resource_type=canonical_type,
             resource_id=item.resource_id,
             chunk_id=item.id,
             metadata=metadata,
@@ -119,7 +121,8 @@ def _source_citation(db: Session, item: Any, source: str, material_type: str) ->
             timestamp_end=item.timestamp_end,
             section=item.section,
             heading=item.heading,
-        ) | {"source": source, "material_type": material_type}
+            resource_title=metadata.get("document_title") or metadata.get("source_file"),
+        ) | {"source": source, "material_type": source_label}
     citation = metadata.get("source_citation") if isinstance(metadata, dict) else None
     if not isinstance(citation, dict):
         citation = {}
@@ -229,7 +232,7 @@ def run_rag_query(
     if current_user is not None:
         notes_query = notes_query.join(
             models.LectureNote,
-            (and_(models.ResourceChunk.resource_type == "lecture_note", models.LectureNote.id == models.ResourceChunk.resource_id)
+            (and_(models.ResourceChunk.resource_type.in_(["lecture_note", "audio"]), models.LectureNote.id == models.ResourceChunk.resource_id)
              if use_canonical_chunks else models.LectureNote.id == models.LectureNoteChunk.lecture_note_id),
         ).filter(accessible_material_filter(db, models.LectureNote, current_user))
     else:
@@ -302,11 +305,12 @@ def run_rag_query(
     note_sources = []
     source_citations = []
     for item in similar_notes:
-        note_context.append(f"Lecture Note: {item.chunk_text}")
-        source = source_from_metadata("Lecture note", None, item.metadata_json)
+        is_audio = isinstance(item, models.ResourceChunk) and item.resource_type == "audio"
+        note_context.append(f"Audio transcript: {item.chunk_text}" if is_audio else f"Lecture Note: {item.chunk_text}")
+        source = source_from_metadata("Audio", None, item.metadata_json) if is_audio else source_from_metadata("Lecture note", None, item.metadata_json)
         if source not in note_sources:
             note_sources.append(source)
-        source_citations.append(_source_citation(db, item, source, "lecture_note"))
+        source_citations.append(_source_citation(db, item, source, "audio" if is_audio else "lecture_note"))
     for item in similar_questions:
         source = source_from_metadata("Past question", getattr(item, "year", None) or (item.metadata_json or {}).get("year"), item.metadata_json)
         source_citations.append(_source_citation(db, item, source, "past_question"))

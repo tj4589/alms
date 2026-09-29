@@ -308,8 +308,11 @@ def delete_user_account(db: Session, user: models.User) -> None:
         db.query(models.LectureNoteChunk).filter(
             models.LectureNoteChunk.lecture_note_id.in_(private_note_ids)
         ).delete(synchronize_session=False)
+        db.query(models.AudioTranscriptSegment).filter(
+            models.AudioTranscriptSegment.resource_id.in_(private_note_ids)
+        ).delete(synchronize_session=False)
         db.query(models.ResourceChunk).filter(
-            models.ResourceChunk.resource_type == "lecture_note",
+            models.ResourceChunk.resource_type.in_(["lecture_note", "audio"]),
             models.ResourceChunk.resource_id.in_(private_note_ids),
         ).delete(synchronize_session=False)
     db.query(models.LectureNote).filter(models.LectureNote.uploaded_by == user_id).delete(

@@ -81,7 +81,7 @@ def smart_search(
 
                 chunk_base = db.query(models.ResourceChunk).join(
                     models.LectureNote,
-                    and_(models.ResourceChunk.resource_type == "lecture_note", models.LectureNote.id == models.ResourceChunk.resource_id),
+                    and_(models.ResourceChunk.resource_type.in_(["lecture_note", "audio"]), models.LectureNote.id == models.ResourceChunk.resource_id),
                 ).filter(models.ResourceChunk.embedding.isnot(None), accessible_material_filter(db, models.LectureNote, current_user))
                 if course_id:
                     chunk_base = chunk_base.filter(models.LectureNote.course_id == course_id)
@@ -143,7 +143,7 @@ def smart_search(
 
         note_chunk_query = db.query(models.ResourceChunk).join(
             models.LectureNote,
-            and_(models.ResourceChunk.resource_type == "lecture_note", models.LectureNote.id == models.ResourceChunk.resource_id),
+            and_(models.ResourceChunk.resource_type.in_(["lecture_note", "audio"]), models.LectureNote.id == models.ResourceChunk.resource_id),
         ).filter(accessible_material_filter(db, models.LectureNote, current_user), _resource_chunk_filter(terms))
         if course_id:
             note_chunk_query = note_chunk_query.filter(models.LectureNote.course_id == course_id)
