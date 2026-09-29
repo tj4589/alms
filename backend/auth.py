@@ -283,6 +283,10 @@ def delete_user_account(db: Session, user: models.User) -> None:
         db.query(models.DiscussionThread).filter(
             models.DiscussionThread.past_question_id.in_(private_question_ids)
         ).update({models.DiscussionThread.past_question_id: None}, synchronize_session=False)
+        db.query(models.ResourceChunk).filter(
+            models.ResourceChunk.resource_type == "past_question",
+            models.ResourceChunk.resource_id.in_(private_question_ids),
+        ).delete(synchronize_session=False)
     db.query(models.PastQuestion).filter(models.PastQuestion.uploaded_by == user_id).delete(
         synchronize_session=False
     )
@@ -303,6 +307,10 @@ def delete_user_account(db: Session, user: models.User) -> None:
         ).delete(synchronize_session=False)
         db.query(models.LectureNoteChunk).filter(
             models.LectureNoteChunk.lecture_note_id.in_(private_note_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.ResourceChunk).filter(
+            models.ResourceChunk.resource_type == "lecture_note",
+            models.ResourceChunk.resource_id.in_(private_note_ids),
         ).delete(synchronize_session=False)
     db.query(models.LectureNote).filter(models.LectureNote.uploaded_by == user_id).delete(
         synchronize_session=False

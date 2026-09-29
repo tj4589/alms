@@ -4,7 +4,7 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import Text, false, func, or_
+from sqlalchemy import Text, and_, false, func, or_
 from sqlalchemy.orm import Session
 
 import auth
@@ -14,6 +14,7 @@ from database import get_db
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response
 from query_understanding import expanded_search_terms, public_understanding, understand_query
 from material_access import accessible_material_filter
+from resource_index import citation_payload
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 MAX_RAG_QUESTION_CHARS = int(os.getenv("MAX_RAG_QUESTION_CHARS", "2000"))
@@ -66,7 +67,8 @@ def source_from_metadata(prefix: str, year, metadata: dict | None):
 
 def _past_question_context(item: models.PastQuestion) -> str:
     metadata = item.metadata_json or {}
-    source = source_from_metadata("Past question", item.year, metadata)
+    year = getattr(item, "year", None) or metadata.get("year")
+    source = source_from_metadata("Past question", year, metadata)
     parts = [f"Past Question Source: {source}"]
     topics = metadata.get("topics_covered") or []
     if topics:
@@ -96,13 +98,28 @@ def _past_question_context(item: models.PastQuestion) -> str:
     if cleaned and len("\n".join(parts)) < 900:
         parts.append("Cleaned text excerpt: " + str(cleaned)[:900])
     elif not topics and not preview:
-        parts.append("Text excerpt: " + (item.content_text or "")[:900])
+        parts.append("Text excerpt: " + (getattr(item, "content_text", None) or getattr(item, "chunk_text", ""))[:900])
     return "\n".join(parts)
 
 
 def _source_citation(db: Session, item: Any, source: str, material_type: str) -> dict:
     """Return a concise, user-safe citation without exposing stored content."""
     metadata = getattr(item, "metadata_json", None) or {}
+    if isinstance(item, models.ResourceChunk):
+        return citation_payload(
+            resource_type=material_type,
+            resource_id=item.resource_id,
+            chunk_id=item.id,
+            metadata=metadata,
+            page_from=item.page_from,
+            page_to=item.page_to,
+            slide_from=item.slide_from,
+            slide_to=item.slide_to,
+            timestamp_start=item.timestamp_start,
+            timestamp_end=item.timestamp_end,
+            section=item.section,
+            heading=item.heading,
+        ) | {"source": source, "material_type": material_type}
     citation = metadata.get("source_citation") if isinstance(metadata, dict) else None
     if not isinstance(citation, dict):
         citation = {}
@@ -191,9 +208,16 @@ def run_rag_query(
     best_query = understanding.get("interpreted_topic") or question
 
     # ── Retrieve context: semantic if embeddings available, keyword otherwise ──
-    past_query = db.query(models.PastQuestion)
+    use_canonical_chunks = db.query(models.ResourceChunk.id).first() is not None
+    past_query = db.query(models.ResourceChunk if use_canonical_chunks else models.PastQuestion)
     if current_user is not None:
-        past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))
+        if use_canonical_chunks:
+            past_query = past_query.join(
+                models.PastQuestion,
+                and_(models.ResourceChunk.resource_type == "past_question", models.PastQuestion.id == models.ResourceChunk.resource_id),
+            ).filter(accessible_material_filter(db, models.PastQuestion, current_user))
+        else:
+            past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))
     else:
         past_query = past_query.filter(false())
     if course_id is not None:
@@ -201,16 +225,20 @@ def run_rag_query(
     if topic_id is not None:
         past_query = past_query.filter(models.PastQuestion.topic_id == topic_id)
 
-    notes_query = db.query(models.LectureNoteChunk)
+    notes_query = db.query(models.ResourceChunk if use_canonical_chunks else models.LectureNoteChunk)
     if current_user is not None:
         notes_query = notes_query.join(
             models.LectureNote,
-            models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
+            (and_(models.ResourceChunk.resource_type == "lecture_note", models.LectureNote.id == models.ResourceChunk.resource_id)
+             if use_canonical_chunks else models.LectureNote.id == models.LectureNoteChunk.lecture_note_id),
         ).filter(accessible_material_filter(db, models.LectureNote, current_user))
     else:
         notes_query = notes_query.filter(false())
     if course_id is not None:
-        notes_query = notes_query.filter(models.LectureNoteChunk.course_id == course_id)
+        if use_canonical_chunks:
+            notes_query = notes_query.filter(models.LectureNote.course_id == course_id)
+        else:
+            notes_query = notes_query.filter(models.LectureNoteChunk.course_id == course_id)
 
     use_keyword_fallback = not embeddings_model
     if embeddings_model:
@@ -218,20 +246,26 @@ def run_rag_query(
             question_vector = embeddings_model.embed_query(best_query)
             similar_questions = (
                 past_query
-                .order_by(models.PastQuestion.embedding.l2_distance(question_vector))
+                .filter((models.ResourceChunk.embedding if use_canonical_chunks else models.PastQuestion.embedding).isnot(None))
+                .order_by((models.ResourceChunk.embedding if use_canonical_chunks else models.PastQuestion.embedding).l2_distance(question_vector))
                 .limit(5).all()
             )
             similar_notes = (
                 notes_query
-                .order_by(models.LectureNoteChunk.embedding.l2_distance(question_vector))
+                .filter((models.ResourceChunk.embedding if use_canonical_chunks else models.LectureNoteChunk.embedding).isnot(None))
+                .order_by((models.ResourceChunk.embedding if use_canonical_chunks else models.LectureNoteChunk.embedding).l2_distance(question_vector))
                 .limit(5).all()
             )
         except Exception:
             use_keyword_fallback = True
 
     if use_keyword_fallback:
-        similar_questions = past_query.filter(_past_question_filter(terms)).limit(5).all()
-        similar_notes = notes_query.filter(_lecture_chunk_filter(terms)).limit(5).all()
+        similar_questions = past_query.filter(
+            _resource_chunk_filter(terms) if use_canonical_chunks else _past_question_filter(terms)
+        ).limit(5).all()
+        similar_notes = notes_query.filter(
+            _resource_chunk_filter(terms) if use_canonical_chunks else _lecture_chunk_filter(terms)
+        ).limit(5).all()
 
     no_past_questions_found = len(similar_questions) == 0
     no_lecture_notes_found = len(similar_notes) == 0
@@ -260,7 +294,7 @@ def run_rag_query(
     past_sources = []
     for item in similar_questions:
         past_context.append(_past_question_context(item))
-        source = source_from_metadata("Past question", item.year, item.metadata_json)
+        source = source_from_metadata("Past question", getattr(item, "year", None) or (item.metadata_json or {}).get("year"), item.metadata_json)
         if source not in past_sources:
             past_sources.append(source)
 
@@ -274,7 +308,7 @@ def run_rag_query(
             note_sources.append(source)
         source_citations.append(_source_citation(db, item, source, "lecture_note"))
     for item in similar_questions:
-        source = source_from_metadata("Past question", item.year, item.metadata_json)
+        source = source_from_metadata("Past question", getattr(item, "year", None) or (item.metadata_json or {}).get("year"), item.metadata_json)
         source_citations.append(_source_citation(db, item, source, "past_question"))
 
     topic_answer = _topic_list_answer(question, similar_questions, past_sources)
@@ -415,3 +449,7 @@ def _past_question_filter(terms: list[str]):
 
 def _lecture_chunk_filter(terms: list[str]):
     return or_(*_term_conditions(terms, models.LectureNoteChunk.chunk_text, models.LectureNoteChunk.topic_tag, models.LectureNoteChunk.metadata_json.cast(Text)))
+
+
+def _resource_chunk_filter(terms: list[str]):
+    return or_(*_term_conditions(terms, models.ResourceChunk.chunk_text, models.ResourceChunk.topic, models.ResourceChunk.metadata_json.cast(Text)))

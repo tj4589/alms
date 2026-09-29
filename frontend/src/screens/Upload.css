@@ -1413,6 +1413,17 @@
   color: #6c3e2e;
 }
 
+#s-upload .workspace-relevance-warning strong,
+#s-upload .workspace-relevance-warning small {
+  display: block;
+}
+
+#s-upload .workspace-relevance-warning small {
+  margin-top: 4px;
+  color: #815745;
+  font-size: 11px;
+}
+
 #s-upload .details-disclosure {
   display: flex;
   width: 100%;

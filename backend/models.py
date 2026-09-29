@@ -219,6 +219,35 @@ class LectureNoteChunk(Base):
     chunk_index = Column(Integer)
     metadata_json = Column(JSON, nullable=True)
 
+
+class ResourceChunk(Base):
+    """Canonical retrieval chunk with type-neutral provenance."""
+
+    __tablename__ = "resource_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    resource_type = Column(String(32), nullable=False, index=True)
+    resource_id = Column(Integer, nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    chunk_text = Column(Text, nullable=False)
+    embedding = Column(Vector(384), nullable=True)
+    page_from = Column(Integer, nullable=True)
+    page_to = Column(Integer, nullable=True)
+    slide_from = Column(Integer, nullable=True)
+    slide_to = Column(Integer, nullable=True)
+    timestamp_start = Column(Integer, nullable=True)
+    timestamp_end = Column(Integer, nullable=True)
+    section = Column(String, nullable=True)
+    heading = Column(String, nullable=True)
+    topic = Column(String, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("resource_type", "resource_id", "chunk_index", name="uq_resource_chunk_position"),
+        Index("ix_resource_chunks_resource", "resource_type", "resource_id"),
+    )
+
 class StudentProgress(Base):
     __tablename__ = "student_progress"
 

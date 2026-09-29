@@ -27,6 +27,7 @@ from material_access import (
     sharing_payload,
     validate_share_groups,
 )
+from resource_index import chunk_provenance_fields, classify_workspace_relevance
 
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response
 
@@ -2543,6 +2544,11 @@ def _delete_past_questions(db: Session, rows: list[models.PastQuestion]) -> Dict
         db.delete(thread)
     summary["discussion_threads_deleted"] = len(threads)
 
+    db.query(models.ResourceChunk).filter(
+        models.ResourceChunk.resource_type == "past_question",
+        models.ResourceChunk.resource_id.in_(ids),
+    ).delete(synchronize_session=False)
+
     for row in rows:
         db.delete(row)
     summary["past_questions_deleted"] = len(rows)
@@ -2560,6 +2566,10 @@ def _delete_lecture_notes(db: Session, rows: list[models.LectureNote]) -> Dict[s
         .filter(models.LectureNoteChunk.lecture_note_id.in_(ids))
         .delete(synchronize_session=False)
     )
+    db.query(models.ResourceChunk).filter(
+        models.ResourceChunk.resource_type == "lecture_note",
+        models.ResourceChunk.resource_id.in_(ids),
+    ).delete(synchronize_session=False)
     for row in rows:
         db.delete(row)
     summary["lecture_notes_deleted"] = len(rows)
@@ -2672,6 +2682,12 @@ def upload_document(
     metadata["raw_extracted_text_truncated"] = len(raw_extracted_text) > 8000
     metadata["cleaned_text_sample"] = cleaned_text[:5000]
     metadata["cleaned_text_char_count"] = len(cleaned_text.strip())
+
+    active_space = None
+    active_space_id = getattr(current_user, "active_learning_space_id", None)
+    if active_space_id:
+        active_space = db.query(models.LearningSpace).filter(models.LearningSpace.id == active_space_id).first()
+    metadata["workspace_relevance"] = classify_workspace_relevance(active_space, metadata, operational_text)
 
     # Catalogue data is read-only enrichment. Unknown codes remain unmatched;
     # an upload never creates a new course row as a side effect of review.
@@ -2851,15 +2867,29 @@ def upload_document(
                 "indexed": bool(chunk.strip()),
                 "source_citation": _citation_for_chunk(chunk, reading_sections),
             }
+            citation = chunk_metadata["source_citation"] or {}
+            coordinates = chunk_provenance_fields(metadata, citation)
+            embedding = embed_or_fail(chunk)
             db.add(
                 models.LectureNoteChunk(
                     lecture_note_id=note.id,
                     course_id=course.id if course else None,
                     chunk_text=chunk,
-                    embedding=embed_or_fail(chunk),
+                    embedding=embedding,
                     topic_tag=", ".join(metadata.get("topics_covered", [])[:2]) or None,
                     chunk_index=index,
                     metadata_json=chunk_metadata,
+                )
+            )
+            db.add(
+                models.ResourceChunk(
+                    resource_type="lecture_note",
+                    resource_id=note.id,
+                    chunk_index=index,
+                    chunk_text=chunk,
+                    embedding=embedding,
+                    metadata_json=chunk_metadata,
+                    **coordinates,
                 )
             )
         # Reading sections, cut from the document's own structure rather than
@@ -2917,6 +2947,19 @@ def upload_document(
             db.flush()
             question_rows.append(pq)
             document_id = document_id or pq.id
+            citation = (pq.metadata_json or {}).get("source_citation") or {}
+            coordinates = chunk_provenance_fields(metadata, citation)
+            db.add(
+                models.ResourceChunk(
+                    resource_type="past_question",
+                    resource_id=document_id,
+                    chunk_index=index,
+                    chunk_text=chunk,
+                    embedding=pq.embedding,
+                    metadata_json=pq.metadata_json,
+                    **coordinates,
+                )
+            )
 
         set_material_visibility(
             db,

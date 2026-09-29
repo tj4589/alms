@@ -101,6 +101,12 @@ type Metadata = {
   metadata_conflicts?: Record<string, unknown>;
   course_catalogue_status?: string;
   catalogue_course_id?: number | null;
+  workspace_relevance?: {
+    status?: 'compatible' | 'mismatch' | 'uncertain' | 'unknown';
+    confidence?: number;
+    active_space_name?: string | null;
+    message?: string;
+  };
 };
 
 const emptyMetadata: Metadata = {
@@ -885,6 +891,9 @@ function UploadConfirmationCard({
           <EssentialMetadataEditor metadata={metadata} courses={courses} courseState={courseState} editedFields={editedFields} errors={errors} updateField={updateField} onCourseSelect={onCourseSelect} />
           {(review || hasMissingEssentials) && (
             <div className="review-warning"><AlertCircle size={16} /><span>ExamMind may misread some details. Review anything marked “Needs review” before adding this material.</span></div>
+          )}
+          {metadata.workspace_relevance?.status === 'mismatch' && (
+            <div className="review-warning workspace-relevance-warning"><AlertCircle size={16} /><span><strong>{metadata.workspace_relevance.message || 'This source may not belong in the current learning space.'}</strong><small>ExamMind will not move or publish it automatically. Continue only if you want to keep it in this workspace, or choose another file.</small></span></div>
           )}
           <SharingChoice
             visibility={sharingVisibility}

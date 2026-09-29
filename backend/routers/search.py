@@ -3,7 +3,7 @@ import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import Text, func, or_
+from sqlalchemy import Text, and_, func, or_
 from sqlalchemy.orm import Session
 
 import auth
@@ -58,49 +58,101 @@ def smart_search(
     past_questions = []
     lecture_notes = []
     semantic_ok = False
+    canonical_chunks = db.query(models.ResourceChunk.id).first() is not None
 
     # ── Semantic search (pgvector) ────────────────────────────
     if _embed:
         try:
             vec = _embed.embed_query(best_query)
 
-            pq_base = db.query(models.PastQuestion).filter(
-                accessible_material_filter(db, models.PastQuestion, current_user),
-            )
-            if course_id:
-                pq_base = pq_base.filter(models.PastQuestion.course_id == course_id)
-            past_question_rows = pq_base.order_by(
-                models.PastQuestion.embedding.l2_distance(vec)
-            ).limit(limit * 4).all()
-            past_questions = _group_past_questions(past_question_rows, limit)
+            if canonical_chunks:
+                pq_base = db.query(models.ResourceChunk).join(
+                    models.PastQuestion,
+                    and_(models.ResourceChunk.resource_type == "past_question", models.PastQuestion.id == models.ResourceChunk.resource_id),
+                ).filter(
+                    models.ResourceChunk.embedding.isnot(None),
+                    accessible_material_filter(db, models.PastQuestion, current_user),
+                )
+                if course_id:
+                    pq_base = pq_base.filter(models.PastQuestion.course_id == course_id)
+                pq_chunks = pq_base.order_by(models.ResourceChunk.embedding.l2_distance(vec)).limit(limit * 4).all()
+                parent_rows = [db.query(models.PastQuestion).filter(models.PastQuestion.id == chunk.resource_id).first() for chunk in pq_chunks]
+                past_questions = _group_past_questions([row for row in parent_rows if row], limit)
 
-            chunk_base = db.query(models.LectureNoteChunk).join(
-                models.LectureNote,
-                models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
-            ).filter(accessible_material_filter(db, models.LectureNote, current_user))
-            if course_id:
-                chunk_base = chunk_base.filter(models.LectureNoteChunk.course_id == course_id)
-            top_chunks = chunk_base.order_by(
-                models.LectureNoteChunk.embedding.l2_distance(vec)
-            ).limit(limit * 2).all()
+                chunk_base = db.query(models.ResourceChunk).join(
+                    models.LectureNote,
+                    and_(models.ResourceChunk.resource_type == "lecture_note", models.LectureNote.id == models.ResourceChunk.resource_id),
+                ).filter(models.ResourceChunk.embedding.isnot(None), accessible_material_filter(db, models.LectureNote, current_user))
+                if course_id:
+                    chunk_base = chunk_base.filter(models.LectureNote.course_id == course_id)
+                top_chunks = chunk_base.order_by(models.ResourceChunk.embedding.l2_distance(vec)).limit(limit * 2).all()
+                seen_note_ids: set = set()
+                for chunk in top_chunks:
+                    if len(lecture_notes) >= limit:
+                        break
+                    nid = chunk.resource_id
+                    if nid and nid not in seen_note_ids:
+                        seen_note_ids.add(nid)
+                        note = db.query(models.LectureNote).filter(models.LectureNote.id == nid).first()
+                        if note:
+                            lecture_notes.append(_ln(note))
+            else:
+                pq_base = db.query(models.PastQuestion).filter(
+                    accessible_material_filter(db, models.PastQuestion, current_user),
+                )
+                if course_id:
+                    pq_base = pq_base.filter(models.PastQuestion.course_id == course_id)
+                past_question_rows = pq_base.order_by(models.PastQuestion.embedding.l2_distance(vec)).limit(limit * 4).all()
+                past_questions = _group_past_questions(past_question_rows, limit)
 
-            seen_note_ids: set = set()
-            for chunk in top_chunks:
-                if len(lecture_notes) >= limit:
-                    break
-                nid = chunk.lecture_note_id
-                if nid and nid not in seen_note_ids:
-                    seen_note_ids.add(nid)
-                    note = db.query(models.LectureNote).filter(models.LectureNote.id == nid).first()
-                    if note:
-                        lecture_notes.append(_ln(note))
+                chunk_base = db.query(models.LectureNoteChunk).join(
+                    models.LectureNote,
+                    models.LectureNote.id == models.LectureNoteChunk.lecture_note_id,
+                ).filter(accessible_material_filter(db, models.LectureNote, current_user))
+                if course_id:
+                    chunk_base = chunk_base.filter(models.LectureNoteChunk.course_id == course_id)
+                top_chunks = chunk_base.order_by(models.LectureNoteChunk.embedding.l2_distance(vec)).limit(limit * 2).all()
+                seen_note_ids: set = set()
+                for chunk in top_chunks:
+                    if len(lecture_notes) >= limit:
+                        break
+                    nid = chunk.lecture_note_id
+                    if nid and nid not in seen_note_ids:
+                        seen_note_ids.add(nid)
+                        note = db.query(models.LectureNote).filter(models.LectureNote.id == nid).first()
+                        if note:
+                            lecture_notes.append(_ln(note))
 
             semantic_ok = True
         except Exception:
             pass
 
     # ── Keyword fallback (ilike) ──────────────────────────────
-    if not semantic_ok:
+    if not semantic_ok and canonical_chunks:
+        pq_chunk_query = db.query(models.ResourceChunk).join(
+            models.PastQuestion,
+            and_(models.ResourceChunk.resource_type == "past_question", models.PastQuestion.id == models.ResourceChunk.resource_id),
+        ).filter(
+            accessible_material_filter(db, models.PastQuestion, current_user),
+            _resource_chunk_filter(terms),
+        )
+        if course_id:
+            pq_chunk_query = pq_chunk_query.filter(models.PastQuestion.course_id == course_id)
+        parent_rows = [db.query(models.PastQuestion).filter(models.PastQuestion.id == chunk.resource_id).first() for chunk in pq_chunk_query.limit(limit * 4).all()]
+        past_questions = _group_past_questions([row for row in parent_rows if row], limit)
+
+        note_chunk_query = db.query(models.ResourceChunk).join(
+            models.LectureNote,
+            and_(models.ResourceChunk.resource_type == "lecture_note", models.LectureNote.id == models.ResourceChunk.resource_id),
+        ).filter(accessible_material_filter(db, models.LectureNote, current_user), _resource_chunk_filter(terms))
+        if course_id:
+            note_chunk_query = note_chunk_query.filter(models.LectureNote.course_id == course_id)
+        note_ids = []
+        for chunk in note_chunk_query.limit(limit * 3).all():
+            if chunk.resource_id not in note_ids:
+                note_ids.append(chunk.resource_id)
+        lecture_notes = [_ln(note) for note in db.query(models.LectureNote).filter(models.LectureNote.id.in_(note_ids)).all()] if note_ids else []
+    elif not semantic_ok:
         pq_q = db.query(models.PastQuestion).filter(
             accessible_material_filter(db, models.PastQuestion, current_user),
             _past_question_filter(terms),
