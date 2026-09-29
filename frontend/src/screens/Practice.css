@@ -27,6 +27,9 @@
 #s-practice .setup-select{width:100%;min-height:44px;padding:0 26px 0 0;border:0;border-bottom:1px solid var(--border2);border-radius:0;background:transparent;color:var(--text);font-family:var(--font);font-size:16px;line-height:1.4;cursor:pointer;appearance:none;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 11px) calc(50% + 1px),calc(100% - 6px) calc(50% + 1px);background-size:5px 5px,5px 5px;background-repeat:no-repeat;transition:border-color var(--fast) var(--ease)}
 #s-practice .setup-select:hover{border-bottom-color:var(--text3)}
 #s-practice .setup-select:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+#s-practice .setup-input{width:100%;min-height:44px;padding:0 0;border:0;border-bottom:1px solid var(--border2);border-radius:0;background:transparent;color:var(--text);font:inherit;font-size:16px;outline:none}
+#s-practice .setup-input:focus{border-bottom-color:var(--text);box-shadow:0 2px 0 var(--text)}
+#s-practice .setup-label span{font-family:var(--font);font-size:11px;letter-spacing:0;text-transform:none;color:var(--text3)}
 
 /* A count you tap, not a slider you aim at. */
 #s-practice .count-choice{display:flex;flex-wrap:wrap;gap:var(--space-2)}
@@ -88,6 +91,36 @@
 #s-practice .paper-foot{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:center;padding:var(--space-8);border-top:1px solid var(--border2);background:var(--bg)}
 #s-practice .paper-foot .practice-primary{margin-top:0}
 #s-practice .paper-foot-note{margin:0;flex:1;min-width:220px;font-size:12.5px;color:var(--text3)}
+#s-practice .quiz-options{display:grid;gap:8px;margin-top:18px;max-width:720px}
+#s-practice .quiz-option{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text2);font:inherit;font-size:13px;line-height:1.45;text-align:left;cursor:pointer}
+#s-practice .quiz-option:hover,#s-practice .quiz-option.is-selected{border-color:var(--teal);background:var(--teal2);color:var(--text)}
+#s-practice .quiz-option>span{display:grid;flex:0 0 22px;width:22px;height:22px;place-items:center;border:1px solid var(--border2);border-radius:50%;font-family:var(--mono);font-size:10px}
+#s-practice .quiz-option.is-selected>span{border-color:var(--teal);background:var(--teal);color:var(--surface)}
+#s-practice .quiz-short-answer{width:min(100%,720px);margin-top:18px;padding:12px 14px;border:1px solid var(--border2);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;font-size:14px;line-height:1.5;resize:vertical}
+#s-practice .quiz-short-answer:focus{outline:2px solid var(--teal);outline-offset:2px}
+#s-practice .answer-review{max-width:720px;margin-top:17px;padding:13px 15px;border-left:2px solid var(--teal);background:var(--teal2);color:var(--text2);font-size:12px;line-height:1.55}
+#s-practice .question.is-incorrect .answer-review{border-left-color:var(--coral);background:var(--coral2)}
+#s-practice .answer-review strong{display:block;color:var(--text)}
+#s-practice .answer-review p{margin:4px 0}
+#s-practice .answer-review small{color:var(--text3)}
+#s-practice .practice-notice{border-color:color-mix(in srgb,var(--teal) 35%,var(--border));background:var(--teal2)}
+#s-practice .practice-result{margin:22px 32px 28px}
+#s-practice .practice-history-panel{max-width:1240px;margin:28px auto 0;padding:26px 28px;border:1px solid var(--border);border-radius:16px;background:var(--surface)}
+#s-practice .practice-history-panel .progress-section-head{display:flex;align-items:end;justify-content:space-between;gap:16px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+#s-practice .practice-history-panel h2{margin:3px 0 0;font-family:var(--serif);font-size:27px;font-weight:400;color:var(--text)}
+#s-practice .practice-history-panel .progress-section-label{margin:0;color:var(--highlighter);font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase}
+#s-practice .practice-history-panel .progress-section-head>span{color:var(--text3);font-family:var(--mono);font-size:10px;text-transform:uppercase}
+#s-practice .practice-history-empty{margin:20px 0 0;color:var(--text3);font-size:13px}
+#s-practice .practice-history-list{display:grid}
+#s-practice .practice-history-row{position:relative;display:grid;grid-template-columns:130px minmax(0,1fr) 130px auto;gap:16px;align-items:center;padding:15px 0;border-bottom:1px solid var(--border);color:var(--text2);font-size:12px}
+#s-practice .practice-history-row:last-child{border-bottom:0}
+#s-practice .practice-history-row strong{color:var(--text);font-weight:600}
+#s-practice .practice-history-row .mark{min-height:34px;padding-inline:12px;font-size:11px}
+#s-practice .history-review{grid-column:1/-1;display:grid;gap:12px;padding:14px 0 2px 146px;border-top:1px dashed var(--border2)}
+#s-practice .history-review div{padding-left:12px;border-left:2px solid var(--teal)}
+#s-practice .history-review strong{font-size:12px}
+#s-practice .history-review p{margin:4px 0;color:var(--text2);line-height:1.5}
+#s-practice .history-review small{color:var(--text3);font-family:var(--mono);font-size:10px}
 
 @media(max-width:560px){
   #s-practice .paper-setup{padding:var(--space-6) var(--space-5) var(--space-8)}
@@ -134,4 +167,10 @@
   #s-practice .practice-support{padding-top:20px}
   #s-practice .paper-setup{padding:26px 20px 32px}
   #s-practice .paper-head,#s-practice .paper-foot{padding-inline:20px}
+  #s-practice .practice-history-panel{padding:20px;border-radius:12px}
+  #s-practice .practice-history-row{grid-template-columns:1fr auto;gap:8px 12px}
+  #s-practice .practice-history-row>span:nth-child(3){grid-column:1}
+  #s-practice .practice-history-row .mark{grid-column:2;grid-row:1 / span 2}
+  #s-practice .history-review{padding-left:0}
+  #s-practice .practice-result{margin:18px 20px 22px}
 }

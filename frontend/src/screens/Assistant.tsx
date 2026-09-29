@@ -16,6 +16,7 @@ type AskResponse = {
   mode?: 'source' | 'beyond_materials';
   knowledge_gap?: boolean;
   knowledge_gap_message?: string | null;
+  learning_suggestion?: ChatMessage['learningSuggestion'];
   context?: ChatMessage['context'];
   understanding?: QueryUnderstanding | null;
 };
@@ -1292,6 +1293,7 @@ export default function Assistant({
             mode: data.mode || knowledgeMode,
             knowledgeGap: Boolean(data.knowledge_gap || noSources),
             knowledgeGapMessage: data.knowledge_gap_message || null,
+            learningSuggestion: data.learning_suggestion || null,
             context: data.context,
             wasStudyQuery: true,
             msgType: noSources ? 'missing_materials' : 'academic_answer',
@@ -1629,6 +1631,13 @@ export default function Assistant({
                           {citation.timestamp_start != null && <small>{formatCitationTime(citation.timestamp_start)}</small>}
                         </button>
                       ))}
+                    </div>
+                  )}
+                  {message.learningSuggestion && message.role === 'assistant' && (
+                    <div className="ai-learning-suggestion" role="status">
+                      <span className="ai-learning-suggestion-label">Based on your quiz evidence</span>
+                      <p>{message.learningSuggestion.message}</p>
+                      <button type="button" onClick={() => go('practice')}>Try a short quiz</button>
                     </div>
                   )}
                   {message.knowledgeGap && message.role === 'assistant' && (

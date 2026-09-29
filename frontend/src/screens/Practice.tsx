@@ -1,385 +1,181 @@
 import { useEffect, useMemo, useState } from 'react';
-import SaveButton from '../components/SaveButton';
-import type { ScreenType, SearchActionContext } from '../types';
+import type { SearchActionContext } from '../types';
 import { apiGet, apiPost } from '../lib/api';
-import { queuePracticeAttempt } from '../offline';
-
 import './Practice.css';
 import './WorkspacePage.css';
 
-const QUESTION_COUNTS = [5, 10, 15, 20, 30];
+const QUESTION_COUNTS = [5, 10, 15, 20];
 
-type Course = {
+type Course = { id: number; code: string; name: string };
+type ResourceChoice = { id: number; resource_type: 'lecture_note' | 'past_question' | 'audio'; title: string; course_id?: number | null };
+type Citation = { label?: string; source?: string; resource_id?: number; page_from?: number | null; slide_from?: number | null; timestamp_start?: number | null };
+type QuizQuestion = {
   id: number;
-  code: string;
-  name: string;
-};
-
-type GeneratedQuestion = {
-  id: string;
+  position: number;
+  question_type: 'multiple_choice' | 'short_answer';
   prompt: string;
-  source?: string;
-  source_type?: 'past_question' | 'generated_from_notes' | string;
-  year?: number | null;
-  difficulty?: string | null;
-  topic_tags?: string[];
+  options: string[];
+  topic?: string | null;
+  difficulty: string;
+  citation: Citation;
+};
+type Quiz = {
+  id: number;
+  topic?: string | null;
+  source_scope: string;
+  resource_type?: string | null;
+  resource_id?: number | null;
+  difficulty: string;
+  question_type: string;
+  question_count: number;
+  questions: QuizQuestion[];
+};
+type ReviewItem = {
+  question_id: number;
+  position: number;
+  prompt: string;
+  answer: string | number | null;
+  correct_answer: string;
+  is_correct: boolean;
+  explanation: string;
+  citation: Citation;
+  topic?: string | null;
+};
+type Attempt = {
+  id: number;
+  quiz_id: number;
+  topic?: string | null;
+  score: number;
+  total_questions: number;
+  percentage: number;
+  completed_at: string;
+  review: ReviewItem[];
 };
 
-type GenerateResponse = {
-  topic: string;
-  warning?: string | null;
-  questions: GeneratedQuestion[];
-};
+function citationLabel(citation: Citation | undefined): string {
+  return citation?.label || citation?.source || 'Verified source';
+}
 
-type SubmitResponse = {
-  attempt_id: number;
-  readiness_score: number;
-  debrief: string;
-};
-
-const BASE_TOPICS = [
-  'Mixed revision',
-  'critical path',
-  'risk management',
-  'cost variance',
-  'stakeholder management',
-  'communication management',
-  'procurement management',
-  'earned value management',
-];
-
+function formatDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 export default function Practice({
-  go,
   initialTopic = '',
   initialContext = null,
 }: {
-  go: (s: ScreenType) => void;
   initialTopic?: string;
   initialContext?: SearchActionContext | null;
 }) {
-  const contextTopic = initialContext?.topic || initialTopic;
-  const topics = contextTopic && !BASE_TOPICS.includes(contextTopic)
-    ? [contextTopic, ...BASE_TOPICS]
-    : BASE_TOPICS;
-
   const [courses, setCourses] = useState<Course[]>([]);
+  const [resources, setResources] = useState<ResourceChoice[]>([]);
+  const [sourceScope, setSourceScope] = useState<'workspace' | 'resource' | 'topic'>('workspace');
+  const [selectedResource, setSelectedResource] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState<number | ''>('');
-  const [selectedTopic, setSelectedTopic] = useState(
-    contextTopic && contextTopic !== 'Mixed revision' ? contextTopic : 'Mixed revision'
-  );
-  const [qCount, setQCount] = useState<number>(10);
-  const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
-  const [answers, setAnswers] = useState<Record<string, boolean | null>>({});
+  const [topic, setTopic] = useState(initialContext?.topic || initialTopic || '');
+  const [questionCount, setQuestionCount] = useState(5);
+  const [difficulty, setDifficulty] = useState<'mixed' | 'easy' | 'medium' | 'hard'>('mixed');
+  const [questionType, setQuestionType] = useState<'multiple_choice' | 'short_answer'>('multiple_choice');
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [attempt, setAttempt] = useState<Attempt | null>(null);
+  const [history, setHistory] = useState<Attempt[]>([]);
+  const [reviewAttemptId, setReviewAttemptId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<SubmitResponse | null>(null);
+
+  const loadHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      setHistory(await apiGet('/learning/attempts?limit=12') as Attempt[]);
+    } catch {
+      setHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
+    Promise.all([apiGet('/courses'), apiGet('/lecture-notes'), apiGet('/past-questions')])
+      .then(([courseData, noteData, pastData]) => {
+        if (cancelled) return;
+        const nextCourses = courseData as Course[];
+        setCourses(nextCourses);
+        setSelectedCourseId(initialContext?.course_id || nextCourses[0]?.id || '');
+        const notes = (noteData as Array<{ id: number; title?: string; metadata_json?: { document_title?: string; document_type?: string }; course_id?: number }>).map(item => ({ id: item.id, resource_type: item.metadata_json?.document_type === 'audio' ? 'audio' as const : 'lecture_note' as const, title: item.title || item.metadata_json?.document_title || 'Lecture note', course_id: item.course_id }));
+        const past = (pastData as Array<{ id: number; title?: string; metadata_json?: { document_title?: string }; course_id?: number }>).map(item => ({ id: item.id, resource_type: 'past_question' as const, title: item.title || item.metadata_json?.document_title || 'Past question', course_id: item.course_id }));
+        setResources([...notes, ...past]);
+      })
+      .catch((failure) => { if (!cancelled) setError(failure instanceof Error ? failure.message : 'Could not load practice sources.'); })
+      .finally(() => { if (!cancelled) void loadHistory(); });
+    return () => { cancelled = true; };
+  }, [initialContext?.course_id]);
 
-    async function loadCourses() {
-      try {
-        const data = await apiGet('/courses') as Course[];
-        if (!cancelled) {
-          setCourses(data);
-          if (data.length > 0) {
-            const contextCourse = data.find(course =>
-              (initialContext?.course_id && course.id === initialContext.course_id) ||
-              (initialContext?.course_code && course.code.toLowerCase() === initialContext.course_code.toLowerCase())
-            );
-            setSelectedCourseId(contextCourse?.id ?? data[0].id);
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Could not load courses.');
-        }
-      }
-    }
+  const selectedResourceChoice = resources.find(resource => `${resource.resource_type}:${resource.id}` === selectedResource);
+  const allAnswered = Boolean(quiz?.questions.length) && quiz!.questions.every(question => (answers[question.id] || '').trim().length > 0);
+  const answeredCount = quiz?.questions.filter(question => (answers[question.id] || '').trim()).length || 0;
+  const selectedCourse = courses.find(course => course.id === selectedCourseId);
+  const review = attempt?.review || (reviewAttemptId ? history.find(item => item.id === reviewAttemptId)?.review || [] : []);
+  const displayedHistory = useMemo(() => history.slice(0, 8), [history]);
 
-    loadCourses();
-    return () => {
-      cancelled = true;
-    };
-  }, [initialContext?.course_id, initialContext?.course_code]);
-
-  useEffect(() => {
-    const nextTopic = initialContext?.topic || initialTopic;
-    if (nextTopic && nextTopic !== selectedTopic) {
-      setSelectedTopic(nextTopic);
-    }
-  }, [initialContext?.topic, initialTopic, selectedTopic]);
-
-  const score = useMemo(() => {
-    return Object.values(answers).filter(Boolean).length;
-  }, [answers]);
-
-  const markedCount = useMemo(() => {
-    return Object.values(answers).filter((value) => value !== null && value !== undefined).length;
-  }, [answers]);
-
-  const selectedCourse = courses.find((course) => course.id === selectedCourseId);
-  const allMarked = generatedQuestions.length > 0 && generatedQuestions.every((question) => answers[question.id] !== undefined && answers[question.id] !== null);
-
-  const generateTest = async () => {
-    setLoading(true);
-    setError('');
-    setNotice('');
-    setResult(null);
-    setGeneratedQuestions([]);
-    setAnswers({});
-
-    const requestBody = {
-      course_id: selectedCourseId || undefined,
-      topic: selectedTopic === 'Mixed revision' ? undefined : selectedTopic,
-      count: qCount,
-    };
-
+  const generateQuiz = async () => {
+    setLoading(true); setError(''); setNotice(''); setAttempt(null); setQuiz(null); setAnswers({}); setReviewAttemptId(null);
     try {
-      const data = await apiPost('/practice/generate', requestBody) as GenerateResponse;
-      setGeneratedQuestions(data.questions || []);
-      setAnswers(Object.fromEntries((data.questions || []).map((question) => [question.id, null])));
-      if (data.warning) {
-        setNotice(data.warning);
-      }
-      if (!data.questions || data.questions.length === 0) {
-        setError('Nothing in the archive matched this setup yet. Add past questions or materials, then set the paper again.');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not generate practice test.');
-    } finally {
-      setLoading(false);
-    }
+      const payload = await apiPost('/learning/quizzes', {
+        source_scope: sourceScope,
+        resource_type: sourceScope === 'resource' ? selectedResourceChoice?.resource_type : undefined,
+        resource_id: sourceScope === 'resource' ? selectedResourceChoice?.id : undefined,
+        course_id: selectedCourseId || undefined,
+        topic: topic.trim() || undefined,
+        count: questionCount,
+        difficulty,
+        question_type: questionType,
+      }) as Quiz;
+      setQuiz(payload);
+      if (!payload.questions.length) setError('No reliably gradable questions were found in the authorized sources.');
+      else setNotice(`Built from ${payload.questions.length} cited question${payload.questions.length === 1 ? '' : 's'} in your authorized archive.`);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not create this quiz.'); }
+    finally { setLoading(false); }
   };
 
-  const markQuestion = (questionId: string, correct: boolean) => {
-    setAnswers((current) => ({ ...current, [questionId]: correct }));
-  };
-
-  const submitPractice = async () => {
-    if (!allMarked) {
-      setError('Mark each question correct or incorrect before submitting.');
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
-
-    const requestBody = {
-      course_id: selectedCourseId || undefined,
-      topic: selectedTopic === 'Mixed revision' ? undefined : selectedTopic,
-      score,
-      total_questions: generatedQuestions.length,
-    };
-
-    if (!navigator.onLine) {
-      await queuePracticeAttempt(requestBody);
-      setResult({ attempt_id: -1, readiness_score: Math.round((score / generatedQuestions.length) * 100), debrief: 'You are offline. This attempt has been saved and will sync to your progress when you reconnect.' });
-      setNotice(`Practice saved offline. Score: ${score}/${generatedQuestions.length}. Readiness will sync when you reconnect.`);
-      setSubmitting(false);
-      return;
-    }
-
+  const submitQuiz = async () => {
+    if (!quiz || !allAnswered) return;
+    setLoading(true); setError('');
     try {
-      const data = await apiPost('/practice/submit', requestBody) as SubmitResponse;
-      setResult(data);
-      setNotice(`Practice submitted. Score: ${score}/${generatedQuestions.length}. Readiness updated.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not submit practice score.');
-    } finally {
-      setSubmitting(false);
-    }
+      const payload = await apiPost(`/learning/quizzes/${quiz.id}/attempts`, { answers: quiz.questions.map(question => ({ question_id: question.id, answer: answers[question.id] })) }) as Attempt;
+      setAttempt(payload); setNotice('Attempt stored. This result is now part of your private learning evidence.'); await loadHistory();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not store this attempt.'); }
+    finally { setLoading(false); }
   };
+
+  const resetQuiz = () => { setQuiz(null); setAttempt(null); setAnswers({}); setReviewAttemptId(null); setNotice(''); setError(''); };
 
   return (
     <div className="page workspace-page" id="s-practice">
-      <div className="pg-head">
-        <div className="pg-title">Practice <em>Tests</em></div>
-        <div className="pg-sub">Built from past questions and materials in the shared archive · self-marked · readiness updated after submission</div>
-      </div>
+      <div className="pg-head"><div className="pg-title">Practice <em>Tests</em></div><div className="pg-sub">Build a cited quiz from material you are allowed to access. Every stored result is private to you.</div></div>
+      {notice && <div className="upload-alert practice-notice" role="status">{notice}</div>}
+      {error && <div className="upload-alert" role="alert">{error}</div>}
 
-      {notice && <div className="upload-alert" style={{ borderColor: result ? 'rgba(62,207,178,0.35)' : 'rgba(232,162,58,0.35)', color: 'var(--text2)' }}>{notice}</div>}
-      {error && <div className="upload-alert">{error}</div>}
-
-      <div className="practice-workspace">
-        <section className="practice-setup-column" aria-labelledby="practice-setup-heading">
-          <div className="paper-setup">
-          <span className="paper-marks" aria-hidden="true"><i /><i /><i /><i /></span>
-
-          {courses.length === 0 ? (
-            <div className="setup-blocked">
-              <h2 className="setup-heading" id="practice-setup-heading">Nothing to practise from yet</h2>
-              <p className="setup-blocked-body">
-                Practice tests are built from past questions and materials in the shared archive.
-                Add some, or wait for a coursemate to, and ExamMind will set the questions.
-              </p>
-              <button className="practice-primary" onClick={() => go('upload')}>Add materials</button>
-            </div>
-          ) : (
-            <>
-              <h2 className="setup-heading" id="practice-setup-heading">Set a paper</h2>
-              <p className="setup-lede">Choose what to be tested on. Questions come from the shared archive.</p>
-
-              <div className="setup-field">
-                <label className="setup-label" htmlFor="practice-course">Course</label>
-                <select id="practice-course" className="setup-select" value={selectedCourseId} onChange={(event) => setSelectedCourseId(Number(event.target.value) || '')}>
-                  {courses.map((course) => (
-                    <option value={course.id} key={course.id}>{course.code} - {course.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="setup-field">
-                <label className="setup-label" htmlFor="practice-topic">Topic focus</label>
-                <select id="practice-topic" className="setup-select" value={selectedTopic} onChange={(event) => setSelectedTopic(event.target.value)}>
-                  {topics.map((topic) => <option value={topic} key={topic}>{topic}</option>)}
-                </select>
-              </div>
-
-              <div className="setup-field">
-                <span className="setup-label" id="practice-count-label">Questions</span>
-                <div className="count-choice" role="group" aria-labelledby="practice-count-label">
-                  {QUESTION_COUNTS.map((count) => (
-                    <button
-                      type="button"
-                      key={count}
-                      className={`count-option${qCount === count ? ' is-on' : ''}`}
-                      aria-pressed={qCount === count}
-                      onClick={() => setQCount(count)}
-                    >
-                      {count}
-                    </button>
-                  ))}
-                </div>
-                <p className="setup-hint">About {Math.max(1, Math.round(qCount * 1.5))} minutes at a steady pace.</p>
-              </div>
-
-              <button className="practice-primary" onClick={generateTest} disabled={loading || !selectedCourseId}>
-                {loading ? 'Setting your paper...' : 'Set the paper'}
-              </button>
-            </>
-          )}
-          </div>
-        </section>
-
-        <aside className="practice-support" aria-label="Practice setup guide">
-          <section className="margin-block">
-            <h2 className="margin-label">This attempt</h2>
-            <dl className="margin-facts">
-              <div><dt>Course</dt><dd>{selectedCourse ? selectedCourse.code : 'Not chosen'}</dd></div>
-              <div><dt>Topic</dt><dd>{selectedTopic}</dd></div>
-              <div><dt>Questions</dt><dd className="is-num">{qCount}</dd></div>
-              <div><dt>Estimated time</dt><dd className="is-num">~{Math.max(1, Math.round(qCount * 1.5))} min</dd></div>
-              {generatedQuestions.length > 0 && (
-                <div><dt>Marked</dt><dd className="is-num">{markedCount}/{generatedQuestions.length}</dd></div>
-              )}
-            </dl>
-          </section>
-
-          {generatedQuestions.length === 0 && !result && (
-            <section className="margin-block margin-block--end">
-              <h2 className="margin-label">How it works</h2>
-              <ol className="margin-steps">
-                <li><span className="margin-step-no">01</span><span>Choose a course and topic.</span></li>
-                <li><span className="margin-step-no">02</span><span>Select the number of questions.</span></li>
-                <li><span className="margin-step-no">03</span><span>Complete the paper and mark honestly.</span></li>
-                <li><span className="margin-step-no">04</span><span>Readiness updates after submission.</span></li>
-              </ol>
-            </section>
-          )}
-        </aside>
-      </div>
-
-      {generatedQuestions.length > 0 && (
-        <section className="paper" aria-label="Your practice paper">
-          <header className="paper-head">
-            <div>
-              <h2 className="paper-title">{selectedCourse ? selectedCourse.code : 'Practice'} paper</h2>
-              <p className="paper-meta">{selectedTopic} · {generatedQuestions.length} questions · attempt each one, then mark yourself</p>
-            </div>
-            <span className="paper-progress" aria-live="polite">
-              <span className="is-num">{markedCount}</span> of <span className="is-num">{generatedQuestions.length}</span> marked
-            </span>
-          </header>
-
-          <ol className="paper-questions">
-            {generatedQuestions.map((question, index) => {
-              const mark = answers[question.id];
-              const state = mark === true ? ' is-correct' : mark === false ? ' is-incorrect' : '';
-              return (
-                <li className={`question${state}`} key={question.id}>
-                  <span className="question-no">{String(index + 1).padStart(2, '0')}</span>
-                  <div className="question-body">
-                    <p className="question-prompt">{question.prompt}</p>
-                    <p className="question-tags">
-                      <span>{question.difficulty || 'Mixed'}</span>
-                      <span>{question.source_type === 'generated_from_notes' ? 'From lecture notes' : 'From past questions'}</span>
-                      <span>{question.year || 'Year unknown'}</span>
-                      {(question.topic_tags || []).map(tag => <span key={`${question.id}-${tag}`}>{tag}</span>)}
-                    </p>
-                    <div className="mark-row" role="group" aria-label={`Mark question ${index + 1}`}>
-                      <button
-                        type="button"
-                        className={`mark mark-correct${mark === true ? ' is-on' : ''}`}
-                        aria-pressed={mark === true}
-                        onClick={() => markQuestion(question.id, true)}
-                      >
-                        I got it right
-                      </button>
-                      <button
-                        type="button"
-                        className={`mark mark-incorrect${mark === false ? ' is-on' : ''}`}
-                        aria-pressed={mark === false}
-                        onClick={() => markQuestion(question.id, false)}
-                      >
-                        I got it wrong
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-
-          <footer className="paper-foot">
-            <button className="practice-primary" onClick={submitPractice} disabled={submitting || !allMarked}>
-              {submitting ? 'Submitting...' : allMarked ? `Submit ${score}/${generatedQuestions.length}` : 'Submit'}
-            </button>
-            <p className="paper-foot-note">
-              {allMarked
-                ? 'Every question is marked. Submitting updates your readiness score.'
-                : `${generatedQuestions.length - markedCount} still to mark before you can submit.`}
-            </p>
-          </footer>
-        </section>
-      )}
-
-      {result && (
-        <div className="success-card" style={{marginTop: 18}}>
-          <div className="success-label">Practice submitted</div>
-          <div className="success-title">Readiness score: {result.readiness_score}%</div>
-          <div className="success-body">{result.debrief}</div>
-          <div className="empty-actions">
-            <button className="cta" onClick={() => go('progress')}>View full progress →</button>
-            <button className="cta cta-ghost" onClick={() => { setResult(null); setGeneratedQuestions([]); setAnswers({}); }}>Practice again</button>
-            {/* No file behind a result, so no Download is offered. */}
-            <SaveButton
-              target={{
-                itemType: 'practice_result',
-                refId: result.attempt_id,
-                title: `Practice result: ${result.readiness_score}% readiness`,
-                meta: [selectedTopic, new Date().toLocaleDateString()].filter(Boolean).join(' · '),
-                // The score and debrief are the whole of it, so saving one
-                // keeps everything there was to keep.
-                snapshot: async () => ({ ...result, topic: selectedTopic }),
-              }}
-            />
-          </div>
+      {!quiz ? <>
+        <div className="practice-workspace">
+          <section className="practice-setup-column" aria-labelledby="practice-setup-heading"><div className="paper-setup"><span className="paper-marks" aria-hidden="true"><i /><i /><i /><i /></span><h2 className="setup-heading" id="practice-setup-heading">Set a paper</h2><p className="setup-lede">ExamMind only generates questions from sources your account can access. Reading a source alone never creates a readiness result.</p>
+            <div className="setup-field"><label className="setup-label" htmlFor="practice-course">Course</label><select id="practice-course" className="setup-select" value={selectedCourseId} onChange={event => setSelectedCourseId(Number(event.target.value) || '')}><option value="">All authorized courses</option>{courses.map(course => <option key={course.id} value={course.id}>{course.code} - {course.name}</option>)}</select></div>
+            <div className="setup-field"><label className="setup-label" htmlFor="practice-scope">Source scope</label><select id="practice-scope" className="setup-select" value={sourceScope} onChange={event => setSourceScope(event.target.value as typeof sourceScope)}><option value="workspace">My authorized workspace</option><option value="topic">Topic across authorized sources</option><option value="resource">One authorized source</option></select><p className="setup-hint">Private and group sources stay behind the same permission checks as Maxe.</p></div>
+            {sourceScope === 'resource' && <div className="setup-field"><label className="setup-label" htmlFor="practice-resource">Source</label><select id="practice-resource" className="setup-select" value={selectedResource} onChange={event => setSelectedResource(event.target.value)}><option value="">Choose a source</option>{resources.map(resource => <option key={`${resource.resource_type}:${resource.id}`} value={`${resource.resource_type}:${resource.id}`}>{resource.title}</option>)}</select></div>}
+            <div className="setup-field"><label className="setup-label" htmlFor="practice-topic">Topic focus <span>(optional)</span></label><input id="practice-topic" className="setup-input" value={topic} onChange={event => setTopic(event.target.value)} placeholder="e.g. opportunity cost" /></div>
+            <div className="setup-field"><label className="setup-label" htmlFor="practice-difficulty">Difficulty</label><select id="practice-difficulty" className="setup-select" value={difficulty} onChange={event => setDifficulty(event.target.value as typeof difficulty)}><option value="mixed">Mixed progression</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>
+            <div className="setup-field"><label className="setup-label" htmlFor="practice-type">Question format</label><select id="practice-type" className="setup-select" value={questionType} onChange={event => setQuestionType(event.target.value as typeof questionType)}><option value="multiple_choice">Multiple choice</option><option value="short_answer">Short answer with keyword grading</option></select></div>
+            <div className="setup-field"><span className="setup-label" id="practice-count-label">Questions</span><div className="count-choice" role="group" aria-labelledby="practice-count-label">{QUESTION_COUNTS.map(count => <button type="button" className={`count-option${questionCount === count ? ' is-on' : ''}`} aria-pressed={questionCount === count} key={count} onClick={() => setQuestionCount(count)}>{count}</button>)}</div></div>
+            <button type="button" className="practice-primary" onClick={() => void generateQuiz()} disabled={loading || (sourceScope === 'resource' && !selectedResourceChoice)}>{loading ? 'Building cited quiz...' : 'Create cited quiz'}</button>
+          </div></section>
+          <aside className="practice-support" aria-label="Practice evidence guide"><div className="margin-block"><h2 className="margin-label">What counts</h2><p className="margin-lede">Evidence, <em>not vibes.</em></p><p className="margin-note">Only submitted answers affect readiness. A document view or Maxe question never marks a topic mastered.</p></div><div className="margin-block"><h2 className="margin-label">A private record</h2><ul className="margin-steps"><li><span className="margin-step-no">01</span><span>Choose authorized material.</span></li><li><span className="margin-step-no">02</span><span>Answer the cited questions.</span></li><li><span className="margin-step-no">03</span><span>Review explanations and retake.</span></li></ul></div><div className="margin-block margin-block--end"><h2 className="margin-label">Recent attempts</h2><p className="margin-note">{loadingHistory ? 'Loading your private history...' : `${history.length} stored attempt${history.length === 1 ? '' : 's'}.`}</p></div></aside>
         </div>
-      )}
+        <section className="practice-history-panel" aria-labelledby="practice-history-heading"><div className="progress-section-head"><div><p className="progress-section-label">Private history</p><h2 id="practice-history-heading">Recent quiz attempts</h2></div><span>{history.length} stored</span></div>{loadingHistory ? <p className="practice-history-empty">Loading your attempts...</p> : displayedHistory.length === 0 ? <p className="practice-history-empty">No quiz attempts yet. Your first submitted quiz will appear here.</p> : <div className="practice-history-list">{displayedHistory.map(item => <div className="practice-history-row" key={item.id}><span>{formatDate(item.completed_at)}</span><strong>{item.topic || 'Mixed revision'}</strong><span>{item.score}/{item.total_questions} - {item.percentage}%</span><button type="button" className="mark" onClick={() => setReviewAttemptId(reviewAttemptId === item.id ? null : item.id)}>{reviewAttemptId === item.id ? 'Hide review' : 'Review answers'}</button>{reviewAttemptId === item.id && <div className="history-review">{item.review.map(reviewItem => <div key={reviewItem.question_id}><strong>{reviewItem.is_correct ? 'Correct' : 'Review'} - {reviewItem.topic || 'Mixed revision'}</strong><p>{reviewItem.explanation}</p><small>{citationLabel(reviewItem.citation)}</small></div>)}</div>}</div>)}</div>}</section>
+      </> : <section className="paper" aria-labelledby="quiz-paper-heading"><header className="paper-head"><div><h2 className="paper-title" id="quiz-paper-heading">{selectedCourse?.code || 'ExamMind'} quiz</h2><p className="paper-meta">{quiz.topic || 'Mixed revision'} - {quiz.question_count} questions - {quiz.difficulty} - every question has a verified source</p></div><span className="paper-progress"><span className="is-num">{answeredCount}</span> of <span className="is-num">{quiz.questions.length}</span> answered</span></header><ol className="paper-questions">{quiz.questions.map((question, index) => { const answer = answers[question.id] || ''; const reviewItem = review.find(item => item.question_id === question.id); return <li className={`question${reviewItem ? (reviewItem.is_correct ? ' is-correct' : ' is-incorrect') : ''}`} key={question.id}><span className="question-no">{String(index + 1).padStart(2, '0')}</span><div><p className="question-prompt">{question.prompt}</p><p className="question-tags"><span>{question.topic || 'Mixed revision'}</span><span>{question.difficulty}</span><span>{citationLabel(question.citation)}</span></p>{question.question_type === 'multiple_choice' ? <div className="quiz-options" role="radiogroup" aria-label={`Answers for question ${index + 1}`}>{question.options.map((option, optionIndex) => <button type="button" role="radio" aria-checked={answer === String(optionIndex)} className={`quiz-option${answer === String(optionIndex) ? ' is-selected' : ''}`} key={option} onClick={() => setAnswers(current => ({ ...current, [question.id]: String(optionIndex) }))}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div> : <textarea className="quiz-short-answer" value={answer} onChange={event => setAnswers(current => ({ ...current, [question.id]: event.target.value }))} placeholder="Write a short answer in your own words" aria-label={`Answer question ${index + 1}`} rows={3} />}{reviewItem && <div className="answer-review"><strong>{reviewItem.is_correct ? 'Supported answer' : 'Review this answer'}</strong><p>{reviewItem.explanation}</p><small>Expected answer: {reviewItem.correct_answer}</small></div>}</div></li>; })}</ol><footer className="paper-foot"><button type="button" className="practice-primary" onClick={() => void submitQuiz()} disabled={loading || !allAnswered || Boolean(attempt)}>{loading ? 'Storing attempt...' : attempt ? 'Attempt stored' : 'Submit answers'}</button><p className="paper-foot-note">{attempt ? `Stored ${attempt.score}/${attempt.total_questions}. Retakes create a new history entry.` : allAnswered ? 'Your answers will be graded against the stored question keys.' : `${quiz.questions.length - answeredCount} still to answer.`}</p><button type="button" className="mark" onClick={resetQuiz}>Build another quiz</button></footer>{attempt && <div className="success-card practice-result"><div className="success-label">Private attempt stored</div><div className="success-title">{attempt.percentage}% supported</div><div className="success-body">Read the source-grounded explanations above. Your readiness remains evidence-based and can change with another attempt.</div></div>}</section>}
     </div>
   );
 }

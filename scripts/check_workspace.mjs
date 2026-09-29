@@ -40,6 +40,7 @@ if (sessionStorage.getItem('exammind-workspace-public-check') !== 'true') {
 }
 window.__workspaceFixture = 'empty';
 window.__fixtureRequests = [];
+window.__learningAttemptRecorded = false;
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (...args) => {
   const url = String(args[0]);
@@ -62,7 +63,19 @@ window.fetch = async (...args) => {
       : {source:'Week 2 reading',material_type:'lecture_note',resource_type:'lecture_note',resource_id:2,resource_title:'Week 2 reading',label:'Week 2 reading · Page 4',page_from:4,page_to:4,target:{screen:'workspace',resource_type:'lecture_note',resource_id:2,page_from:4,page_to:4}};
     data = isGap
       ? {answer:"I couldn't find a source in the current knowledge base that answers this.",sources:[],past_question_sources:[],lecture_note_sources:[],source_citations:[],insufficient_sources:true,no_past_questions_found:true,no_lecture_notes_found:true,understanding:null,mode:'source',knowledge_gap:true,knowledge_gap_message:"I couldn't find a source in the current knowledge base that answers this.",context:{mode:'source',active_resource:null,selected_text_used:false,selected_text_source:null,recent_context_used:false}}
-      : {answer:mode === 'beyond_materials' ? 'FROM YOUR MATERIALS:\\nThe selected source provides the study context.\\n\\nBEYOND YOUR MATERIALS:\\nHere is a general explanation kept separate from the uploaded source.' : 'This answer is grounded in the authorized uploaded source.',sources:[citation.source],past_question_sources:[],lecture_note_sources:[citation.source],source_citations:[citation],insufficient_sources:false,no_past_questions_found:false,no_lecture_notes_found:false,understanding:{interpreted_topic:'the uploaded source',related_terms:[],possible_courses:[],possible_people:[],intent:'academic_explanation',confidence:0.95,needs_clarification:false,clarifying_question:null},mode,knowledge_gap:false,context:{mode,active_resource:activeId ? {resource_type:activeId === 3 ? 'audio' : 'lecture_note',resource_id:activeId,title:citation.resource_title} : null,selected_text_used:Boolean(request.selected_text),selected_text_source:request.selected_text_source || null,recent_context_used:false}};
+      : {answer:mode === 'beyond_materials' ? 'FROM YOUR MATERIALS:\\nThe selected source provides the study context.\\n\\nBEYOND YOUR MATERIALS:\\nHere is a general explanation kept separate from the uploaded source.' : 'This answer is grounded in the authorized uploaded source.',sources:[citation.source],past_question_sources:[],lecture_note_sources:[citation.source],source_citations:[citation],insufficient_sources:false,no_past_questions_found:false,no_lecture_notes_found:false,understanding:{interpreted_topic:'the uploaded source',related_terms:[],possible_courses:[],possible_people:[],intent:'academic_explanation',confidence:0.95,needs_clarification:false,clarifying_question:null},mode,knowledge_gap:false,learning_suggestion:window.__learningAttemptRecorded ? {message:'You have missed Market structures questions twice. Review these sections, then try again.',topic:'Market structures',action:'practice',evidence:{answers:5,missed:2}} : null,context:{mode,active_resource:activeId ? {resource_type:activeId === 3 ? 'audio' : 'lecture_note',resource_id:activeId,title:citation.resource_title} : null,selected_text_used:Boolean(request.selected_text),selected_text_source:request.selected_text_source || null,recent_context_used:false}};
+  }
+  else if (url.endsWith('/learning/profile')) data = {explicit_preferences:{},inferred_preferences:{}};
+  else if (url.endsWith('/learning/readiness')) data = window.__learningAttemptRecorded
+    ? {available:true,score:60,formula:'correct answers ÷ answered questions × 100',thresholds:{minimum_answers_for_readiness:3,minimum_answers_for_topic:2,strong:80,weak_below:60},evidence_used:{answered_questions:5,correct_answers:3,attempts:1,latest_answered_at:'2026-09-29T10:00:00Z'},topics:[{topic:'Market structures',score:60,classification:'weak',answers:5,correct:3,missed:2,attempts:1,last_answered_at:'2026-09-29T10:00:00Z'}],assessed_topics:['Market structures'],unassessed_topics:['Opportunity cost'],recommended_next_action:'You have missed Market structures questions twice. Review these sections, then try again.'}
+    : {available:false,score:null,formula:'correct answers ÷ answered questions × 100',thresholds:{minimum_answers_for_readiness:3,minimum_answers_for_topic:2,strong:80,weak_below:60},evidence_used:{answered_questions:0,correct_answers:0,attempts:0,latest_answered_at:null},topics:[],assessed_topics:[],unassessed_topics:['Market structures','Opportunity cost'],recommended_next_action:'Complete a short cited quiz to begin tracking readiness.'};
+  else if (url.includes('/learning/attempts')) data = window.__learningAttemptRecorded
+    ? [{id:1,quiz_id:1,score:3,total_questions:5,percentage:60,topic:'Market structures',completed_at:'2026-09-29T10:00:00Z',review:[{question_id:1,position:1,prompt:'Which structure has many competing firms?',answer:'0',correct_answer:'Many competing firms',is_correct:true,explanation:'The source describes this structure as having many competing firms.',citation:{label:'Week 4 slides · Slide 8',source:'Week 4 slides',slide_from:8},topic:'Market structures'}]}]
+    : [];
+  else if (url.endsWith('/learning/quizzes') && String(args[1]?.method || 'GET').toUpperCase() === 'POST') data = {id:1,topic:'Market structures',source_scope:'workspace',resource_type:null,resource_id:null,difficulty:'mixed',question_type:'multiple_choice',question_count:5,questions:[1,2,3,4,5].map((position) => ({id:position,position,question_type:'multiple_choice',prompt:'Which statement is supported by the authorized source? ('+position+')',options:['Many competing firms','One exclusive seller','No firms compete','The source does not discuss firms'],topic:'Market structures',difficulty:'mixed',citation:{source:'Week 4 slides',resource_type:'lecture_note',resource_id:1,resource_title:'Week 4 slides',label:'Week 4 slides · Slide '+(position + 3),slide_from:position + 3,slide_to:position + 3}}))};
+  else if (url.includes('/learning/quizzes/') && url.endsWith('/attempts')) {
+    window.__learningAttemptRecorded = true;
+    data = {id:1,quiz_id:1,score:3,total_questions:5,percentage:60,topic:'Market structures',completed_at:'2026-09-29T10:00:00Z',review:[1,2,3,4,5].map((questionId) => ({question_id:questionId,position:questionId,prompt:'Which statement is supported by the authorized source? ('+questionId+')',answer:'0',correct_answer:'Many competing firms',is_correct:questionId <= 3,explanation:questionId <= 3 ? 'The source supports this answer.' : 'Review the source section before trying this question again.',citation:{label:'Week 4 slides · Slide '+(questionId + 3),source:'Week 4 slides',slide_from:questionId + 3},topic:'Market structures'})),readiness:{available:true,score:60}};
   }
   else if (url.includes('/analytics/student/')) data = populated ? {readiness:[{id:1,topic:'Opportunity cost',score:62,course_id:1}],attempts:[{id:1,score:70,total_questions:10,topic:'Demand and supply',course_id:1,completed_at:'2026-09-15T14:00:00Z'}]} : {readiness:[],attempts:[]};
   else if (url.includes('/courses')) data = [{id:1,code:'ECO 101',name:'Introduction to Economics'},{id:2,code:'BIO 102',name:'Cell Biology'}];
@@ -91,6 +104,7 @@ async function capture(width, name, height = 1000) {
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor:1, mobile:false });
   await evaluate('window.scrollTo(0,0)');
   await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+  await new Promise(r=>setTimeout(r,500));
   const dims = await evaluate(`({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,sidebar:document.querySelector('.sidebar')?getComputedStyle(document.querySelector('.sidebar')).display:'none',heading:(document.querySelector('#s-dashboard h1')||document.querySelector('#s-assistant .assistant-title'))?.textContent||'unknown'})`);
   assert.ok(dims.scroll <= width, 'Overflow at '+width+': '+JSON.stringify(dims));
   const {contentSize} = await send('Page.getLayoutMetrics');
@@ -102,6 +116,7 @@ async function captureViewport(width, name, height) {
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor:1, mobile:false });
   await evaluate('window.scrollTo(0,0)');
   await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+  await new Promise(r=>setTimeout(r,500));
   assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'),'Overflow at '+width);
   const shot = await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
   await writeFile('.impeccable/review/'+name+'.png',Buffer.from(shot.data,'base64'));
@@ -149,7 +164,7 @@ await evaluate(`window.__workspaceFixture='empty';document.querySelector('.desk-
 await waitFor(`!document.querySelector('.desk-error') && document.querySelector('.desk-course-empty')`);
 await evaluate(`document.querySelector('button[aria-label="Open Maxe"]').click()`);
 await waitFor(`document.querySelector('.maxe-workspace-dialog')`);
-await evaluate(`document.querySelector('.maxe-workspace-close')?.click()`);
+await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
 await waitFor(`!document.querySelector('.maxe-workspace-dialog')`);
 assert.match(await evaluate(`document.querySelector('.desk-course-empty h3').textContent`),/home for every course/);
 await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
@@ -216,21 +231,21 @@ assert.ok(await evaluate(`document.querySelector('#s-workspace .ai-gap-actions')
 await selectWorkspaceSource('Week 4 slides');
 await waitFor(`document.querySelector('#s-workspace .ws-format-note')`);
 await askWorkspaceMaxe('Explain the slides');
-await waitFor(`document.querySelectorAll('#s-workspace .ai-citation').length > 0`);
-await evaluate(`document.querySelectorAll('#s-workspace .ai-citation').item(document.querySelectorAll('#s-workspace .ai-citation').length - 1).click()`);
+await waitFor(`Array.from(document.querySelectorAll('#s-workspace .ai-citation')).some(item => item.textContent.includes('Slide 8'))`);
+await evaluate(`Array.from(document.querySelectorAll('#s-workspace .ai-citation')).find(item => item.textContent.includes('Slide 8')).click()`);
 await waitFor(`document.querySelector('#s-workspace .ws-citation-target')?.textContent.includes('Slide 8')`);
 assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-format-note')?.textContent.includes('PowerPoint')`),'PowerPoint source did not remain visible after citation click');
 
 await selectWorkspaceSource('Week 4 recording');
 await waitFor(`document.querySelector('#s-workspace .ws-transcript-segment')`);
 await askWorkspaceMaxe('Explain the recording');
-await waitFor(`document.querySelectorAll('#s-workspace .ai-citation').length > 0`);
-await evaluate(`document.querySelectorAll('#s-workspace .ai-citation').item(document.querySelectorAll('#s-workspace .ai-citation').length - 1).click()`);
+await waitFor(`Array.from(document.querySelectorAll('#s-workspace .ai-citation')).some(item => item.textContent.includes('14:02'))`);
+await evaluate(`Array.from(document.querySelectorAll('#s-workspace .ai-citation')).find(item => item.textContent.includes('14:02')).click()`);
 await waitFor(`document.querySelector('#s-workspace audio')?.currentTime >= 842`);
 assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-transcript-time')?.textContent.includes('14:02')`),'Audio timestamp citation did not render');
 
 const sourceDividerBefore = await evaluate(`document.querySelector('#s-workspace .ws-divider[aria-label="Resize sources panel"]').getAttribute('aria-valuenow')`);
-await evaluate(`document.querySelector('#s-workspace .ws-divider[aria-label="Resize sources panel"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))`);
+await evaluate(`(() => { const divider = document.querySelector('#s-workspace .ws-divider[aria-label="Resize sources panel"]'); divider.dispatchEvent(new KeyboardEvent('keydown', { key: Number(divider.getAttribute('aria-valuenow')) >= 420 ? 'ArrowLeft' : 'ArrowRight', bubbles: true })); })()`);
 assert.notEqual(await evaluate(`document.querySelector('#s-workspace .ws-divider[aria-label="Resize sources panel"]').getAttribute('aria-valuenow')`),sourceDividerBefore,'Workspace panel resize did not respond');
 await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
 assert.equal(await evaluate(`document.querySelectorAll('#s-workspace .ws-mobile-tabs button').length`),3,'Mobile workspace tabs missing');
@@ -249,11 +264,66 @@ await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScal
 await captureViewport(390,'maxe-source-aware-workspace-mobile',844);
 await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
 await send('Performance.enable');
+await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
 const beforeMotion = Object.fromEntries((await send('Performance.getMetrics')).metrics.map(metric => [metric.name, metric.value]));
 await new Promise(resolve => setTimeout(resolve, 2200));
 const afterMotion = Object.fromEntries((await send('Performance.getMetrics')).metrics.map(metric => [metric.name, metric.value]));
-assert.ok((afterMotion.LayoutCount - beforeMotion.LayoutCount) <= 2,'Maxe idle motion triggered repeated layout');
+assert.ok((afterMotion.LayoutCount - beforeMotion.LayoutCount) <= 2,`Maxe idle motion triggered repeated layout (delta ${afterMotion.LayoutCount - beforeMotion.LayoutCount})`);
 assert.ok((afterMotion.TaskDuration - beforeMotion.TaskDuration) < 0.5,'Maxe idle motion consumed meaningful main-thread time');
+await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+await evaluate(`document.querySelector('button[aria-label="Progress"]').click()`);
+await waitFor(`document.querySelector('#s-progress .progress-decision')`);
+assert.ok(await evaluate(`document.querySelector('#s-progress').textContent.includes('Not enough evidence yet. Complete a short quiz to begin tracking readiness.')`),'Insufficient-evidence readiness guidance missing');
+assert.equal(await evaluate(`document.querySelector('#s-progress .progress-primary-measure strong').textContent.trim()`),'—','Readiness percentage appeared without evidence');
+await captureViewport(1440,'phase-f-progress-insufficient',1000);
+
+await evaluate(`document.querySelector('button[aria-label="Practice"]').click()`);
+await waitFor(`document.querySelector('#s-practice #practice-scope')`);
+assert.ok(await evaluate(`document.querySelector('#s-practice .practice-primary').textContent.includes('Create cited quiz')`),'Quiz creation surface did not mount');
+await evaluate(`document.querySelector('#s-practice .practice-primary').click()`);
+await waitFor(`document.querySelector('#s-practice .paper')`);
+assert.ok(await evaluate(`document.querySelectorAll('#s-practice .quiz-option').length >= 4`),'Grounded quiz options did not render');
+assert.ok(await evaluate(`document.querySelector('#s-practice .question-tags').textContent.includes('Slide')`),'Quiz citation did not render');
+await evaluate(`document.querySelectorAll('#s-practice .quiz-options').forEach(group => group.querySelector('button').click())`);
+await evaluate(`document.querySelector('#s-practice .paper-foot .practice-primary').click()`);
+await waitFor(`document.querySelector('#s-practice .practice-result')`);
+assert.ok(await evaluate(`document.querySelectorAll('#s-practice .answer-review').length === 5`),'Answer review did not render for every question');
+assert.ok(await evaluate(`document.querySelector('#s-practice .practice-result').textContent.includes('Private attempt stored')`),'Attempt storage confirmation missing');
+await captureViewport(1440,'phase-f-practice-desktop',1000);
+await evaluate(`document.querySelector('#s-practice .paper-foot .mark').click()`);
+await waitFor(`document.querySelector('#s-practice .practice-history-row')`);
+await evaluate(`document.querySelector('#s-practice .practice-history-row .mark').click()`);
+await waitFor(`document.querySelector('#s-practice .history-review')`);
+assert.ok(await evaluate(`document.querySelector('#s-practice .history-review').textContent.includes('Week 4 slides')`),'Quiz history review citation missing');
+
+await evaluate(`document.querySelector('button[aria-label="Progress"]').click()`);
+await waitFor(`document.querySelector('#s-progress [aria-label*="evidence-based readiness"]')`);
+assert.equal(await evaluate(`document.querySelector('#s-progress .progress-primary-measure strong').textContent.trim()`),'60%','Supported readiness percentage missing');
+assert.ok(await evaluate(`document.querySelector('#s-progress .topic-signal-weak') !== null`),'Weak-topic classification missing');
+assert.ok(await evaluate(`document.querySelector('#s-progress').textContent.includes('Practice this topic')`),'Weak-topic recommendation missing');
+assert.ok(await evaluate(`document.querySelector('#s-progress .progress-review-button') !== null`),'Progress quiz history review control missing');
+await captureViewport(1440,'phase-f-progress-supported',1000);
+
+await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+await evaluate(`document.querySelector('button[aria-label="Practice"]').click()`);
+await waitFor(`document.querySelector('#s-practice #practice-scope')`);
+assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),'Practice has horizontal overflow on mobile');
+await captureViewport(390,'phase-f-practice-mobile',844);
+await evaluate(`document.querySelector('button[aria-label="Progress"]').click()`);
+await waitFor(`document.querySelector('#s-progress .progress-decision')`);
+assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),'Progress has horizontal overflow on mobile');
+assert.equal(await evaluate(`Array.from(document.querySelectorAll('#s-practice button,#s-progress button')).filter(button => !button.disabled && !button.getAttribute('aria-label') && !button.textContent.trim()).length`),0,'Learning surfaces contain an inaccessible unlabeled control');
+assert.equal(await evaluate(`document.querySelectorAll('#s-progress script,#s-progress iframe,#s-practice script,#s-practice iframe').length`),0,'Learning surfaces rendered unsafe embedded HTML');
+assert.equal(await evaluate(`Boolean(document.querySelector('#s-progress')?.textContent.includes('**') || document.querySelector('#s-practice')?.textContent.includes('**'))`),false,'Learning surfaces exposed raw Markdown markers');
+await captureViewport(390,'phase-f-progress-mobile',844);
+await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+await evaluate(`document.querySelector('.maxe-trigger').click()`);
+await waitFor(`document.querySelector('.maxe-workspace-dialog')`);
+await evaluate(`(() => { const input = document.querySelector('.maxe-workspace-dialog .ai-inp'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, 'Explain market structures'); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`);
+await waitFor(`document.querySelector('.maxe-workspace-dialog .ai-learning-suggestion')`);
+assert.ok(await evaluate(`document.querySelector('.maxe-workspace-dialog .ai-learning-suggestion').textContent.includes('missed Market structures')`),'Maxe learning suggestion did not use stored evidence');
+await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+await waitFor(`!document.querySelector('.maxe-workspace-dialog')`);
 await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
 await evaluate(`window.__workspaceFixture='empty';document.querySelector('button[aria-label="My desk"]').click()`);
 await waitFor(`document.querySelectorAll('.desk-shortcuts button').length >= 2`);

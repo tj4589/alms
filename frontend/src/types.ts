@@ -200,6 +200,12 @@ export type ChatMessage = {
   mode?: 'source' | 'beyond_materials';
   knowledgeGap?: boolean;
   knowledgeGapMessage?: string | null;
+  learningSuggestion?: {
+    message: string;
+    topic?: string | null;
+    action?: string | null;
+    evidence?: Record<string, unknown>;
+  } | null;
   context?: {
     active_resource?: { resource_type?: string; resource_id?: number; title?: string } | null;
     selected_text_used?: boolean;

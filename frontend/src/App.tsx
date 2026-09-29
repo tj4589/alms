@@ -1181,8 +1181,8 @@ export default function App() {
           />
         )}
         {activeScreen === 'collab' && <Collab go={go} user={user} initialContext={discussionContext} initialThreadId={sharedThreadIdFromPath()} onClearSharedThread={clearSharedThreadUrl} />}
-        {activeScreen === 'practice' && <Practice go={go} initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
-        {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} />}
+        {activeScreen === 'practice' && <Practice initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
+        {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} onPracticeTopic={topic => handleGoToPractice(topic, { query: topic, topic })} />}
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
         {profileNudgeVisible && <div className="profile-nudge" role="status"><span><strong>Your desk can know you better.</strong><small>Add your department, level or courses for more useful recommendations.</small></span><button type="button" onClick={() => { setOnboardingReturnScreen('dashboard'); setEditingProfile(true); setProfileNudgeVisible(false); setActiveScreen('onboarding'); }}>Finish profile</button><button type="button" className="profile-nudge-dismiss" aria-label="Dismiss profile reminder" onClick={() => { localStorage.setItem('exammind-profile-nudge-dismissed', 'true'); setProfileNudgeVisible(false); }}>×</button></div>}
