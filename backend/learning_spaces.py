@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
+from ksa_claim_admin import CLAIMED_ACTION, claim_membership_ids_match, record_claim_audit
 
 CU_SLUG = "cu"
 KSA_SLUG = "ksa"
@@ -347,6 +348,8 @@ def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
     ).with_for_update().first()
     if member is not None and member.claimed_by_user_id not in (None, user.id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=CLAIM_FAILURE_MESSAGE)
+    previous_claimed_user_id = member.claimed_by_user_id if member is not None else None
+    claim_is_new = member is None or member.claimed_by_user_id is None
     if member is None:
         member = models.KsaMember(
             ksa_id=ksa_id,
@@ -372,6 +375,23 @@ def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
         db.add(membership)
     membership.external_member_id = ksa_id
     user.active_learning_space_id = space.id
+    if not claim_membership_ids_match(db, member):
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="KSA membership could not be synchronized safely.",
+        )
+    if claim_is_new:
+        record_claim_audit(
+            db,
+            ksa_id=ksa_id,
+            action=CLAIMED_ACTION,
+            previous_user_id=previous_claimed_user_id,
+            current_user_id=user.id,
+            performed_by_user_id=user.id,
+            reason="self_service_claim",
+            metadata={"source": "ksa_verification"},
+        )
     try:
         db.commit()
         db.refresh(membership)

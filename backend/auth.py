@@ -520,3 +520,18 @@ def require_role(required_role: str):
             raise HTTPException(status_code=403, detail="Authenticated student access is required.")
         return current_user
     return role_checker
+
+
+GLOBAL_ADMIN_REQUIRED_MESSAGE = "Administrator access is required."
+
+
+def require_global_admin_user(current_user: models.User) -> models.User:
+    """Authorize operations reserved for global ExamMind administrators."""
+    if current_user is None or current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_ADMIN_REQUIRED_MESSAGE)
+    return current_user
+
+
+def require_global_admin(current_user: models.User = Depends(get_current_user)) -> models.User:
+    """FastAPI dependency for global, cross-learning-space administration."""
+    return require_global_admin_user(current_user)

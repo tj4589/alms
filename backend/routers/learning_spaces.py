@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 import auth
 import models
 from database import get_db
+from ksa_claim_admin import inspect_ksa_claim
 from learning_spaces import (
     activate_space,
     claim_ksa_member,
     import_ksa_members,
     list_spaces,
     mark_ksa_onboarding_complete,
+    normalize_ksa_id,
 )
 
 router = APIRouter(prefix="/learning-spaces", tags=["learning-spaces"])
@@ -123,9 +125,20 @@ def complete_ksa_onboarding(
 def import_ksa_registry_members(
     payload: KsaMemberImportRequest,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user),
+    _admin: models.User = Depends(auth.require_global_admin),
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Administrator access is required.")
     imported = import_ksa_members(db, [item.model_dump() for item in payload.members])
     return {"imported": imported}
+
+
+@router.get("/ksa/admin/claims/{ksa_id}")
+def inspect_ksa_registry_claim(
+    ksa_id: str,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(auth.require_global_admin),
+):
+    try:
+        canonical_ksa_id = normalize_ksa_id(ksa_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return inspect_ksa_claim(db, canonical_ksa_id)

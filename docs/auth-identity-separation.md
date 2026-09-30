@@ -60,3 +60,27 @@ receives a conflict without owner information. The admin import endpoint is
 retained as optional legacy/future cohort metadata tooling and is not required
 for normal MVP claims. Future official verification can add roster, invite or
 approval checks without replacing the membership relationship.
+
+## KSA claim administration and history
+
+KSA claim administration is restricted to global ExamMind administrators
+(`User.role == "admin"`). Ordinary members, moderators, learning-space admins,
+and learning-space owners do not receive claim-administration authority merely
+from their space role. The shared `require_global_admin` dependency is the
+server-side authorization path for KSA claim administration.
+
+The additive `0002_ksa_claim_audit` migration creates the append-only
+`ksa_claim_audits` table. New successful claims record a `CLAIMED` event with
+the canonical ID, claimant, actor, timestamp, reason, and source metadata.
+Repeated idempotent verification does not create duplicate events. Existing
+claims are not backfilled: their original actor and event time cannot be
+reconstructed truthfully, so history begins with future claim transitions.
+Claimant and administrator foreign keys use `SET NULL`, preserving the KSA ID,
+action, timestamp, and reason if either account is later removed. Release and
+reassignment events are representable in the model but are intentionally not
+exposed until the later claim-recovery phase.
+
+The KSA claim invariant is that an active claim's `KsaMember.ksa_id` matches
+the active KSA membership's `external_member_id` when that membership exists.
+Claim creation checks this invariant and fails safely rather than repairing
+existing inconsistent data automatically.

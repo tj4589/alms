@@ -9,6 +9,7 @@ from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0001_initial_schema.py"
+KSA_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0002_ksa_claim_audit.py"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -55,10 +56,50 @@ class MigrationSystemTests(unittest.TestCase):
         models_by_name = {
             table.name: {column.name for column in table.columns}
             for table in Base.metadata.sorted_tables
+            if table.name != "ksa_claim_audits"
         }
         self.assertEqual(set(baseline), set(models_by_name))
         for table_name, columns in models_by_name.items():
             self.assertEqual(baseline[table_name], columns, table_name)
+
+    def test_ksa_claim_audit_revision_is_additive_and_reversible(self):
+        spec = importlib.util.spec_from_file_location("ksa_claim_audit_migration", KSA_AUDIT_MIGRATION_PATH)
+        migration = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(migration)
+
+        self.assertEqual(migration.revision, "0002_ksa_claim_audit")
+        self.assertEqual(migration.down_revision, "0001_initial_schema")
+        source = KSA_AUDIT_MIGRATION_PATH.read_text(encoding="utf-8")
+        self.assertIn('op.create_table(\n        "ksa_claim_audits"', source)
+        self.assertIn('ondelete="SET NULL"', source)
+        self.assertIn('op.drop_table("ksa_claim_audits")', source)
+
+    def test_full_migration_chain_renders_claim_audit_upgrade_and_downgrade_sql(self):
+        env = os.environ.copy()
+        env["DATABASE_URL"] = "postgresql+psycopg://migration:check@127.0.0.1:65432/exammind"
+        upgrade = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head", "--sql"],
+            cwd=BACKEND_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(upgrade.returncode, 0, upgrade.stderr)
+        self.assertIn('CREATE TABLE ksa_claim_audits', upgrade.stdout)
+        self.assertIn('ON DELETE SET NULL', upgrade.stdout)
+
+        downgrade = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", "downgrade", "0002_ksa_claim_audit:0001_initial_schema", "--sql"],
+            cwd=BACKEND_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(downgrade.returncode, 0, downgrade.stderr)
+        self.assertIn('DROP TABLE ksa_claim_audits', downgrade.stdout)
 
     def test_schema_drift_items_are_represented(self):
         migration = load_baseline_module()

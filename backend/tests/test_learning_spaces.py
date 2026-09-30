@@ -37,6 +37,7 @@ class LearningSpaceTests(unittest.TestCase):
             models.User.__table__,
             models.LearningSpaceMembership.__table__,
             models.KsaMember.__table__,
+            models.KsaClaimAudit.__table__,
         ):
             table.create(self.engine)
         self.session = sessionmaker(bind=self.engine)()

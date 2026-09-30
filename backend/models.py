@@ -97,6 +97,22 @@ class KsaMember(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
 
+class KsaClaimAudit(Base):
+    """Append-only lifecycle history for globally unique KSA claims."""
+
+    __tablename__ = "ksa_claim_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ksa_id = Column(String(80), nullable=False, index=True)
+    action = Column(String(32), nullable=False, index=True)
+    previous_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    current_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    performed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reason = Column(Text, nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+
+
 class DeletedFirebaseIdentity(Base):
     """A tombstone that prevents a partial Firebase deletion from recreating an account."""
 
