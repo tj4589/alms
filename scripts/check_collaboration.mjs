@@ -53,7 +53,10 @@ window.fetch = async (...args) => {
   if (!url.includes(':8001')) return originalFetch(...args);
   window.__fixtureRequests.push(url);
   if (url.endsWith('/auth/me')) return new Response(JSON.stringify({id:104,name:'KSA Moderator',username:'ksa_moderator',email:'moderator@example.com',role:'student',account_status:'active'}), {status:200,headers:{'Content-Type':'application/json'}});
-  if (url.endsWith('/learning-spaces')) return new Response(JSON.stringify({active_space:{id:1,slug:'ksa',name:'Kora Sales Academy',type:'academy',status:'active',membership:{id:1,role:'moderator',status:'active',onboarding_required:false}},memberships:[],available_spaces:[]}), {status:200,headers:{'Content-Type':'application/json'}});
+  if (url.endsWith('/learning-spaces')) {
+    const ksa = {id:1,slug:'ksa',name:'Kora Sales Academy',type:'academy',status:'active',membership:{id:1,role:'moderator',status:'active',onboarding_required:false}};
+    return new Response(JSON.stringify({active_space:ksa,memberships:[{space:ksa}],available_spaces:[]}), {status:200,headers:{'Content-Type':'application/json'}});
+  }
   if (url.includes('/courses')) return new Response(JSON.stringify([{id:1,code:'KSA 101',name:'Prospecting Fundamentals'}]), {status:200,headers:{'Content-Type':'application/json'}});
   if (url.includes('/study-groups')) return new Response(JSON.stringify([]), {status:200,headers:{'Content-Type':'application/json'}});
   if (url.includes('/lecture-notes') || url.includes('/past-questions')) return new Response(JSON.stringify([]), {status:200,headers:{'Content-Type':'application/json'}});
