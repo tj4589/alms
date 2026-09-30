@@ -81,6 +81,29 @@ type AccountLifecycleRecovery = {
   localCleanupPending?: boolean;
 };
 
+type LearningSpaceRoute =
+  | 'loading'
+  | 'first_access'
+  | 'space_selection'
+  | 'ksa_onboarding'
+  | 'profile_onboarding'
+  | 'ready';
+
+function resolveLearningSpaceRoute(
+  spaces: LearningSpacesResponse | null,
+  profileOnboardingRequired: boolean,
+  editingProfile: boolean,
+): LearningSpaceRoute {
+  if (!spaces) return 'loading';
+  if (spaces.memberships.length === 0) return 'first_access';
+  if (!spaces.active_space) return 'space_selection';
+  if (spaces.active_space.slug === 'ksa' && spaces.active_space.membership?.onboarding_required) {
+    return 'ksa_onboarding';
+  }
+  if (profileOnboardingRequired || editingProfile) return 'profile_onboarding';
+  return 'ready';
+}
+
 function publicViewFromPath(): PublicView {
   const path = window.location.pathname.replace(/\/+$/, '');
   if (path === '/privacy') return 'privacy';
@@ -194,7 +217,8 @@ export default function App() {
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [user, setUser] = useState<User | null>(null);
   const [learningSpaces, setLearningSpaces] = useState<LearningSpacesResponse | null>(null);
-  const [learningSpacesLoading, setLearningSpacesLoading] = useState(false);
+  const [learningSpacesLoading, setLearningSpacesLoading] = useState(() => Boolean(readStoredToken()));
+  const [learningSpacesError, setLearningSpacesError] = useState('');
   const [onboardingSpace, setOnboardingSpace] = useState<LearningSpace | null>(null);
   const [userHydrating, setUserHydrating] = useState(() => Boolean(readStoredToken()));
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
@@ -222,12 +246,14 @@ export default function App() {
 
   const refreshLearningSpaces = useCallback(async (): Promise<LearningSpacesResponse | null> => {
     setLearningSpacesLoading(true);
+    setLearningSpacesError('');
     try {
       const data = await apiGet('/learning-spaces') as LearningSpacesResponse;
       setLearningSpaces(data);
       return data;
     } catch {
       setLearningSpaces(null);
+      setLearningSpacesError('We could not load your learning spaces. Try again to continue.');
       return null;
     } finally {
       setLearningSpacesLoading(false);
@@ -379,7 +405,6 @@ export default function App() {
         const required = Boolean(profile.onboarding_required)
           || (profile.onboarding_state === 'completed' && identityIncomplete);
         setNeedsOnboarding(required);
-        if (required) setActiveScreen('onboarding');
         if (profile.onboarding_state === 'skipped') {
           const dismissed = localStorage.getItem('exammind-profile-nudge-dismissed') === 'true';
           setProfileNudgeVisible(!dismissed);
@@ -394,6 +419,7 @@ export default function App() {
     if (!token || !user) {
       setLearningSpaces(null);
       setLearningSpacesLoading(false);
+      setLearningSpacesError('');
       return;
     }
     void refreshLearningSpaces();
@@ -404,7 +430,6 @@ export default function App() {
     if (active?.slug !== 'ksa' || !active.membership?.onboarding_required || editingProfile) return;
     setOnboardingSpace(active);
     setNeedsOnboarding(true);
-    setActiveScreen('onboarding');
   }, [editingProfile, learningSpaces]);
 
   const handleLogin = async (jwt: string, authenticatedUser?: User) => {
@@ -412,6 +437,9 @@ export default function App() {
     storeToken(jwt);
     setToken(jwt);
     setUserHydrating(true);
+    setLearningSpaces(null);
+    setLearningSpacesLoading(true);
+    setLearningSpacesError('');
     if (authenticatedUser) setUser(authenticatedUser);
     setActiveScreen(sharedThreadIdFromPath() ? 'collab' : 'dashboard');
     if (inviteTokenFromPath()) setPublicView('invite');
@@ -440,6 +468,8 @@ export default function App() {
     setToken(null);
     setUser(null);
     setLearningSpaces(null);
+    setLearningSpacesError('');
+    setLearningSpacesLoading(false);
     setOnboardingSpace(null);
     setUserHydrating(false);
     setNeedsOnboarding(false);
@@ -591,6 +621,27 @@ export default function App() {
       setActiveScreen('onboarding');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Onboarding could not be restarted.');
+      window.setTimeout(() => setToast(''), 3600);
+    }
+  };
+
+  const handleOnboardingComplete = async () => {
+    const wasEditing = editingProfile;
+    const refreshed = await refreshLearningSpaces();
+    if (!refreshed) return;
+    const active = refreshed.active_space;
+    if (active?.slug === 'ksa' && active.membership?.onboarding_required) {
+      setOnboardingSpace(active);
+      setNeedsOnboarding(true);
+      return;
+    }
+    setOnboardingSpace(null);
+    setNeedsOnboarding(false);
+    setEditingProfile(false);
+    setActiveScreen(onboardingReturnScreen);
+    setProfileNudgeVisible(false);
+    if (wasEditing) {
+      setToast('Academic profile saved.');
       window.setTimeout(() => setToast(''), 3600);
     }
   };
@@ -863,7 +914,26 @@ export default function App() {
     );
   }
 
-  if (needsOnboarding && !editingProfile && learningSpacesLoading && !onboardingSpace) {
+  const learningSpaceRoute = resolveLearningSpaceRoute(learningSpaces, needsOnboarding, editingProfile);
+
+  if (learningSpacesError) {
+    return (
+      <div className="account-bootstrap" role="alert">
+        <div className="account-bootstrap-card">
+          <div className="account-bootstrap-mark"><Logo size={30} /></div>
+          <p className="account-bootstrap-kicker">EXAMMIND / LEARNING SPACE</p>
+          <h1>We hit a small pause.</h1>
+          <p>{learningSpacesError}</p>
+          <div className="account-bootstrap-actions">
+            <button type="button" className="account-bootstrap-action account-bootstrap-action-primary" onClick={() => void refreshLearningSpaces()}>Try again</button>
+            <button type="button" className="account-bootstrap-action" onClick={handleLogout}>Sign out</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (learningSpacesLoading || learningSpaceRoute === 'loading') {
     return (
       <div className="account-bootstrap" role="status" aria-live="polite">
         <div className="account-bootstrap-card">
@@ -877,13 +947,46 @@ export default function App() {
     );
   }
 
-  if (needsOnboarding || editingProfile) {
+  if (learningSpaceRoute === 'first_access') {
+    return (
+      <LearningSpaces
+        spaces={learningSpaces}
+        entryMode="first_access"
+        onOpenFeedback={openFeedback}
+        onRefresh={refreshLearningSpaces}
+        onLogout={handleLogout}
+        onKsaVerified={(onboardingRequired, space) => {
+          setOnboardingSpace(space);
+          setNeedsOnboarding(onboardingRequired);
+          if (onboardingRequired) setActiveScreen('onboarding');
+        }}
+      />
+    );
+  }
+
+  if (learningSpaceRoute === 'space_selection') {
+    return (
+      <LearningSpaces
+        spaces={learningSpaces}
+        entryMode="selection"
+        onOpenFeedback={openFeedback}
+        onRefresh={refreshLearningSpaces}
+        onLogout={handleLogout}
+        onKsaVerified={(onboardingRequired, space) => {
+          setOnboardingSpace(space);
+          setNeedsOnboarding(onboardingRequired);
+        }}
+      />
+    );
+  }
+
+  if (learningSpaceRoute === 'ksa_onboarding' || learningSpaceRoute === 'profile_onboarding') {
     return (
       <Onboarding
         userName={user.name}
         learningSpace={onboardingSpace}
         isEditing={editingProfile}
-        onComplete={() => { const wasEditing = editingProfile; setNeedsOnboarding(false); setOnboardingSpace(null); setEditingProfile(false); setProfileNudgeVisible(false); setActiveScreen(onboardingReturnScreen); if (wasEditing) { setToast('Academic profile saved.'); window.setTimeout(() => setToast(''), 3600); } }}
+        onComplete={handleOnboardingComplete}
         onCancel={() => { setEditingProfile(false); setActiveScreen(onboardingReturnScreen); }}
         onLogout={handleLogout}
       />

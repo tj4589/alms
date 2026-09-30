@@ -21,7 +21,7 @@ type AcademicOptions = { departments: AcademicOption[]; levels: AcademicOption[]
 type Props = {
   userName: string;
   learningSpace?: LearningSpace | null;
-  onComplete: () => void;
+  onComplete: () => void | Promise<void>;
   onCancel?: () => void;
   onLogout: () => void;
   isEditing?: boolean;
@@ -55,7 +55,7 @@ function errorText(error: unknown, fallback: string): string {
 
 type KsaOnboardingProps = {
   userName: string;
-  onComplete: () => void;
+  onComplete: () => void | Promise<void>;
   onLogout: () => void;
 };
 
@@ -106,7 +106,7 @@ function KsaOnboarding({ userName, onComplete, onLogout }: KsaOnboardingProps) {
         explanation_preference: explanationPreference,
         notifications_enabled: notificationsEnabled,
       });
-      onComplete();
+      await onComplete();
     } catch (saveError) {
       setError(errorText(saveError, 'Your KSA setup could not be saved.'));
       if ((saveError instanceof Error ? saveError.message : '').toLowerCase().includes('username')) setStep(1);

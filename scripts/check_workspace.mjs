@@ -50,6 +50,10 @@ window.fetch = async (...args) => {
   const populated = window.__workspaceFixture === 'populated';
   let data = [];
   if (url.includes('/auth/me')) data = {id:1,name:'Test Student',username:'test_student',email:'test@example.com',role:'student',account_status:'active'};
+  else if (url.endsWith('/learning-spaces')) {
+    const cu = {id:1,slug:'cu',name:'Covenant University',type:'university',status:'active',membership:{id:1,role:'member',status:'active',onboarding_required:false}};
+    data = {active_space:cu,memberships:[{space:cu}],available_spaces:[]};
+  }
   else if (url.includes('/understand')) { const request = JSON.parse(args[1]?.body || '{}'); data = {intent:'academic_explanation',student_state:'focused',should_call_rag:true,should_search:true,should_ask_clarifying_question:false,interpreted_topic:request.message || 'the uploaded source',related_terms:[],possible_course:null,possible_person:null,confidence:0.95,response_strategy:'answer from the current source',clarifying_question:null}; }
   else if (url.includes('/maxe/chat')) {
     const request = JSON.parse(args[1]?.body || '{}');

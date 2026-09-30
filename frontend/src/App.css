@@ -181,6 +181,11 @@
 .account-bootstrap-card p:not(.account-bootstrap-kicker){max-width:32ch;margin:16px 0 26px;color:var(--text2);font-size:14px;line-height:1.65}
 .account-bootstrap-loader{display:block;width:100%;height:3px;overflow:hidden;background:var(--border)}
 .account-bootstrap-loader::after{display:block;width:38%;height:100%;content:"";background:var(--highlighter);animation:accountBootstrapProgress 1.25s ease-in-out infinite}
+.account-bootstrap-actions{display:flex;flex-wrap:wrap;gap:10px}
+.account-bootstrap-action{min-height:40px;padding:0 14px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text);font:600 13px var(--font);cursor:pointer}
+.account-bootstrap-action:hover{border-color:var(--teal);color:var(--teal)}
+.account-bootstrap-action-primary{border-color:var(--brand-word);background:var(--brand-word);color:var(--surface)}
+.account-bootstrap-action-primary:hover{border-color:var(--brand-word);color:var(--surface);filter:brightness(1.05)}
 @keyframes accountBootstrapProgress{0%{transform:translateX(-110%)}100%{transform:translateX(290%)}}
 @media(prefers-reduced-motion:reduce){.account-bootstrap-loader::after{animation:none;width:100%}}
 
