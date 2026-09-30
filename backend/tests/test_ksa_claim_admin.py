@@ -145,6 +145,7 @@ class KsaClaimAdminTests(unittest.TestCase):
         self.assertTrue(inspection["claimed"])
         self.assertEqual(inspection["claimant"]["id"], self.student.id)
         self.assertEqual(inspection["membership"]["external_member_id"], "KSA-07")
+        self.assertEqual(inspection["active_space"]["slug"], KSA_SLUG)
         self.assertEqual(inspection["audit_history"][0]["action"], "CLAIMED")
         self.assertNotIn("firebase_uid", str(inspection))
 
@@ -452,6 +453,8 @@ class KsaClaimAdminTests(unittest.TestCase):
         self.assertFalse(inspection["claimed"])
         self.assertEqual(inspection["claim_status"], "released")
         self.assertIsNone(inspection["claimant"])
+        self.assertEqual(inspection["membership"]["status"], "inactive")
+        self.assertIsNone(inspection["active_space"])
         self.assertEqual(
             [event["action"] for event in inspection["audit_history"]],
             ["CLAIMED", "RELEASED"],

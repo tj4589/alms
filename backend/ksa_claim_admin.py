@@ -199,8 +199,25 @@ def inspect_ksa_claim(db: Session, ksa_id: str) -> dict[str, Any]:
     )
     claimant = None
     membership = None
+    membership_user_id = claim.claimed_by_user_id if claim is not None else None
+    if membership_user_id is None:
+        membership_user_id = next(
+            (
+                audit.previous_user_id
+                for audit in reversed(audits)
+                if audit.action == RELEASED_ACTION and audit.previous_user_id is not None
+            ),
+            None,
+        )
     if claim is not None and claim.claimed_by_user_id is not None:
         claimant = db.query(models.User).filter(models.User.id == claim.claimed_by_user_id).first()
+    historical_owner = (
+        db.query(models.User).filter(models.User.id == membership_user_id).first()
+        if membership_user_id is not None
+        else None
+    )
+    membership_owner = claimant or historical_owner
+    if membership_owner is not None:
         membership = (
             db.query(models.LearningSpaceMembership)
             .join(
@@ -208,11 +225,20 @@ def inspect_ksa_claim(db: Session, ksa_id: str) -> dict[str, Any]:
                 models.LearningSpace.id == models.LearningSpaceMembership.learning_space_id,
             )
             .filter(
-                models.LearningSpaceMembership.user_id == claim.claimed_by_user_id,
+                models.LearningSpaceMembership.user_id == membership_owner.id,
                 models.LearningSpace.slug == "ksa",
             )
             .first()
         )
+    active_space = None
+    if membership_owner is not None and membership_owner.active_learning_space_id is not None:
+        space = (
+            db.query(models.LearningSpace)
+            .filter(models.LearningSpace.id == membership_owner.active_learning_space_id)
+            .first()
+        )
+        if space is not None:
+            active_space = {"slug": space.slug, "name": space.name}
 
     return {
         "ksa_id": ksa_id,
@@ -239,6 +265,7 @@ def inspect_ksa_claim(db: Session, ksa_id: str) -> dict[str, Any]:
             if membership
             else None
         ),
+        "active_space": active_space,
         "audit_history": [
             {
                 "id": audit.id,

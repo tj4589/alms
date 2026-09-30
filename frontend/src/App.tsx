@@ -1305,7 +1305,7 @@ export default function App() {
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'workspace' && <Workspace go={go} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
-        {activeScreen === 'moderation' && canModerate && <Moderation go={go} />}
+        {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={user?.role === 'admin'} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}
