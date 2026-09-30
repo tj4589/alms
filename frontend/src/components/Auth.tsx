@@ -54,13 +54,6 @@ type AuthProps = {
 
 type PendingProfile = { email: string; name: string; username: string };
 
-const ALLOWED_SCHOOL_DOMAINS = new Set(
-  (import.meta.env.VITE_ALLOWED_AUTH_EMAIL_DOMAINS || 'stu.cu.edu.ng,covenantuniversity.edu.ng')
-    .split(',')
-    .map((domain: string) => domain.trim().toLowerCase())
-    .filter(Boolean),
-);
-const AUTH_DOMAIN_LABEL = [...ALLOWED_SCHOOL_DOMAINS].map(domain => `@${domain}`).join(' or ');
 const PENDING_PROFILE_KEY = 'exammind-pending-firebase-profile';
 const VERIFICATION_COOLDOWN_SECONDS = 60;
 const VERIFICATION_RESEND_KEY_PREFIX = 'exammind-verification-resend:';
@@ -72,12 +65,6 @@ const FIREBASE_CLEANUP_PENDING_MESSAGE = 'Your ExamMind data was removed, but Fi
 
 function normaliseEmail(value: string): string {
   return value.trim().toLowerCase();
-}
-
-function isAllowedSchoolEmail(value: string): boolean {
-  const email = normaliseEmail(value);
-  const separator = email.lastIndexOf('@');
-  return separator > 0 && ALLOWED_SCHOOL_DOMAINS.has(email.slice(separator + 1));
 }
 
 function authErrorCode(error: unknown): string {
@@ -255,11 +242,6 @@ export const Auth = ({
     if (exchangeInFlight.current) return;
 
     const verifiedEmail = normaliseEmail(user.email || email);
-    if (!isAllowedSchoolEmail(verifiedEmail)) {
-      setError('ExamMind is currently available to approved learning-space members.');
-      return;
-    }
-
     exchangeInFlight.current = true;
     setLoading(true);
     setError('');
@@ -360,11 +342,7 @@ export const Auth = ({
 
   const handleSubmit = async () => {
     if (!ensureFirebase()) return;
-    const schoolEmail = normaliseEmail(email);
-    if (!isAllowedSchoolEmail(schoolEmail)) {
-      setError(`Use an approved ExamMind email (${AUTH_DOMAIN_LABEL}).`);
-      return;
-    }
+    const accountEmail = normaliseEmail(email);
     if (!isLogin) {
       if (password.length < 8) {
         setError('Choose a password with at least 8 characters.');
@@ -389,7 +367,7 @@ export const Auth = ({
 
     try {
       if (isLogin) {
-        const credential = await signInWithEmailAndPassword(firebaseAuth!, schoolEmail, password);
+        const credential = await signInWithEmailAndPassword(firebaseAuth!, accountEmail, password);
         setFirebaseUser(credential.user);
         if (!credential.user.emailVerified) {
           setVerificationOpen(true);
@@ -400,14 +378,14 @@ export const Auth = ({
         return;
       }
 
-      savePendingProfile({ email: schoolEmail, name: name.trim(), username });
-      const credential = await createUserWithEmailAndPassword(firebaseAuth!, schoolEmail, password);
+      savePendingProfile({ email: accountEmail, name: name.trim(), username });
+      const credential = await createUserWithEmailAndPassword(firebaseAuth!, accountEmail, password);
       await updateProfile(credential.user, { displayName: name.trim() });
       await sendEmailVerification(credential.user);
       setFirebaseUser(credential.user);
       setVerificationOpen(true);
-      setVerificationNotice('A verification link is on its way. Check your school inbox before entering your workspace.');
-      saveVerificationCooldown(schoolEmail);
+      setVerificationNotice('A verification link is on its way. Check your inbox before entering your workspace.');
+      saveVerificationCooldown(accountEmail);
       setCooldown(VERIFICATION_COOLDOWN_SECONDS);
     } catch (err) {
       setError(friendlyAuthError(err, 'We could not create that account. Please try again.'));
@@ -423,11 +401,6 @@ export const Auth = ({
     try {
       const result = await signInWithPopup(firebaseAuth!, googleProvider);
       const signedInUser = result.user;
-      const signedInEmail = normaliseEmail(signedInUser.email || '');
-      if (!isAllowedSchoolEmail(signedInEmail)) {
-        await signOut(firebaseAuth!);
-        throw new Error('Use an approved ExamMind Google account to continue.');
-      }
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const googleIdToken = credential?.idToken;
       if (!googleIdToken) {
@@ -446,15 +419,11 @@ export const Auth = ({
 
   const handleForgotPassword = async () => {
     if (!ensureFirebase()) return;
-    const schoolEmail = normaliseEmail(email);
-    if (!isAllowedSchoolEmail(schoolEmail)) {
-      setError('Enter your approved ExamMind email first.');
-      return;
-    }
+    const accountEmail = normaliseEmail(email);
     setLoading(true);
     setError('');
     try {
-      await sendPasswordResetEmail(firebaseAuth!, schoolEmail);
+      await sendPasswordResetEmail(firebaseAuth!, accountEmail);
       setVerificationNotice(PASSWORD_RESET_GENERIC_MESSAGE);
     } catch (err) {
       setError(forgotPasswordErrorMessage(err));
@@ -471,7 +440,7 @@ export const Auth = ({
       await sendEmailVerification(firebaseUser);
       saveVerificationCooldown(firebaseUser.email || email);
       setCooldown(VERIFICATION_COOLDOWN_SECONDS);
-      setVerificationNotice('Another verification link has been sent. Check your school inbox.');
+      setVerificationNotice('Another verification link has been sent. Check your inbox.');
     } catch (err) {
       setError(friendlyAuthError(err, 'We could not resend the verification email.'));
     } finally {
@@ -688,7 +657,7 @@ export const Auth = ({
               {verificationNotice && <div className="auth-verification-note" role="status">{verificationNotice}</div>}
               <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
                 {!isLogin && <><label className="auth-field"><span>Full Name</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" autoComplete="name" required minLength={2} /></label><label className="auth-field"><span>Username</span><input type="text" value={username} onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} placeholder="e.g. vera_csc301" autoComplete="username" required minLength={3} maxLength={24} /><small>3-24 characters - lowercase letters, numbers, underscores</small></label></>}
-                <label className="auth-field"><span>{isLogin ? 'Email Address' : 'Approved Email'}</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={isLogin ? 'your@email.com' : 'yourname@stu.cu.edu.ng'} autoComplete="email" required />{!isLogin && <small>Use an email from an approved ExamMind learning space ({AUTH_DOMAIN_LABEL}).</small>}</label>
+                <label className="auth-field"><span>Email Address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="your@email.com" autoComplete="email" required />{!isLogin && <small>Use an email address you can verify. Learning-space access is confirmed separately.</small>}</label>
                 <label className="auth-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'} autoComplete={isLogin ? 'current-password' : 'new-password'} required minLength={8} /></label>
                 {!isLogin && <label className="auth-field"><span>Confirm Password</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Re-enter your password" autoComplete="new-password" required minLength={8} /></label>}
                 {isLogin && <button type="button" className="auth-forgot" onClick={() => void handleForgotPassword()} disabled={loading}>Forgot password?</button>}
@@ -696,7 +665,7 @@ export const Auth = ({
               </form>
               <div className="auth-divider"><span>or</span></div>
               <button type="button" className="auth-google" onClick={() => void handleGoogleSignIn()} disabled={loading}><Globe2 size={17} aria-hidden="true" /> Continue with Google</button>
-              <p className="auth-provider-note">Use a Google account from an approved ExamMind learning space. Personal Gmail accounts are not accepted.</p>
+              <p className="auth-provider-note">Use a Google account with a verified email address. Learning-space access is confirmed separately.</p>
               <div className="auth-footnote">{isLogin ? "Don't have an account? " : 'Already have an account? '}<button type="button" onClick={switchMode}>{isLogin ? 'Sign up' : 'Sign in'}</button></div>
             </>
           )}

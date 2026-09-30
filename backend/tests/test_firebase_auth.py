@@ -12,6 +12,8 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from jose import jwt
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
@@ -175,7 +177,6 @@ class FirebaseTokenTests(unittest.TestCase):
             "iat": int(time.time()) - 30,
             "email": "student@covenantuniversity.edu.ng",
             "email_verified": True,
-            "hd": "covenantuniversity.edu.ng",
             "at_hash": "present-without-an-access-token",
         }
 
@@ -225,6 +226,35 @@ class FirebaseTokenTests(unittest.TestCase):
         claims = firebase_tokens.verify_firebase_id_token(signed_token(firebase_claims()))
         self.assertEqual(claims["sub"], "firebase-user-123")
         self.assertEqual(claims["email"], "student@stu.cu.edu.ng")
+
+    def test_verified_non_cu_email_is_valid_global_identity(self) -> None:
+        claims = firebase_tokens.verify_firebase_id_token(
+            signed_token(firebase_claims(email="student@gmail.com"))
+        )
+        self.assertEqual(claims["email"], "student@gmail.com")
+
+    def test_non_cu_identity_creation_does_not_create_space_membership(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        for table in (
+            models.LearningSpace.__table__,
+            models.User.__table__,
+            models.DeletedFirebaseIdentity.__table__,
+            models.LearningSpaceMembership.__table__,
+        ):
+            table.create(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            user = auth.get_or_create_firebase_user(
+                db,
+                firebase_uid="firebase-global-1",
+                email="student@gmail.com",
+                claims=firebase_claims(email="student@gmail.com"),
+            )
+            self.assertIsNone(user.active_learning_space_id)
+            self.assertEqual(db.query(models.LearningSpaceMembership).count(), 0)
+        finally:
+            db.close()
+            engine.dispose()
 
     def test_unverified_email_is_rejected(self) -> None:
         with self.assertRaises(firebase_tokens.FirebaseTokenError):
@@ -297,7 +327,7 @@ class FirebaseTokenTests(unittest.TestCase):
         self.assertTrue(response["access_token"])
         self.assertIs(response["user"], user)
 
-    def test_personal_gmail_google_token_is_rejected(self) -> None:
+    def test_personal_gmail_google_token_is_accepted_for_global_identity(self) -> None:
         google_claims = {
             "sub": "google-user-123",
             "aud": "web-client-id.apps.googleusercontent.com",
@@ -308,10 +338,10 @@ class FirebaseTokenTests(unittest.TestCase):
             "email_verified": True,
             "hd": "gmail.com",
         }
-        with self.assertRaises(firebase_tokens.FirebaseTokenError):
-            firebase_tokens.verify_google_provider_token(
-                signed_token(google_claims), expected_email="student@gmail.com"
-            )
+        verified = firebase_tokens.verify_google_provider_token(
+            signed_token(google_claims), expected_email="student@gmail.com"
+        )
+        self.assertEqual(verified["email"], "student@gmail.com")
 
     def test_existing_user_is_linked_by_verified_email(self) -> None:
         existing = models.User(

@@ -295,8 +295,8 @@ def verify_firebase_id_token(token: str) -> dict[str, Any]:
         raise FirebaseTokenError("Email verification is required.")
 
     email = claims.get("email")
-    if not isinstance(email, str) or not is_allowed_school_email(email):
-        raise FirebaseTokenError("An approved ExamMind account is required.")
+    if not isinstance(email, str) or not email.strip():
+        raise FirebaseTokenError("An email address is required.")
     claims["email"] = email.strip().lower()
     return claims
 
@@ -315,11 +315,11 @@ def verify_google_provider_token(token: str, *, expected_email: str) -> dict[str
     if claims.get("email_verified") is not True:
         raise FirebaseTokenError("Google email verification is required.")
 
-    hosted_domain = claims.get("hd")
-    if not isinstance(hosted_domain, str) or hosted_domain.strip().lower() not in ALLOWED_SCHOOL_EMAIL_DOMAINS:
-        raise FirebaseTokenError("An approved ExamMind Google account is required.")
-
     provider_email = claims.get("email")
-    if not isinstance(provider_email, str) or provider_email.strip().lower() != expected_email:
+    if (
+        not isinstance(provider_email, str)
+        or not provider_email.strip()
+        or provider_email.strip().lower() != expected_email.strip().lower()
+    ):
         raise FirebaseTokenError("Google account does not match the Firebase account.")
     return claims

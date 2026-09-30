@@ -66,9 +66,17 @@ def seed_learning_spaces(db: Session, *, backfill_users: bool = False) -> None:
 
     db.flush()
     if backfill_users:
+        from firebase_tokens import is_allowed_school_email
+
         cu_space = spaces_by_slug[CU_SLUG]
         users = db.query(models.User).all()
         for user in users:
+            # Initialization is an explicit compatibility backfill for CU
+            # accounts, not a global identity-to-space bridge. Existing
+            # memberships remain untouched, while non-CU identities never
+            # receive a new CU membership here.
+            if not is_allowed_school_email(str(user.email or "")):
+                continue
             membership = (
                 db.query(models.LearningSpaceMembership)
                 .filter(
@@ -152,7 +160,6 @@ def space_payload(space: models.LearningSpace, membership: models.LearningSpaceM
 
 
 def list_spaces(db: Session, user: models.User) -> dict:
-    ensure_cu_membership(db, user)
     spaces = db.query(models.LearningSpace).filter(models.LearningSpace.status == "active").order_by(models.LearningSpace.id).all()
     memberships = (
         db.query(models.LearningSpaceMembership)

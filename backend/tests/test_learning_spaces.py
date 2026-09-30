@@ -93,6 +93,60 @@ class LearningSpaceTests(unittest.TestCase):
         self.assertEqual({space["slug"] for space in payload["available_spaces"]}, {"ksa"})
         self.assertNotIn("ksa_member_registry", str(payload))
 
+    def test_non_cu_identity_receives_no_space_membership(self) -> None:
+        non_cu = models.User(
+            id=9,
+            name="Global Student",
+            username="global_student",
+            email="global.student@gmail.com",
+            firebase_uid="firebase-9",
+            role="student",
+        )
+        self.session.add(non_cu)
+        self.session.commit()
+
+        seed_learning_spaces(self.session, backfill_users=True)
+        self.assertIsNone(
+            self.session.query(models.LearningSpaceMembership)
+            .filter_by(user_id=non_cu.id)
+            .first()
+        )
+
+        payload = list_spaces(self.session, non_cu)
+        self.assertIsNone(payload["active_space"])
+        self.assertEqual(payload["memberships"], [])
+        self.assertEqual({space["slug"] for space in payload["available_spaces"]}, {"cu", "ksa"})
+
+    def test_unbackfilled_cu_identity_is_not_lazily_granted_membership(self) -> None:
+        new_cu_user = models.User(
+            id=10,
+            name="New CU Student",
+            username="new_cu_student",
+            email="new.student@stu.cu.edu.ng",
+            firebase_uid="firebase-10",
+            role="student",
+        )
+        self.session.add(new_cu_user)
+        self.session.commit()
+
+        payload = list_spaces(self.session, new_cu_user)
+        self.assertIsNone(payload["active_space"])
+        self.assertEqual(payload["memberships"], [])
+        self.assertIsNone(
+            self.session.query(models.LearningSpaceMembership)
+            .filter_by(user_id=new_cu_user.id)
+            .first()
+        )
+
+    def test_cu_backfill_is_idempotent(self) -> None:
+        before = self.session.query(models.LearningSpaceMembership).filter_by(user_id=self.user.id).count()
+        seed_learning_spaces(self.session, backfill_users=True)
+        seed_learning_spaces(self.session, backfill_users=True)
+        after = self.session.query(models.LearningSpaceMembership).filter_by(user_id=self.user.id).count()
+
+        self.assertEqual(before, 1)
+        self.assertEqual(after, before)
+
 
 if __name__ == "__main__":
     unittest.main()
