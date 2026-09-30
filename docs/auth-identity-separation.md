@@ -102,3 +102,17 @@ later only through the normal KSA verification flow; the retained membership
 row is reactivated safely and its onboarding state returns to pending. Each
 successful release creates exactly one `RELEASED` audit event. Repeating a
 release is rejected with a conflict and does not create another event.
+
+## Global versus learning-space roles
+
+`User.role` is the global application-level authority. `User.role == "admin"`
+is the global administration boundary used for cross-space support operations.
+
+`LearningSpaceMembership.role` is the scope-specific authority. Contribution
+moderation is allowed for an active membership in the target learning space
+whose role is `owner`, `admin`, or `moderator`. A plain `User.role ==
+"moderator"` does not grant global or cross-space moderation access.
+
+The additive `0003_learning_space_role_audit` migration provides append-only
+history for future scoped role transitions. S5.1 adds the recording boundary;
+promotion and demotion endpoints remain intentionally deferred.

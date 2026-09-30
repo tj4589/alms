@@ -113,6 +113,23 @@ class KsaClaimAudit(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
 
 
+class LearningSpaceRoleAudit(Base):
+    """Append-only history for scoped learning-space membership roles."""
+
+    __tablename__ = "learning_space_role_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id", ondelete="SET NULL"), nullable=True, index=True)
+    learning_space_slug = Column(String(80), nullable=False, index=True)
+    target_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    membership_id = Column(Integer, ForeignKey("learning_space_memberships.id", ondelete="SET NULL"), nullable=True, index=True)
+    previous_role = Column(String(32), nullable=False)
+    new_role = Column(String(32), nullable=False)
+    performed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+
+
 class DeletedFirebaseIdentity(Base):
     """A tombstone that prevents a partial Firebase deletion from recreating an account."""
 

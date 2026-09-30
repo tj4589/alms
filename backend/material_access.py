@@ -88,7 +88,7 @@ def material_visibility(row: Any) -> str:
 
 def is_moderator(db: Session, current_user: Any, learning_space_id: int | None = None) -> bool:
     """Return whether the caller can review contributions in this space."""
-    if getattr(current_user, "role", None) in {"admin", "moderator"}:
+    if getattr(current_user, "role", None) == "admin":
         return True
     if learning_space_id is None or not getattr(current_user, "id", None):
         return False
@@ -209,7 +209,7 @@ def _moderator_contribution_exists(model: Any, current_user: Any):
 
 def accessible_material_filter(db: Session, model: Any, current_user: Any):
     """SQL predicate for materials visible to the verified current user."""
-    if getattr(current_user, "role", None) in {"admin", "moderator"}:
+    if getattr(current_user, "role", None) == "admin":
         return true()
 
     material_type = material_type_for_model(model)
@@ -255,7 +255,7 @@ def accessible_material_filter(db: Session, model: Any, current_user: Any):
 
 
 def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
-    if getattr(current_user, "role", None) in {"admin", "moderator"}:
+    if getattr(current_user, "role", None) == "admin":
         return True
     if getattr(row, "uploaded_by", None) == getattr(current_user, "id", None):
         return True
@@ -314,7 +314,7 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
 
 
 def require_material_owner(row: Any, current_user: Any) -> None:
-    if getattr(current_user, "role", None) not in {"admin", "moderator"} and getattr(row, "uploaded_by", None) != getattr(current_user, "id", None):
+    if getattr(current_user, "role", None) != "admin" and getattr(row, "uploaded_by", None) != getattr(current_user, "id", None):
         raise HTTPException(status_code=403, detail="Only the uploader can change this material's sharing.")
 
 

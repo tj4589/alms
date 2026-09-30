@@ -10,6 +10,7 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0001_initial_schema.py"
 KSA_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0002_ksa_claim_audit.py"
+ROLE_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0003_learning_space_role_audit.py"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -56,7 +57,7 @@ class MigrationSystemTests(unittest.TestCase):
         models_by_name = {
             table.name: {column.name for column in table.columns}
             for table in Base.metadata.sorted_tables
-            if table.name != "ksa_claim_audits"
+            if table.name not in {"ksa_claim_audits", "learning_space_role_audits"}
         }
         self.assertEqual(set(baseline), set(models_by_name))
         for table_name, columns in models_by_name.items():
@@ -75,7 +76,20 @@ class MigrationSystemTests(unittest.TestCase):
         self.assertIn('ondelete="SET NULL"', source)
         self.assertIn('op.drop_table("ksa_claim_audits")', source)
 
-    def test_full_migration_chain_renders_claim_audit_upgrade_and_downgrade_sql(self):
+    def test_learning_space_role_audit_revision_is_additive_and_reversible(self):
+        spec = importlib.util.spec_from_file_location("role_audit_migration", ROLE_AUDIT_MIGRATION_PATH)
+        migration = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(migration)
+
+        self.assertEqual(migration.revision, "0003_learning_space_role_audit")
+        self.assertEqual(migration.down_revision, "0002_ksa_claim_audit")
+        source = ROLE_AUDIT_MIGRATION_PATH.read_text(encoding="utf-8")
+        self.assertIn('op.create_table(\n        "learning_space_role_audits"', source)
+        self.assertEqual(source.count('ondelete="SET NULL"'), 4)
+        self.assertIn('op.drop_table("learning_space_role_audits")', source)
+
+    def test_full_migration_chain_renders_role_audit_upgrade_and_downgrade_sql(self):
         env = os.environ.copy()
         env["DATABASE_URL"] = "postgresql+psycopg://migration:check@127.0.0.1:65432/exammind"
         upgrade = subprocess.run(
@@ -88,10 +102,11 @@ class MigrationSystemTests(unittest.TestCase):
         )
         self.assertEqual(upgrade.returncode, 0, upgrade.stderr)
         self.assertIn('CREATE TABLE ksa_claim_audits', upgrade.stdout)
+        self.assertIn('CREATE TABLE learning_space_role_audits', upgrade.stdout)
         self.assertIn('ON DELETE SET NULL', upgrade.stdout)
 
         downgrade = subprocess.run(
-            [sys.executable, "-m", "alembic", "-c", "alembic.ini", "downgrade", "0002_ksa_claim_audit:0001_initial_schema", "--sql"],
+            [sys.executable, "-m", "alembic", "-c", "alembic.ini", "downgrade", "0003_learning_space_role_audit:0001_initial_schema", "--sql"],
             cwd=BACKEND_ROOT,
             env=env,
             capture_output=True,
@@ -99,6 +114,7 @@ class MigrationSystemTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(downgrade.returncode, 0, downgrade.stderr)
+        self.assertIn('DROP TABLE learning_space_role_audits', downgrade.stdout)
         self.assertIn('DROP TABLE ksa_claim_audits', downgrade.stdout)
 
     def test_schema_drift_items_are_represented(self):

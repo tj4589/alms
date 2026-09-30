@@ -20,6 +20,7 @@ from material_access import (  # noqa: E402
     accessible_material_filter,
     can_view_material,
     require_contribution_space,
+    require_material_owner,
     normalize_group_ids,
     normalize_visibility,
     set_material_visibility,
@@ -76,6 +77,13 @@ class MaterialAccessTests(unittest.TestCase):
         db = AccessDatabaseDouble()
         self.assertTrue(can_view_material(db, row, user(7)))
         self.assertFalse(can_view_material(db, row, user(8)))
+
+    def test_legacy_global_moderator_does_not_bypass_material_access_or_ownership(self):
+        row = SimpleNamespace(id=4, uploaded_by=7, visibility=PRIVATE)
+        legacy_moderator = user(8, role="moderator")
+        self.assertFalse(can_view_material(AccessDatabaseDouble(), row, legacy_moderator))
+        with self.assertRaises(HTTPException):
+            require_material_owner(row, legacy_moderator)
 
     def test_public_material_is_visible_to_another_verified_student(self):
         row = SimpleNamespace(id=4, uploaded_by=7, visibility=PUBLIC)

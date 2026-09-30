@@ -1004,7 +1004,7 @@ export default function App() {
       : null;
   const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
   const activeSpaceRole = learningSpaces?.active_space?.membership?.role;
-  const canModerate = user?.role === 'admin' || user?.role === 'moderator' || ['owner', 'admin', 'moderator'].includes(activeSpaceRole || '');
+  const canModerate = user?.role === 'admin' || ['owner', 'admin', 'moderator'].includes(activeSpaceRole || '');
   const visibleNavGroups = NAV_GROUPS
     .map(group => ({ ...group, items: group.items.filter(item => item.screen !== 'moderation' || canModerate) }))
     .filter(group => group.items.length > 0);
