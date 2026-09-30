@@ -18,6 +18,7 @@ from learning_spaces import (  # noqa: E402
     KSA_ALREADY_CONFIGURED_MESSAGE,
     KSA_SLUG,
     activate_space,
+    authorized_active_space,
     claim_ksa_member,
     import_ksa_members,
     list_spaces,
@@ -299,13 +300,80 @@ class LearningSpaceTests(unittest.TestCase):
 
         payload = list_spaces(self.session, self.user)
         self.assertEqual({entry["space"]["slug"] for entry in payload["memberships"]}, {"cu", KSA_SLUG})
+        self.assertEqual(payload["active_space"]["slug"], "cu")
         activate_space(self.session, self.user, KSA_SLUG)
+        self.assertEqual(authorized_active_space(self.session, self.user).slug, KSA_SLUG)
+        self.assertEqual(list_spaces(self.session, self.user)["active_space"]["slug"], KSA_SLUG)
+        activate_space(self.session, self.user, "cu")
+        self.assertEqual(authorized_active_space(self.session, self.user).slug, "cu")
         self.assertEqual(
             self.session.query(models.LearningSpaceMembership)
             .filter_by(user_id=self.user.id, learning_space_id=cu.id)
             .count(),
             1,
         )
+
+    def test_stale_pointer_clears_without_selecting_another_membership(self) -> None:
+        ksa = self.session.query(models.LearningSpace).filter_by(slug=KSA_SLUG).one()
+        self.session.add(models.LearningSpaceMembership(
+            user_id=self.user.id,
+            learning_space_id=ksa.id,
+            status="active",
+            onboarding_state="completed",
+        ))
+        self.user.active_learning_space_id = 999999
+        self.session.commit()
+
+        payload = list_spaces(self.session, self.user)
+
+        self.assertIsNone(payload["active_space"])
+        self.assertIsNone(self.user.active_learning_space_id)
+        self.assertEqual({entry["space"]["slug"] for entry in payload["memberships"]}, {"cu", KSA_SLUG})
+
+    def test_ksa_only_user_can_activate_ksa_but_not_cu(self) -> None:
+        ksa_user = models.User(
+            id=13,
+            name="KSA Student",
+            username="ksa_only",
+            email="ksa.only@gmail.com",
+            firebase_uid="firebase-13",
+            role="student",
+        )
+        self.session.add(ksa_user)
+        self.session.commit()
+        claim_ksa_member(self.session, ksa_user, "KSA-13")
+
+        activate_space(self.session, ksa_user, KSA_SLUG)
+        self.assertEqual(authorized_active_space(self.session, ksa_user).slug, KSA_SLUG)
+        with self.assertRaises(HTTPException) as error:
+            activate_space(self.session, ksa_user, "cu")
+        self.assertEqual(error.exception.status_code, 403)
+
+    def test_inactive_membership_and_unknown_space_cannot_activate(self) -> None:
+        inactive_user = models.User(
+            id=14,
+            name="Inactive Student",
+            username="inactive_space",
+            email="inactive@example.com",
+            firebase_uid="firebase-14",
+            role="student",
+        )
+        self.session.add(inactive_user)
+        self.session.flush()
+        ksa = self.session.query(models.LearningSpace).filter_by(slug=KSA_SLUG).one()
+        self.session.add(models.LearningSpaceMembership(
+            user_id=inactive_user.id,
+            learning_space_id=ksa.id,
+            status="inactive",
+        ))
+        self.session.commit()
+
+        with self.assertRaises(HTTPException) as inactive_error:
+            activate_space(self.session, inactive_user, KSA_SLUG)
+        self.assertEqual(inactive_error.exception.status_code, 403)
+        with self.assertRaises(HTTPException) as unknown_error:
+            activate_space(self.session, inactive_user, "does-not-exist")
+        self.assertEqual(unknown_error.exception.status_code, 403)
 
     def test_cu_backfill_is_idempotent(self) -> None:
         before = self.session.query(models.LearningSpaceMembership).filter_by(user_id=self.user.id).count()

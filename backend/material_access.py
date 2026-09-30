@@ -26,7 +26,6 @@ MODERATION_STATUSES = frozenset({
     "changes_requested",
 })
 MATERIAL_TYPES = frozenset({"past_question", "lecture_note"})
-CU_SPACE_SLUG = "cu"
 
 
 def normalize_visibility(value: Any) -> str:
@@ -163,15 +162,18 @@ def _space_member_exists(model: Any, current_user: Any):
             models.MaterialContribution.material_id == model.id,
             models.LearningSpaceMembership.user_id == current_user.id,
             models.LearningSpaceMembership.status == "active",
-            or_(
-                models.LearningSpace.slug != CU_SPACE_SLUG,
-                models.LearningSpace.id == getattr(current_user, "active_learning_space_id", None),
-            ),
+            models.LearningSpace.status == "active",
+            # A membership alone is not enough for workspace retrieval. The
+            # caller must also have selected this exact space. This prevents a
+            # multi-space account from leaking another space through search,
+            # RAG, quizzes, or archive lists while keeping explicit switching
+            # server-authorized.
+            models.LearningSpace.id == getattr(current_user, "active_learning_space_id", None),
         )
     )
 
 
-def _cu_contribution_exists(model: Any):
+def _space_contribution_exists(model: Any):
     material_type = material_type_for_model(model)
     return exists(
         select(models.MaterialContribution.id)
@@ -182,7 +184,6 @@ def _cu_contribution_exists(model: Any):
         .where(
             models.MaterialContribution.material_type == material_type,
             models.MaterialContribution.material_id == model.id,
-            models.LearningSpace.slug == CU_SPACE_SLUG,
         )
     )
 
@@ -240,7 +241,7 @@ def accessible_material_filter(db: Session, model: Any, current_user: Any):
     public_visibility = and_(
         model.visibility == PUBLIC,
         or_(
-            not_(_cu_contribution_exists(model)),
+            not_(_space_contribution_exists(model)),
             _space_member_exists(model, current_user),
         ),
     )
@@ -263,16 +264,16 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
         return True
     visibility = material_visibility(row)
     if visibility == PUBLIC:
-        cu_space = db.query(models.LearningSpace).filter(
-            models.LearningSpace.id == contribution.learning_space_id,
-            models.LearningSpace.slug == CU_SPACE_SLUG,
-        ).first() if contribution is not None else None
-        if cu_space is not None:
-            return db.query(models.LearningSpaceMembership.id).filter(
+        if contribution is not None:
+            return db.query(models.LearningSpaceMembership.id).join(
+                models.LearningSpace,
+                models.LearningSpace.id == models.LearningSpaceMembership.learning_space_id,
+            ).filter(
                 models.LearningSpaceMembership.user_id == current_user.id,
-                models.LearningSpaceMembership.learning_space_id == cu_space.id,
+                models.LearningSpaceMembership.learning_space_id == contribution.learning_space_id,
                 models.LearningSpaceMembership.status == "active",
-            ).first() is not None and getattr(current_user, "active_learning_space_id", None) == cu_space.id
+                models.LearningSpace.status == "active",
+            ).first() is not None and getattr(current_user, "active_learning_space_id", None) == contribution.learning_space_id
         return True
     if visibility != GROUP:
         if visibility not in {SPACE_SHARED, OFFICIAL}:
@@ -281,17 +282,15 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
             return False
         if contribution.moderation_status != "approved":
             return False
-        return db.query(models.LearningSpaceMembership.id).filter(
+        return db.query(models.LearningSpaceMembership.id).join(
+            models.LearningSpace,
+            models.LearningSpace.id == models.LearningSpaceMembership.learning_space_id,
+        ).filter(
             models.LearningSpaceMembership.user_id == current_user.id,
             models.LearningSpaceMembership.learning_space_id == contribution.learning_space_id,
             models.LearningSpaceMembership.status == "active",
-        ).first() is not None and (
-            db.query(models.LearningSpace).filter(
-                models.LearningSpace.id == contribution.learning_space_id,
-                models.LearningSpace.slug == CU_SPACE_SLUG,
-            ).first() is None
-            or getattr(current_user, "active_learning_space_id", None) == contribution.learning_space_id
-        )
+            models.LearningSpace.status == "active",
+        ).first() is not None and getattr(current_user, "active_learning_space_id", None) == contribution.learning_space_id
     material_type = material_type_for_model(row)
     return (
         db.query(models.MaterialGroupShare)
@@ -331,6 +330,11 @@ def request_material_contribution(
     rows = list(rows)
     if not rows:
         raise ValueError("At least one material row is required.")
+    from learning_spaces import authorized_active_space
+
+    authorized_space = authorized_active_space(db, current_user)
+    if authorized_space is None or authorized_space.id != learning_space_id:
+        raise HTTPException(status_code=403, detail="Choose an authorized active learning space before contributing material.")
     requested_visibility = normalize_visibility(requested_visibility)
     if requested_visibility not in {SPACE_SHARED, OFFICIAL, PUBLIC}:
         raise ValueError("Only shared archive contributions can be submitted for review.")
@@ -375,10 +379,12 @@ def request_material_contribution(
 
 def require_contribution_space(db: Session, current_user: Any) -> models.LearningSpace:
     """Contributions are currently anchored to a verified active KSA space."""
-    space = db.query(models.LearningSpace).filter(
-        models.LearningSpace.id == getattr(current_user, "active_learning_space_id", None),
-        models.LearningSpace.status == "active",
-    ).first()
+    # Resolve the pointer through the membership boundary rather than trusting
+    # the user-controlled active-space column. Private uploads remain allowed;
+    # only archive publication reaches this guard.
+    from learning_spaces import authorized_active_space
+
+    space = authorized_active_space(db, current_user)
     if space is None or space.slug != "ksa":
         raise HTTPException(
             status_code=403,

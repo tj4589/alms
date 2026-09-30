@@ -3,6 +3,7 @@ import sys
 import unittest
 from types import SimpleNamespace
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -18,6 +19,7 @@ from material_access import (  # noqa: E402
     SPACE_SHARED,
     accessible_material_filter,
     can_view_material,
+    require_contribution_space,
     normalize_group_ids,
     normalize_visibility,
     set_material_visibility,
@@ -132,6 +134,89 @@ class MaterialAccessTests(unittest.TestCase):
             )
             member.active_learning_space_id = None
             self.assertFalse(can_view_material(db, note, member))
+        finally:
+            db.close()
+            engine.dispose()
+
+    def test_ksa_scoped_material_requires_active_membership_and_context(self):
+        engine = create_engine("sqlite:///:memory:")
+        for table in (
+            models.LearningSpace.__table__,
+            models.User.__table__,
+            models.LearningSpaceMembership.__table__,
+            models.StudyGroup.__table__,
+            models.StudyGroupMember.__table__,
+            models.MaterialGroupShare.__table__,
+            models.LectureNote.__table__,
+            models.MaterialContribution.__table__,
+        ):
+            table.create(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            ksa = models.LearningSpace(slug="ksa", name="Kora Sales Academy", type="academy", status="active")
+            cu = models.LearningSpace(slug="cu", name="Covenant University", type="university", status="active")
+            owner = models.User(id=10, username="owner", email="owner@example.com", role="student")
+            ksa_member = models.User(id=11, username="ksa-member", email="ksa@example.com", role="student")
+            cu_member = models.User(id=12, username="cu-member", email="cu@example.com", role="student")
+            multi = models.User(id=13, username="multi", email="multi@example.com", role="student")
+            no_membership = models.User(id=14, username="none", email="none@example.com", role="student")
+            db.add_all([ksa, cu, owner, ksa_member, cu_member, multi, no_membership])
+            db.flush()
+            ksa_member.active_learning_space_id = ksa.id
+            cu_member.active_learning_space_id = cu.id
+            multi.active_learning_space_id = ksa.id
+            db.add_all([
+                models.LearningSpaceMembership(user_id=ksa_member.id, learning_space_id=ksa.id, status="active"),
+                models.LearningSpaceMembership(user_id=cu_member.id, learning_space_id=cu.id, status="active"),
+                models.LearningSpaceMembership(user_id=multi.id, learning_space_id=ksa.id, status="active"),
+                models.LearningSpaceMembership(user_id=multi.id, learning_space_id=cu.id, status="active"),
+            ])
+            ksa_note = models.LectureNote(id=41, uploaded_by=owner.id, title="KSA notes", visibility=SPACE_SHARED)
+            cu_note = models.LectureNote(id=42, uploaded_by=owner.id, title="CU notes", visibility=SPACE_SHARED)
+            db.add_all([ksa_note, cu_note])
+            db.flush()
+            db.add_all([
+                models.MaterialContribution(
+                    material_type="lecture_note", material_id=ksa_note.id, learning_space_id=ksa.id,
+                    submitted_by=owner.id, moderation_status="approved", requested_visibility=SPACE_SHARED,
+                ),
+                models.MaterialContribution(
+                    material_type="lecture_note", material_id=cu_note.id, learning_space_id=cu.id,
+                    submitted_by=owner.id, moderation_status="approved", requested_visibility=SPACE_SHARED,
+                ),
+            ])
+            db.commit()
+
+            self.assertFalse(can_view_material(db, ksa_note, no_membership))
+            self.assertFalse(can_view_material(db, cu_note, no_membership))
+            no_membership.active_learning_space_id = ksa.id
+            with self.assertRaises(HTTPException):
+                require_contribution_space(db, no_membership)
+            self.assertTrue(can_view_material(db, ksa_note, ksa_member))
+            self.assertFalse(can_view_material(db, cu_note, ksa_member))
+            self.assertTrue(can_view_material(db, cu_note, cu_member))
+            self.assertFalse(can_view_material(db, ksa_note, cu_member))
+            self.assertTrue(can_view_material(db, ksa_note, multi))
+            self.assertFalse(can_view_material(db, cu_note, multi))
+            self.assertEqual(require_contribution_space(db, multi).slug, "ksa")
+            self.assertEqual(
+                db.query(models.LectureNote).filter(accessible_material_filter(db, models.LectureNote, multi)).count(),
+                1,
+            )
+
+            multi.active_learning_space_id = cu.id
+            with self.assertRaises(HTTPException):
+                require_contribution_space(db, multi)
+            self.assertTrue(can_view_material(db, cu_note, multi))
+            self.assertFalse(can_view_material(db, ksa_note, multi))
+            self.assertEqual(
+                db.query(models.LectureNote).filter(accessible_material_filter(db, models.LectureNote, multi)).count(),
+                1,
+            )
+            self.assertEqual(
+                db.query(models.LearningSpaceMembership).filter_by(user_id=multi.id, status="active").count(),
+                2,
+            )
         finally:
             db.close()
             engine.dispose()

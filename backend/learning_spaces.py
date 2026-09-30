@@ -247,14 +247,11 @@ def list_spaces(db: Session, user: models.User) -> dict:
     )
     by_space = {membership.learning_space_id: membership for membership in memberships}
     active_space = next((space for space in spaces if space.id == user.active_learning_space_id and space.id in by_space), None)
-    if active_space is None and memberships:
-        active_space = next((space for space in spaces if space.id == memberships[0].learning_space_id), None)
-        if active_space is not None:
-            user.active_learning_space_id = active_space.id
-            db.commit()
-    elif active_space is None and user.active_learning_space_id is not None:
+    if active_space is None and user.active_learning_space_id is not None:
         # Treat a manually supplied or stale pointer as unauthorised. This
         # clears only the pointer; it never removes a membership or resource.
+        # Do not silently choose another membership: a multi-space account
+        # must explicitly select the context it wants to enter.
         user.active_learning_space_id = None
         db.commit()
     return {
