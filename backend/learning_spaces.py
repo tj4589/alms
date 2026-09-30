@@ -17,8 +17,10 @@ import models
 
 CU_SLUG = "cu"
 KSA_SLUG = "ksa"
-KSA_ID_RE = re.compile(r"^KSA-[A-Z0-9]{1,24}$")
-CLAIM_FAILURE_MESSAGE = "That KSA ID could not be verified. Contact support if you believe it belongs to you."
+KSA_ID_RE = re.compile(r"^KSA-\d{2}$")
+CLAIM_FAILURE_MESSAGE = "That academy ID is already in use."
+KSA_ALREADY_CONFIGURED_MESSAGE = "KSA access is already configured for this account. Contact support to change it."
+KSA_INACTIVE_MEMBERSHIP_MESSAGE = "KSA access is not active for this account. Contact support for help."
 CU_ACCESS_FAILURE_MESSAGE = "Covenant University access requires an active CU membership."
 
 SPACE_SEEDS = (
@@ -42,9 +44,9 @@ def now_utc() -> datetime:
 
 
 def normalize_ksa_id(value: str) -> str:
-    normalized = "-".join(str(value or "").strip().upper().split())
+    normalized = str(value or "").strip().upper()
     if not KSA_ID_RE.fullmatch(normalized):
-        raise ValueError("Enter a valid KSA ID, such as KSA-36.")
+        raise ValueError("Enter an academy ID in the format KSA-##.")
     return normalized
 
 
@@ -285,7 +287,39 @@ def activate_space(db: Session, user: models.User, slug: str) -> dict:
     return {"space": space_payload(space, membership)}
 
 
+def _ksa_membership(db: Session, user: models.User, space_id: int) -> models.LearningSpaceMembership | None:
+    return db.query(models.LearningSpaceMembership).filter(
+        models.LearningSpaceMembership.user_id == user.id,
+        models.LearningSpaceMembership.learning_space_id == space_id,
+    ).first()
+
+
+def _ksa_claim_for_user(db: Session, user: models.User) -> models.KsaMember | None:
+    return db.query(models.KsaMember).filter(
+        models.KsaMember.claimed_by_user_id == user.id,
+    ).first()
+
+
+def _ksa_claim_result(
+    db: Session,
+    user: models.User,
+    space: models.LearningSpace,
+    membership: models.LearningSpaceMembership,
+) -> dict:
+    return {
+        "space": space_payload(space, membership),
+        "onboarding_required": membership.onboarding_state != "completed",
+    }
+
+
 def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
+    """Claim an unused KSA-## identifier and create KSA membership atomically.
+
+    KsaMember is retained as the claim table for compatibility with existing
+    deployments. An imported row is optional: a valid unused identifier is
+    created and claimed on first use. Its unique KSA ID and unique claiming
+    user constraints are the final race-safe authority.
+    """
     try:
         ksa_id = normalize_ksa_id(raw_ksa_id)
     except ValueError as exc:
@@ -295,26 +329,40 @@ def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
     if space is None:
         seed_learning_spaces(db)
         space = db.query(models.LearningSpace).filter(models.LearningSpace.slug == KSA_SLUG).first()
-    member = (
-        db.query(models.KsaMember)
-        .filter(models.KsaMember.ksa_id == ksa_id)
-        .with_for_update()
-        .first()
-        if space else None
-    )
-    if member is None or member.status != "active":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CLAIM_FAILURE_MESSAGE)
-    if member.claimed_by_user_id not in (None, user.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CLAIM_FAILURE_MESSAGE)
+    if space is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The KSA learning space is not available yet.")
 
-    membership = (
-        db.query(models.LearningSpaceMembership)
-        .filter(
-            models.LearningSpaceMembership.user_id == user.id,
-            models.LearningSpaceMembership.learning_space_id == space.id,
+    existing_claim = _ksa_claim_for_user(db, user)
+    if existing_claim is not None and existing_claim.ksa_id != ksa_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=KSA_ALREADY_CONFIGURED_MESSAGE)
+
+    membership = _ksa_membership(db, user, space.id)
+    if membership is not None:
+        if membership.status != "active":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=KSA_INACTIVE_MEMBERSHIP_MESSAGE)
+        if membership.external_member_id not in (None, ksa_id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=KSA_ALREADY_CONFIGURED_MESSAGE)
+
+    # Lock an existing row when the database supports row locks. The unique
+    # constraint remains necessary for the unused-ID insert race.
+    member = db.query(models.KsaMember).filter(
+        models.KsaMember.ksa_id == ksa_id,
+    ).with_for_update().first()
+    if member is not None and member.claimed_by_user_id not in (None, user.id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=CLAIM_FAILURE_MESSAGE)
+    if member is None:
+        member = models.KsaMember(
+            ksa_id=ksa_id,
+            status="active",
+            claimed_by_user_id=user.id,
+            claimed_at=now_utc(),
         )
-        .first()
-    )
+        db.add(member)
+    else:
+        member.status = "active"
+        member.claimed_by_user_id = user.id
+        member.claimed_at = member.claimed_at or now_utc()
+
     if membership is None:
         membership = models.LearningSpaceMembership(
             user_id=user.id,
@@ -325,11 +373,6 @@ def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
             onboarding_state="pending",
         )
         db.add(membership)
-    elif membership.external_member_id not in (None, ksa_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CLAIM_FAILURE_MESSAGE)
-
-    member.claimed_by_user_id = user.id
-    member.claimed_at = member.claimed_at or now_utc()
     membership.external_member_id = ksa_id
     user.active_learning_space_id = space.id
     try:
@@ -337,8 +380,19 @@ def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
         db.refresh(membership)
     except IntegrityError as exc:
         db.rollback()
+        # A concurrent claim may have won the unique KSA-ID or one-user
+        # constraint. Re-read only enough state to return a safe, stable API
+        # response; never disclose the competing account.
+        configured_claim = _ksa_claim_for_user(db, user)
+        if configured_claim is not None and configured_claim.ksa_id != ksa_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=KSA_ALREADY_CONFIGURED_MESSAGE) from exc
+        winner = db.query(models.KsaMember).filter(models.KsaMember.ksa_id == ksa_id).first()
+        if winner is not None and winner.claimed_by_user_id == user.id:
+            current_membership = _ksa_membership(db, user, space.id)
+            if current_membership is not None and current_membership.status == "active":
+                return _ksa_claim_result(db, user, space, current_membership)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=CLAIM_FAILURE_MESSAGE) from exc
-    return {"space": space_payload(space, membership), "onboarding_required": membership.onboarding_state != "completed"}
+    return _ksa_claim_result(db, user, space, membership)
 
 
 def mark_ksa_onboarding_complete(db: Session, user: models.User, payload: dict) -> dict:

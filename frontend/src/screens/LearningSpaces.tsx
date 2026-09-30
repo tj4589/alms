@@ -105,12 +105,12 @@ export default function LearningSpaces({ spaces, onBack, onOpenFeedback, onRefre
           <div>
             <p className="space-kicker">Kora Sales Academy</p>
             <h2 id="join-ksa-title">Are you a KSA intern?</h2>
-            <p>Enter the KSA ID provided by the academy. A matching active registry record is required before membership is created.</p>
+            <p>Enter the academy ID provided to you. Each valid ID can be claimed by one ExamMind account.</p>
           </div>
           <form onSubmit={(event) => { event.preventDefault(); void verifyKsa(); }}>
             <label htmlFor="ksa-id">KSA ID</label>
-            <div className="space-input-row"><input id="ksa-id" value={ksaId} onChange={(event) => setKsaId(event.target.value)} placeholder="KSA-36" autoComplete="off" required /><button type="submit" className="space-primary" disabled={busy === 'ksa' || !ksaId.trim()}>{busy === 'ksa' ? <LoaderCircle size={16} className="space-spin" aria-hidden="true" /> : 'Verify ID'} <ArrowRight size={16} aria-hidden="true" /></button></div>
-            <small>Format alone is not enough. ExamMind checks the secure KSA registry.</small>
+            <div className="space-input-row"><input id="ksa-id" value={ksaId} onChange={(event) => setKsaId(event.target.value)} placeholder="Enter your academy ID" autoComplete="off" required /><button type="submit" className="space-primary" disabled={busy === 'ksa' || !ksaId.trim()}>{busy === 'ksa' ? <LoaderCircle size={16} className="space-spin" aria-hidden="true" /> : 'Claim KSA access'} <ArrowRight size={16} aria-hidden="true" /></button></div>
+            <small>Use the KSA-## format. The claim is unique and does not prove official academy identity.</small>
           </form>
           <button type="button" className="space-early-link" onClick={() => setEarlyAccess(true)}>I am not a KSA intern / request early access</button>
         </section>

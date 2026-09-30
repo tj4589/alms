@@ -76,7 +76,12 @@ class LearningSpaceMembership(Base):
 
 
 class KsaMember(Base):
-    """Authoritative KSA registry; rows are imported by trusted operators."""
+    """KSA unique-claim table with optional legacy cohort metadata.
+
+    MVP access is established by claiming an unused KSA-## value. Imported
+    cohort/name/email fields remain available for future official verification
+    and compatibility, but normal claims do not require an imported row.
+    """
 
     __tablename__ = "ksa_member_registry"
 

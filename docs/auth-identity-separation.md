@@ -21,8 +21,8 @@ memberships remain authoritative and are not removed by initialization.
 
 The CU-domain helper remains outside global Firebase token validation. The
 explicit `/learning-spaces` flow uses it to provision one active CU membership
-for an eligible account, idempotently. KSA access remains registry-claim based
-and is deferred to the later authorization phase.
+for an eligible account, idempotently. KSA MVP access is a separate unique-code
+claim: an authenticated user may claim one unused canonical `KSA-##` value.
 
 ## Initialization backfill decision
 
@@ -39,3 +39,24 @@ than an authentication side effect. A CU resource is also checked against its
 approved contribution space: CU-scoped resources require an active CU
 membership and the CU active-space context; a manually supplied active-space
 ID cannot grant access. The no-membership user experience is handled later.
+
+## KSA MVP claim model
+
+KSA access is not backed by an official roster in this MVP. The existing
+`ksa_member_registry` table is reused as the unique claim table; its
+`ksa_id` and `claimed_by_user_id` database uniqueness constraints protect the
+claim race and enforce one KSA ID per account. Valid input is exactly
+`KSA-##`, where `##` is two decimal digits from `00` through `99`.
+
+Surrounding whitespace is trimmed and the prefix is normalized to uppercase, so
+` ksa-07 ` is stored as `KSA-07`; the separator and two-digit width remain
+required. `KSA-00` is accepted because no business rule currently excludes it.
+
+A successful claim creates or reuses an active KSA membership, stores the
+canonical ID, sets the active space to KSA, and leaves KSA onboarding pending
+until the existing onboarding endpoint completes. Repeating the same claim is
+safe; attempting a different ID after setup is rejected. A competing account
+receives a conflict without owner information. The admin import endpoint is
+retained as optional legacy/future cohort metadata tooling and is not required
+for normal MVP claims. Future official verification can add roster, invite or
+approval checks without replacing the membership relationship.
