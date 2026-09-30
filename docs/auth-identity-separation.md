@@ -84,3 +84,21 @@ The KSA claim invariant is that an active claim's `KsaMember.ksa_id` matches
 the active KSA membership's `external_member_id` when that membership exists.
 Claim creation checks this invariant and fails safely rather than repairing
 existing inconsistent data automatically.
+
+## Controlled KSA claim release
+
+Global administrators may release an incorrectly claimed KSA ID through the
+admin-only release endpoint. Release is not reassignment: it clears the claim
+owner, marks the claimant's KSA membership inactive, clears only a KSA active
+space pointer, and leaves the ID available for a later normal claim. CU and
+other learning-space memberships, resources, transcripts, conversations,
+quizzes, progress, and contribution history are not touched.
+
+The inactive membership row is retained for history, but its
+`external_member_id` is cleared intentionally. The existing unique constraint
+on `(learning_space_id, external_member_id)` would otherwise prevent another
+user from reclaiming the released ID. A former claimant may reclaim the ID
+later only through the normal KSA verification flow; the retained membership
+row is reactivated safely and its onboarding state returns to pending. Each
+successful release creates exactly one `RELEASED` audit event. Repeating a
+release is rejected with a conflict and does not create another event.

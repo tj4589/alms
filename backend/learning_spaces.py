@@ -335,9 +335,12 @@ def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=KSA_ALREADY_CONFIGURED_MESSAGE)
 
     membership = _ksa_membership(db, user, space.id)
+    membership_was_inactive = False
     if membership is not None:
         if membership.status != "active":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=KSA_INACTIVE_MEMBERSHIP_MESSAGE)
+            if membership.external_member_id not in (None, ksa_id):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=KSA_ALREADY_CONFIGURED_MESSAGE)
+            membership_was_inactive = True
         if membership.external_member_id not in (None, ksa_id):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=KSA_ALREADY_CONFIGURED_MESSAGE)
 
@@ -373,6 +376,9 @@ def claim_ksa_member(db: Session, user: models.User, raw_ksa_id: str) -> dict:
             onboarding_state="pending",
         )
         db.add(membership)
+    membership.status = "active"
+    if membership_was_inactive:
+        membership.onboarding_state = "pending"
     membership.external_member_id = ksa_id
     user.active_learning_space_id = space.id
     if not claim_membership_ids_match(db, member):

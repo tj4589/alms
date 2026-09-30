@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 import auth
 import models
 from database import get_db
-from ksa_claim_admin import inspect_ksa_claim
+from ksa_claim_admin import inspect_ksa_claim, release_ksa_claim
 from learning_spaces import (
     activate_space,
     claim_ksa_member,
@@ -66,6 +66,20 @@ class KsaMemberImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     members: list[KsaMemberImportItem] = Field(min_length=1, max_length=500)
+
+
+class KsaClaimReleaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def require_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if not reason:
+            raise ValueError("A release reason is required.")
+        return reason
 
 
 @router.get("")
@@ -142,3 +156,22 @@ def inspect_ksa_registry_claim(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return inspect_ksa_claim(db, canonical_ksa_id)
+
+
+@router.post("/ksa/admin/claims/{ksa_id}/release")
+def release_ksa_registry_claim(
+    ksa_id: str,
+    payload: KsaClaimReleaseRequest,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_global_admin),
+):
+    try:
+        canonical_ksa_id = normalize_ksa_id(ksa_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return release_ksa_claim(
+        db,
+        ksa_id=canonical_ksa_id,
+        performed_by=admin,
+        reason=payload.reason,
+    )
