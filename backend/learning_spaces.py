@@ -19,6 +19,7 @@ CU_SLUG = "cu"
 KSA_SLUG = "ksa"
 KSA_ID_RE = re.compile(r"^KSA-[A-Z0-9]{1,24}$")
 CLAIM_FAILURE_MESSAGE = "That KSA ID could not be verified. Contact support if you believe it belongs to you."
+CU_ACCESS_FAILURE_MESSAGE = "Covenant University access requires an active CU membership."
 
 SPACE_SEEDS = (
     {
@@ -76,6 +77,19 @@ def seed_learning_spaces(db: Session, *, backfill_users: bool = False) -> None:
             # memberships remain untouched, while non-CU identities never
             # receive a new CU membership here.
             if not is_allowed_school_email(str(user.email or "")):
+                if user.active_learning_space_id == cu_space.id:
+                    existing_membership = (
+                        db.query(models.LearningSpaceMembership)
+                        .filter(
+                            models.LearningSpaceMembership.user_id == user.id,
+                            models.LearningSpaceMembership.learning_space_id == cu_space.id,
+                            models.LearningSpaceMembership.status == "active",
+                        )
+                        .first()
+                    )
+                    if existing_membership is None:
+                        user.active_learning_space_id = None
+                        changed = True
                 continue
             membership = (
                 db.query(models.LearningSpaceMembership)
@@ -96,7 +110,14 @@ def seed_learning_spaces(db: Session, *, backfill_users: bool = False) -> None:
 
 
 def ensure_cu_membership(db: Session, user: models.User) -> models.LearningSpaceMembership | None:
-    """Lazily preserve CU access for a newly linked CU Firebase account."""
+    """Provision CU membership only at the explicit CU space-entry boundary.
+
+    Firebase identity creation deliberately does not call this helper. The
+    learning-space flow calls it after authentication, so a configured CU
+    domain can grant access without turning institution eligibility into a
+    global identity rule. Existing inactive memberships are not silently
+    reactivated.
+    """
     from firebase_tokens import is_allowed_school_email
 
     if not is_allowed_school_email(str(user.email or "")):
@@ -115,6 +136,8 @@ def ensure_cu_membership(db: Session, user: models.User) -> models.LearningSpace
         )
         .first()
     )
+    if membership is not None and membership.status != "active":
+        return None
     changed = False
     if membership is None:
         membership = models.LearningSpaceMembership(
@@ -133,6 +156,54 @@ def ensure_cu_membership(db: Session, user: models.User) -> models.LearningSpace
         db.commit()
         db.refresh(membership)
     return membership
+
+
+def active_membership(
+    db: Session,
+    user: models.User,
+    space_id: int | None,
+) -> models.LearningSpaceMembership | None:
+    """Return the caller's active membership for one exact space."""
+    if not space_id or not getattr(user, "id", None):
+        return None
+    return db.query(models.LearningSpaceMembership).filter(
+        models.LearningSpaceMembership.user_id == user.id,
+        models.LearningSpaceMembership.learning_space_id == space_id,
+        models.LearningSpaceMembership.status == "active",
+    ).first()
+
+
+def require_cu_membership(
+    db: Session,
+    user: models.User,
+    *,
+    require_active_context: bool = True,
+) -> models.LearningSpaceMembership:
+    """Enforce CU membership and, by default, the selected CU context."""
+    space = db.query(models.LearningSpace).filter(
+        models.LearningSpace.slug == CU_SLUG,
+        models.LearningSpace.status == "active",
+    ).first()
+    membership = active_membership(db, user, getattr(space, "id", None))
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CU_ACCESS_FAILURE_MESSAGE)
+    if require_active_context and getattr(user, "active_learning_space_id", None) != space.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CU_ACCESS_FAILURE_MESSAGE)
+    return membership
+
+
+def authorized_active_space(db: Session, user: models.User) -> models.LearningSpace | None:
+    """Resolve the selected space only when the user actually belongs to it."""
+    space_id = getattr(user, "active_learning_space_id", None)
+    if not space_id:
+        return None
+    space = db.query(models.LearningSpace).filter(
+        models.LearningSpace.id == space_id,
+        models.LearningSpace.status == "active",
+    ).first()
+    if space is None or active_membership(db, user, space.id) is None:
+        return None
+    return space
 
 
 def membership_payload(membership: models.LearningSpaceMembership) -> dict:
@@ -160,6 +231,9 @@ def space_payload(space: models.LearningSpace, membership: models.LearningSpaceM
 
 
 def list_spaces(db: Session, user: models.User) -> dict:
+    # This is the explicit CU authorization boundary. Identity creation and
+    # normal application startup do not grant a learning-space membership.
+    ensure_cu_membership(db, user)
     spaces = db.query(models.LearningSpace).filter(models.LearningSpace.status == "active").order_by(models.LearningSpace.id).all()
     memberships = (
         db.query(models.LearningSpaceMembership)
@@ -176,6 +250,11 @@ def list_spaces(db: Session, user: models.User) -> dict:
         if active_space is not None:
             user.active_learning_space_id = active_space.id
             db.commit()
+    elif active_space is None and user.active_learning_space_id is not None:
+        # Treat a manually supplied or stale pointer as unauthorised. This
+        # clears only the pointer; it never removes a membership or resource.
+        user.active_learning_space_id = None
+        db.commit()
     return {
         "active_space": space_payload(active_space, by_space.get(active_space.id) if active_space else None) if active_space else None,
         "memberships": [
@@ -192,17 +271,13 @@ def list_spaces(db: Session, user: models.User) -> dict:
 
 
 def activate_space(db: Session, user: models.User, slug: str) -> dict:
-    space = db.query(models.LearningSpace).filter(models.LearningSpace.slug == slug.strip().lower(), models.LearningSpace.status == "active").first()
-    membership = (
-        db.query(models.LearningSpaceMembership)
-        .filter(
-            models.LearningSpaceMembership.user_id == user.id,
-            models.LearningSpaceMembership.learning_space_id == getattr(space, "id", None),
-            models.LearningSpaceMembership.status == "active",
-        )
-        .first()
-        if space else None
-    )
+    normalized_slug = slug.strip().lower()
+    if normalized_slug == CU_SLUG:
+        # Direct activation is also an explicit learning-space entry boundary;
+        # it still provisions only configured CU identities.
+        ensure_cu_membership(db, user)
+    space = db.query(models.LearningSpace).filter(models.LearningSpace.slug == normalized_slug, models.LearningSpace.status == "active").first()
+    membership = active_membership(db, user, getattr(space, "id", None)) if space else None
     if space is None or membership is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Join this learning space before entering it.")
     user.active_learning_space_id = space.id

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import models
+from learning_spaces import authorized_active_space
 from sectioniser import split_into_sections
 from database import get_db
 from material_access import (
@@ -3050,10 +3051,7 @@ def upload_document(
     metadata["cleaned_text_sample"] = cleaned_text[:5000]
     metadata["cleaned_text_char_count"] = len(cleaned_text.strip())
 
-    active_space = None
-    active_space_id = getattr(current_user, "active_learning_space_id", None)
-    if active_space_id:
-        active_space = db.query(models.LearningSpace).filter(models.LearningSpace.id == active_space_id).first()
+    active_space = authorized_active_space(db, current_user)
     metadata["workspace_relevance"] = classify_workspace_relevance(active_space, metadata, operational_text)
 
     # Catalogue data is read-only enrichment. Unknown codes remain unmatched;

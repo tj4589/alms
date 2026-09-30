@@ -15,10 +15,12 @@ import models  # noqa: E402
 from learning_spaces import (  # noqa: E402
     CLAIM_FAILURE_MESSAGE,
     KSA_SLUG,
+    activate_space,
     claim_ksa_member,
     import_ksa_members,
     list_spaces,
     normalize_ksa_id,
+    require_cu_membership,
     seed_learning_spaces,
 )
 
@@ -117,7 +119,7 @@ class LearningSpaceTests(unittest.TestCase):
         self.assertEqual(payload["memberships"], [])
         self.assertEqual({space["slug"] for space in payload["available_spaces"]}, {"cu", "ksa"})
 
-    def test_unbackfilled_cu_identity_is_not_lazily_granted_membership(self) -> None:
+    def test_eligible_cu_identity_receives_membership_at_explicit_space_entry(self) -> None:
         new_cu_user = models.User(
             id=10,
             name="New CU Student",
@@ -129,13 +131,76 @@ class LearningSpaceTests(unittest.TestCase):
         self.session.add(new_cu_user)
         self.session.commit()
 
+        self.assertEqual(
+            self.session.query(models.LearningSpaceMembership).filter_by(user_id=new_cu_user.id).count(),
+            0,
+        )
         payload = list_spaces(self.session, new_cu_user)
+        self.assertEqual(payload["active_space"]["slug"], "cu")
+        self.assertEqual({entry["space"]["slug"] for entry in payload["memberships"]}, {"cu"})
+        self.assertEqual(
+            self.session.query(models.LearningSpaceMembership).filter_by(user_id=new_cu_user.id).count(),
+            1,
+        )
+
+    def test_non_cu_identity_cannot_activate_cu(self) -> None:
+        non_cu = models.User(
+            id=11,
+            name="Global Student",
+            username="global_student_two",
+            email="global.two@gmail.com",
+            firebase_uid="firebase-11",
+            role="student",
+        )
+        self.session.add(non_cu)
+        self.session.commit()
+
+        with self.assertRaises(HTTPException) as error:
+            activate_space(self.session, non_cu, "cu")
+        self.assertEqual(error.exception.status_code, 403)
+        self.assertEqual(
+            self.session.query(models.LearningSpaceMembership).filter_by(user_id=non_cu.id).count(),
+            0,
+        )
+
+    def test_invalid_cu_pointer_is_cleared_and_cannot_authorize(self) -> None:
+        non_cu = models.User(
+            id=12,
+            name="Tampered Student",
+            username="tampered_student",
+            email="tampered@gmail.com",
+            firebase_uid="firebase-12",
+            role="student",
+            active_learning_space_id=2,
+        )
+        self.session.add(non_cu)
+        self.session.commit()
+
+        with self.assertRaises(HTTPException):
+            require_cu_membership(self.session, non_cu)
+        payload = list_spaces(self.session, non_cu)
         self.assertIsNone(payload["active_space"])
-        self.assertEqual(payload["memberships"], [])
-        self.assertIsNone(
+        self.assertIsNone(non_cu.active_learning_space_id)
+
+    def test_multiple_memberships_remain_compatible_with_cu_authorization(self) -> None:
+        ksa = self.session.query(models.LearningSpace).filter_by(slug=KSA_SLUG).one()
+        cu = self.session.query(models.LearningSpace).filter_by(slug="cu").one()
+        self.session.add(models.LearningSpaceMembership(
+            user_id=self.user.id,
+            learning_space_id=ksa.id,
+            status="active",
+            onboarding_state="pending",
+        ))
+        self.session.commit()
+
+        payload = list_spaces(self.session, self.user)
+        self.assertEqual({entry["space"]["slug"] for entry in payload["memberships"]}, {"cu", KSA_SLUG})
+        activate_space(self.session, self.user, KSA_SLUG)
+        self.assertEqual(
             self.session.query(models.LearningSpaceMembership)
-            .filter_by(user_id=new_cu_user.id)
-            .first()
+            .filter_by(user_id=self.user.id, learning_space_id=cu.id)
+            .count(),
+            1,
         )
 
     def test_cu_backfill_is_idempotent(self) -> None:

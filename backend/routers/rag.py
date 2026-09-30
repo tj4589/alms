@@ -16,6 +16,7 @@ from maxe_context import BEYOND_MATERIALS_MODE, SOURCE_MODE, assemble_maxe_conte
 from maxe_provider import get_maxe_provider
 from query_understanding import expanded_search_terms, public_understanding, understand_query
 from material_access import accessible_material_filter
+from learning_spaces import authorized_active_space
 from resource_index import citation_payload
 from learning_intelligence import learning_suggestion
 
@@ -198,11 +199,10 @@ def _topic_list_answer(question: str, rows: list[models.PastQuestion], sources: 
 
 
 def _workspace_name(db: Session, current_user: models.User | None) -> str | None:
-    space_id = getattr(current_user, "active_learning_space_id", None)
-    if not space_id:
+    if not current_user:
         return None
     try:
-        space = db.query(models.LearningSpace).filter(models.LearningSpace.id == space_id).first()
+        space = authorized_active_space(db, current_user)
     except Exception:
         return None
     return getattr(space, "name", None) if space else None

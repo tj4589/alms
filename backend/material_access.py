@@ -6,7 +6,7 @@ import json
 from typing import Any, Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, or_, select, true
+from sqlalchemy import and_, exists, not_, or_, select, true
 from sqlalchemy.orm import Session
 
 import models
@@ -26,6 +26,7 @@ MODERATION_STATUSES = frozenset({
     "changes_requested",
 })
 MATERIAL_TYPES = frozenset({"past_question", "lecture_note"})
+CU_SPACE_SLUG = "cu"
 
 
 def normalize_visibility(value: Any) -> str:
@@ -153,11 +154,35 @@ def _space_member_exists(model: Any, current_user: Any):
             models.MaterialContribution,
             models.MaterialContribution.learning_space_id == models.LearningSpaceMembership.learning_space_id,
         )
+        .join(
+            models.LearningSpace,
+            models.LearningSpace.id == models.LearningSpaceMembership.learning_space_id,
+        )
         .where(
             models.MaterialContribution.material_type == material_type,
             models.MaterialContribution.material_id == model.id,
             models.LearningSpaceMembership.user_id == current_user.id,
             models.LearningSpaceMembership.status == "active",
+            or_(
+                models.LearningSpace.slug != CU_SPACE_SLUG,
+                models.LearningSpace.id == getattr(current_user, "active_learning_space_id", None),
+            ),
+        )
+    )
+
+
+def _cu_contribution_exists(model: Any):
+    material_type = material_type_for_model(model)
+    return exists(
+        select(models.MaterialContribution.id)
+        .join(
+            models.LearningSpace,
+            models.LearningSpace.id == models.MaterialContribution.learning_space_id,
+        )
+        .where(
+            models.MaterialContribution.material_type == material_type,
+            models.MaterialContribution.material_id == model.id,
+            models.LearningSpace.slug == CU_SPACE_SLUG,
         )
     )
 
@@ -212,9 +237,16 @@ def accessible_material_filter(db: Session, model: Any, current_user: Any):
         model.visibility.in_((PRIVATE, SPACE_SHARED, OFFICIAL)),
         _moderator_contribution_exists(model, current_user),
     )
+    public_visibility = and_(
+        model.visibility == PUBLIC,
+        or_(
+            not_(_cu_contribution_exists(model)),
+            _space_member_exists(model, current_user),
+        ),
+    )
     return or_(
         model.uploaded_by == current_user.id,
-        model.visibility == PUBLIC,
+        public_visibility,
         and_(model.visibility == GROUP, model.id.in_(group_material_ids)),
         shared_visibility,
         moderator_visibility,
@@ -231,6 +263,16 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
         return True
     visibility = material_visibility(row)
     if visibility == PUBLIC:
+        cu_space = db.query(models.LearningSpace).filter(
+            models.LearningSpace.id == contribution.learning_space_id,
+            models.LearningSpace.slug == CU_SPACE_SLUG,
+        ).first() if contribution is not None else None
+        if cu_space is not None:
+            return db.query(models.LearningSpaceMembership.id).filter(
+                models.LearningSpaceMembership.user_id == current_user.id,
+                models.LearningSpaceMembership.learning_space_id == cu_space.id,
+                models.LearningSpaceMembership.status == "active",
+            ).first() is not None and getattr(current_user, "active_learning_space_id", None) == cu_space.id
         return True
     if visibility != GROUP:
         if visibility not in {SPACE_SHARED, OFFICIAL}:
@@ -243,7 +285,13 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
             models.LearningSpaceMembership.user_id == current_user.id,
             models.LearningSpaceMembership.learning_space_id == contribution.learning_space_id,
             models.LearningSpaceMembership.status == "active",
-        ).first() is not None
+        ).first() is not None and (
+            db.query(models.LearningSpace).filter(
+                models.LearningSpace.id == contribution.learning_space_id,
+                models.LearningSpace.slug == CU_SPACE_SLUG,
+            ).first() is None
+            or getattr(current_user, "active_learning_space_id", None) == contribution.learning_space_id
+        )
     material_type = material_type_for_model(row)
     return (
         db.query(models.MaterialGroupShare)

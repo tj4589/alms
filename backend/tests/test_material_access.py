@@ -3,6 +3,9 @@ import sys
 import unittest
 from types import SimpleNamespace
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -12,6 +15,8 @@ from material_access import (  # noqa: E402
     GROUP,
     PRIVATE,
     PUBLIC,
+    SPACE_SHARED,
+    accessible_material_filter,
     can_view_material,
     normalize_group_ids,
     normalize_visibility,
@@ -73,6 +78,63 @@ class MaterialAccessTests(unittest.TestCase):
     def test_public_material_is_visible_to_another_verified_student(self):
         row = SimpleNamespace(id=4, uploaded_by=7, visibility=PUBLIC)
         self.assertTrue(can_view_material(AccessDatabaseDouble(), row, user(8)))
+
+    def test_cu_scoped_material_requires_active_cu_membership_and_context(self):
+        engine = create_engine("sqlite:///:memory:")
+        for table in (
+            models.LearningSpace.__table__,
+            models.User.__table__,
+            models.LearningSpaceMembership.__table__,
+            models.StudyGroup.__table__,
+            models.StudyGroupMember.__table__,
+            models.MaterialGroupShare.__table__,
+            models.LectureNote.__table__,
+            models.MaterialContribution.__table__,
+        ):
+            table.create(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            cu = models.LearningSpace(slug="cu", name="Covenant University", type="university", status="active")
+            owner = models.User(id=1, username="owner", email="owner@gmail.com", role="student")
+            member = models.User(id=2, username="member", email="member@stu.cu.edu.ng", role="student")
+            outsider = models.User(id=3, username="outsider", email="outsider@gmail.com", role="student")
+            db.add_all([cu, owner, member, outsider])
+            db.flush()
+            member.active_learning_space_id = cu.id
+            outsider.active_learning_space_id = cu.id
+            db.add(models.LearningSpaceMembership(user_id=member.id, learning_space_id=cu.id, status="active"))
+            note = models.LectureNote(id=4, uploaded_by=owner.id, title="CU notes", visibility=SPACE_SHARED)
+            db.add(note)
+            db.flush()
+            db.add(models.MaterialContribution(
+                material_type="lecture_note",
+                material_id=note.id,
+                learning_space_id=cu.id,
+                submitted_by=owner.id,
+                moderation_status="approved",
+                requested_visibility=SPACE_SHARED,
+            ))
+            db.commit()
+
+            self.assertTrue(can_view_material(db, note, member))
+            self.assertFalse(can_view_material(db, note, outsider))
+            self.assertEqual(
+                db.query(models.LectureNote)
+                .filter(accessible_material_filter(db, models.LectureNote, member))
+                .count(),
+                1,
+            )
+            self.assertEqual(
+                db.query(models.LectureNote)
+                .filter(accessible_material_filter(db, models.LectureNote, outsider))
+                .count(),
+                0,
+            )
+            member.active_learning_space_id = None
+            self.assertFalse(can_view_material(db, note, member))
+        finally:
+            db.close()
+            engine.dispose()
 
     def test_group_material_requires_membership(self):
         row = models.LectureNote(id=4, uploaded_by=7, visibility=GROUP)
