@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
+from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import inspect, text
@@ -82,6 +85,100 @@ REQUIRED_INDEXES = frozenset(
 )
 
 
+def _load_baseline_constraints() -> tuple[set[tuple[str, str, str, str, str]], set[tuple[str, tuple[str, ...]]]]:
+    migration_path = Path(__file__).parent / "alembic" / "versions" / "0001_initial_schema.py"
+    spec = importlib.util.spec_from_file_location("exam_baseline_for_checks", migration_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load migration baseline from {migration_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    foreign_keys = set()
+    unique_constraints = set()
+    for table in module._TABLES:
+        for foreign_key_group in table["fks"]:
+            for foreign_key in foreign_key_group:
+                target_table, target_column = foreign_key["target"].split(".", 1)
+                foreign_keys.add(
+                    (
+                        table["name"],
+                        foreign_key["local"],
+                        target_table,
+                        target_column,
+                        foreign_key["ondelete"] or "NO ACTION",
+                    )
+                )
+        for columns in table["unique_constraints"]:
+            unique_constraints.add((table["name"], tuple(columns)))
+    return foreign_keys, unique_constraints
+
+
+REQUIRED_FOREIGN_KEYS, REQUIRED_UNIQUE_CONSTRAINTS = _load_baseline_constraints()
+
+
+def _inspect_postgresql_constraints(connection: Connection) -> tuple[set, set]:
+    foreign_key_rows = connection.execute(
+        text(
+            """
+            SELECT tc.table_name, kcu.column_name,
+                   ccu.table_name AS foreign_table_name,
+                   ccu.column_name AS foreign_column_name,
+                   rc.delete_rule
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_schema = kcu.constraint_schema
+             AND tc.constraint_name = kcu.constraint_name
+             AND tc.table_name = kcu.table_name
+            JOIN information_schema.constraint_column_usage ccu
+              ON tc.constraint_schema = ccu.constraint_schema
+             AND tc.constraint_name = ccu.constraint_name
+            JOIN information_schema.referential_constraints rc
+              ON tc.constraint_schema = rc.constraint_schema
+             AND tc.constraint_name = rc.constraint_name
+            WHERE tc.constraint_schema = 'public'
+              AND tc.constraint_type = 'FOREIGN KEY'
+            """
+        )
+    ).mappings()
+    foreign_keys = {
+        (
+            row["table_name"],
+            row["column_name"],
+            row["foreign_table_name"],
+            row["foreign_column_name"],
+            row["delete_rule"],
+        )
+        for row in foreign_key_rows
+    }
+
+    unique_rows = connection.execute(
+        text(
+            """
+            SELECT tc.table_name, kcu.constraint_name,
+                   kcu.column_name, kcu.ordinal_position
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_schema = kcu.constraint_schema
+             AND tc.constraint_name = kcu.constraint_name
+             AND tc.table_name = kcu.table_name
+            WHERE tc.constraint_schema = 'public'
+              AND tc.constraint_type = 'UNIQUE'
+            ORDER BY tc.table_name, kcu.constraint_name, kcu.ordinal_position
+            """
+        )
+    ).mappings()
+    grouped: defaultdict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
+    for row in unique_rows:
+        grouped[(row["table_name"], row["constraint_name"])].append(
+            (row["ordinal_position"], row["column_name"])
+        )
+    unique_constraints = {
+        (table, tuple(column for _, column in sorted(columns)))
+        for (table, _), columns in grouped.items()
+    }
+    return foreign_keys, unique_constraints
+
+
 def inspect_required_schema(connection: Connection) -> dict[str, Any]:
     """Return a read-only schema report without changing the database."""
 
@@ -115,12 +212,17 @@ def inspect_required_schema(connection: Connection) -> dict[str, Any]:
         "dialect": connection.dialect.name,
     }
     if connection.dialect.name == "postgresql":
+        actual_foreign_keys, actual_unique_constraints = _inspect_postgresql_constraints(connection)
+        report["missing_foreign_keys"] = sorted(REQUIRED_FOREIGN_KEYS - actual_foreign_keys)
+        report["missing_unique_constraints"] = sorted(REQUIRED_UNIQUE_CONSTRAINTS - actual_unique_constraints)
         report["pgvector_extension"] = bool(
             connection.execute(
                 text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
             ).scalar()
         )
     else:
+        report["missing_foreign_keys"] = []
+        report["missing_unique_constraints"] = []
         report["pgvector_extension"] = None
     return report
 
@@ -136,6 +238,10 @@ def verify_required_schema(connection: Connection) -> dict[str, Any]:
         problems.append(f"missing columns: {report['missing_columns']}")
     if report["missing_indexes"]:
         problems.append(f"missing indexes: {', '.join(report['missing_indexes'])}")
+    if report["missing_foreign_keys"]:
+        problems.append(f"missing foreign keys: {report['missing_foreign_keys']}")
+    if report["missing_unique_constraints"]:
+        problems.append(f"missing unique constraints: {report['missing_unique_constraints']}")
     if report["dialect"] == "postgresql" and not report["pgvector_extension"]:
         problems.append("pgvector extension is not installed")
     if problems:

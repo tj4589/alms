@@ -92,12 +92,20 @@ class MigrationSystemTests(unittest.TestCase):
         self.assertIn("command.upgrade(config, \"head\")", migrate)
 
     def test_migration_helpers_are_read_only_and_cover_critical_objects(self):
-        from migration_checks import REQUIRED_COLUMNS, REQUIRED_INDEXES, REQUIRED_TABLES
+        from migration_checks import (
+            REQUIRED_COLUMNS,
+            REQUIRED_FOREIGN_KEYS,
+            REQUIRED_INDEXES,
+            REQUIRED_TABLES,
+            REQUIRED_UNIQUE_CONSTRAINTS,
+        )
 
         self.assertGreaterEqual(len(REQUIRED_TABLES), 41)
         self.assertIn("firebase_uid", REQUIRED_COLUMNS["users"])
         self.assertIn("embedding", REQUIRED_COLUMNS["resource_chunks"])
         self.assertIn("ix_users_email_lower", REQUIRED_INDEXES)
+        self.assertEqual(len(REQUIRED_FOREIGN_KEYS), 76)
+        self.assertEqual(len(REQUIRED_UNIQUE_CONSTRAINTS), 11)
         source = (BACKEND_ROOT / "migration_checks.py").read_text(encoding="utf-8")
         self.assertNotIn("INSERT ", source.upper())
         self.assertNotIn("UPDATE ", source.upper())
