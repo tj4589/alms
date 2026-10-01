@@ -10,6 +10,10 @@ import auth
 import models
 from database import get_db
 from ksa_claim_admin import inspect_ksa_claim, release_ksa_claim
+from learning_space_roles import (
+    demote_ksa_moderator_to_member,
+    promote_ksa_member_to_moderator,
+)
 from learning_spaces import (
     activate_space,
     claim_ksa_member,
@@ -79,6 +83,20 @@ class KsaClaimReleaseRequest(BaseModel):
         reason = value.strip()
         if not reason:
             raise ValueError("A release reason is required.")
+        return reason
+
+
+class KsaModeratorRoleChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def require_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if not reason:
+            raise ValueError("A role-change reason is required.")
         return reason
 
 
@@ -172,6 +190,36 @@ def release_ksa_registry_claim(
     return release_ksa_claim(
         db,
         ksa_id=canonical_ksa_id,
+        performed_by=admin,
+        reason=payload.reason,
+    )
+
+
+@router.post("/ksa/admin/moderators/{user_id}")
+def promote_ksa_moderator(
+    user_id: int,
+    payload: KsaModeratorRoleChangeRequest,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_global_admin),
+):
+    return promote_ksa_member_to_moderator(
+        db,
+        target_user_id=user_id,
+        performed_by=admin,
+        reason=payload.reason,
+    )
+
+
+@router.post("/ksa/admin/moderators/{user_id}/demote")
+def demote_ksa_moderator(
+    user_id: int,
+    payload: KsaModeratorRoleChangeRequest,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_global_admin),
+):
+    return demote_ksa_moderator_to_member(
+        db,
+        target_user_id=user_id,
         performed_by=admin,
         reason=payload.reason,
     )

@@ -114,5 +114,7 @@ whose role is `owner`, `admin`, or `moderator`. A plain `User.role ==
 "moderator"` does not grant global or cross-space moderation access.
 
 The additive `0003_learning_space_role_audit` migration provides append-only
-history for future scoped role transitions. S5.1 adds the recording boundary;
-promotion and demotion endpoints remain intentionally deferred.
+history for scoped role transitions. The controlled KSA promotion and demotion
+endpoints are global-admin-only, require an existing active KSA membership,
+and record exactly one role transition event. They do not create memberships,
+release claims, or change memberships in another learning space.
