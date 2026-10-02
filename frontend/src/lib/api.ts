@@ -126,8 +126,8 @@ export function apiFormPost(path: string, formData: FormData | URLSearchParams) 
  * click has been dispatched. Returns the filename the server chose, so the
  * caller can say what was saved.
  */
-export async function apiDownload(path: string, fallbackName: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'GET', headers: authHeaders() });
+async function downloadResponse(path: string, init: RequestInit, fallbackName: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}${path}`, init);
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, 'That file could not be downloaded.'));
   }
@@ -135,8 +135,26 @@ export async function apiDownload(path: string, fallbackName: string): Promise<s
   // The server names the file in Content-Disposition; fall back to the
   // caller's name when the header is absent or unparseable.
   const disposition = response.headers.get('Content-Disposition') || '';
-  const match = /filename="?([^"]+)"?/.exec(disposition);
-  const filename = match ? match[1] : fallbackName;
+  const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const plainMatch = /filename="?([^";]+)"?/i.exec(disposition);
+  const sanitizeFilename = (value: string, fallback: string) => {
+    const sanitized = [...value]
+      .filter(character => {
+        const code = character.charCodeAt(0);
+        return character !== '\\' && character !== '/' && code >= 32 && code !== 127;
+      })
+      .join('')
+      .trim();
+    return sanitized || fallback;
+  };
+  const safeFallbackName = sanitizeFilename(fallbackName, 'download');
+  let filename = safeFallbackName;
+  if (encodedMatch) {
+    try { filename = decodeURIComponent(encodedMatch[1]); } catch { filename = safeFallbackName; }
+  } else if (plainMatch) {
+    filename = plainMatch[1];
+  }
+  filename = sanitizeFilename(filename, safeFallbackName);
 
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -148,6 +166,22 @@ export async function apiDownload(path: string, fallbackName: string): Promise<s
   anchor.remove();
   URL.revokeObjectURL(url);
   return filename;
+}
+
+export function apiDownload(path: string, fallbackName: string): Promise<string> {
+  return downloadResponse(path, { method: 'GET', headers: authHeaders() }, fallbackName);
+}
+
+export function apiDownloadPost(path: string, body: RequestBody, fallbackName: string): Promise<string> {
+  return downloadResponse(
+    path,
+    {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    },
+    fallbackName,
+  );
 }
 
 export async function apiBlob(path: string): Promise<Blob> {

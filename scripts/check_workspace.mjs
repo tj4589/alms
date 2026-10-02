@@ -88,6 +88,15 @@ window.fetch = async (...args) => {
   const populated = window.__workspaceFixture === 'populated';
   let data = [];
   if (url.includes('/auth/me')) data = {id:1,name:'Test Student',username:'test_student',email:'test@example.com',role:'student',account_status:'active'};
+  else if (url.includes('/collaboration/materials/') && url.includes('/export')) {
+    const format = new URL(url).searchParams.get('format') || 'md';
+    return new Response('Test source\n\nExported ' + format + ' content.\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="test-source.' + format + '"'}});
+  }
+  else if (url.endsWith('/collaboration/exports') && method === 'POST') {
+    const request = JSON.parse(args[1]?.body || '{}');
+    const format = request.format || 'md';
+    return new Response('ExamMind export\n\n' + (request.payload?.answer || request.payload?.body || '') + '\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="maxe-export.' + format + '"'}});
+  }
   else if (url.includes('/collaboration/share-links/') && method === 'DELETE') {
     const linkId = Number(url.split('/').pop());
     const link = window.__shareLinks.find(item => item.id === linkId);
@@ -279,6 +288,13 @@ await waitFor(`document.querySelectorAll('#s-workspace .ai-citation').length > 0
 assert.equal(await evaluate(`document.querySelector('#s-workspace .ai-citation').textContent.includes('Page 4')`),true,'PDF citation did not render');
 await evaluate(`document.querySelectorAll('#s-workspace .ai-citation').item(document.querySelectorAll('#s-workspace .ai-citation').length - 1).click()`);
 await waitFor(`document.querySelector('#s-workspace .ws-native-preview')?.src.includes('#page=4')`);
+
+await evaluate(`document.querySelector('#s-workspace .ws-reader-actions .sv-trigger').click()`);
+await waitFor(`document.querySelector('.sv-menu')`);
+assert.ok(await evaluate(`document.querySelector('.sv-menu').textContent.includes('Export Markdown')`),'Resource Markdown export action did not render');
+assert.ok(await evaluate(`document.querySelector('.sv-menu').textContent.includes('Export plain text')`),'Resource text export action did not render');
+await evaluate(`document.querySelector('.sv-menu [role="menuitem"]').click()`);
+await waitFor(`window.__fixtureRequests.some(url => url.includes('/collaboration/materials/lecture_note/2/export?format=md'))`);
 
 await evaluate(`document.querySelector('#s-workspace .ws-share-button').click()`);
 await waitFor(`document.querySelector('#s-workspace .ws-share-panel')`);

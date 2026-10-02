@@ -568,6 +568,18 @@ export default function SmartSearch({
                         // download route walks back to the row that holds the
                         // bytes for this document.
                         download: () => apiDownload(`/materials/past-questions/${q.id}/download`, 'past-question.pdf'),
+                        exports: [
+                          {
+                            label: 'Export Markdown',
+                            description: 'Download the authorized questions as Markdown',
+                            run: () => apiDownload(`/collaboration/materials/past_question/${q.id}/export?format=md`, `past-question-${q.id}.md`),
+                          },
+                          {
+                            label: 'Export plain text',
+                            description: 'Download the authorized questions as text',
+                            run: () => apiDownload(`/collaboration/materials/past_question/${q.id}/export?format=txt`, `past-question-${q.id}.txt`),
+                          },
+                        ],
                         // The question text is already here, so it caches as
                         // itself rather than as a promise to fetch later.
                         snapshot: async () => q.content_text ? { ...q } : null,

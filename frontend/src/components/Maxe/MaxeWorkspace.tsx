@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, MessageCircle, Plus, X } from 'lucide-react';
 import type { ChatMessage, ScreenType, User } from '../../types';
+import { apiDownloadPost } from '../../lib/api';
 import Assistant from '../../screens/Assistant';
 import MaxeMark from './MaxeMark';
 import SaveButton from '../SaveButton';
@@ -64,6 +65,16 @@ function threadTitle(messages: ChatMessage[]) {
   return lastQuestion.length > 42 ? `${lastQuestion.slice(0, 42).trim()}…` : lastQuestion;
 }
 
+function latestExportableAnswer(messages: ChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const answer = messages[index];
+    if (answer.role !== 'assistant' || !answer.wasStudyQuery || !answer.content.trim()) continue;
+    const question = [...messages.slice(0, index)].reverse().find(message => message.role === 'user');
+    return { answer, question: question?.content || 'Maxe answer' };
+  }
+  return null;
+}
+
 export default function MaxeWorkspace({
   go,
   selectedQuestion,
@@ -83,6 +94,7 @@ export default function MaxeWorkspace({
     () => messages.find((message) => message.role === 'user')?.id ?? null,
     [messages],
   );
+  const exportableAnswer = latestExportableAnswer(messages);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -175,6 +187,28 @@ export default function MaxeWorkspace({
                     title: title || 'Conversation with Maxe',
                     meta: `${messages.length} message${messages.length === 1 ? '' : 's'}`,
                     snapshot: async () => messages.length > 0 ? messages : null,
+                    exports: exportableAnswer ? [
+                      {
+                        label: 'Export answer as Markdown',
+                        description: 'Download this source-aware Maxe answer',
+                        run: () => apiDownloadPost('/collaboration/exports', {
+                          content_type: 'maxe_answer',
+                          title: title || 'Maxe answer',
+                          format: 'md',
+                          payload: { question: exportableAnswer.question, answer: exportableAnswer.answer.content, mode: exportableAnswer.answer.mode, citations: exportableAnswer.answer.sourceCitations || [] },
+                        }, 'maxe-answer.md'),
+                      },
+                      {
+                        label: 'Export answer as plain text',
+                        description: 'Download this answer as text',
+                        run: () => apiDownloadPost('/collaboration/exports', {
+                          content_type: 'maxe_answer',
+                          title: title || 'Maxe answer',
+                          format: 'txt',
+                          payload: { question: exportableAnswer.question, answer: exportableAnswer.answer.content, mode: exportableAnswer.answer.mode, citations: exportableAnswer.answer.sourceCitations || [] },
+                        }, 'maxe-answer.txt'),
+                      },
+                    ] : undefined,
                   }}
                 />
               </span>

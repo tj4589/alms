@@ -276,6 +276,18 @@ export default function Reader({ go, noteId }: ReaderProps) {
                   meta: [note.course_code, readableSize(note.file_size)].filter(Boolean).join(' · '),
                   // Only offered when there are real bytes behind the note.
                   download: note.has_file ? download : undefined,
+                  exports: [
+                    {
+                      label: 'Export Markdown',
+                      description: 'Download the authorized reading as Markdown',
+                      run: () => apiDownload(`/collaboration/materials/lecture_note/${note.id}/export?format=md`, `lecture-note-${note.id}.md`),
+                    },
+                    {
+                      label: 'Export plain text',
+                      description: 'Download the authorized reading as text',
+                      run: () => apiDownload(`/collaboration/materials/lecture_note/${note.id}/export?format=txt`, `lecture-note-${note.id}.txt`),
+                    },
+                  ],
                   // The sections are already loaded to render the page, so
                   // caching them costs nothing and makes the note readable
                   // offline exactly as it reads here.

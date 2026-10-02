@@ -19,6 +19,13 @@ type SaveTarget = {
    * be available offline -- better than storing nothing and calling it saved.
    */
   snapshot?: () => Promise<unknown | null>;
+  exports?: ExportAction[];
+};
+
+export type ExportAction = {
+  label: string;
+  description?: string;
+  run: () => Promise<string>;
 };
 
 type SaveButtonProps = {
@@ -26,9 +33,12 @@ type SaveButtonProps = {
   /** A quieter variant for sitting inside a dense list row. */
   compact?: boolean;
   onSaved?: (item: SavedItem) => void;
+  hideSaveActions?: boolean;
+  triggerLabel?: string;
+  menuLabel?: string;
 };
 
-export default function SaveButton({ target, compact = false, onSaved }: SaveButtonProps) {
+export default function SaveButton({ target, compact = false, onSaved, hideSaveActions = false, triggerLabel = 'Save', menuLabel = 'Save' }: SaveButtonProps) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string>('');
   const [done, setDone] = useState('');
@@ -148,6 +158,20 @@ export default function SaveButton({ target, compact = false, onSaved }: SaveBut
     }
   }, [target, close]);
 
+  const runExport = useCallback(async (action: ExportAction) => {
+    setBusy(`export:${action.label}`);
+    try {
+      const filename = await action.run();
+      setDone(`Exported ${filename}`);
+      close();
+    } catch (error) {
+      setDone(error instanceof Error ? error.message : 'That export could not be created.');
+      close();
+    } finally {
+      setBusy('');
+    }
+  }, [close]);
+
   return (
     <div className={`sv-wrap${compact ? ' is-compact' : ''}`} ref={wrapRef}>
       <button
@@ -159,12 +183,12 @@ export default function SaveButton({ target, compact = false, onSaved }: SaveBut
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((current) => !current)}
       >
-        <BookmarkSimpleIcon size={16} weight="regular" aria-hidden="true" />
-        <span className="sv-trigger-label">Save</span>
+        {triggerLabel === 'Save' ? <BookmarkSimpleIcon size={16} weight="regular" aria-hidden="true" /> : <DownloadSimpleIcon size={16} aria-hidden="true" />}
+        <span className="sv-trigger-label">{triggerLabel}</span>
       </button>
 
       {open && createPortal(
-        <div className="sv-menu" id={menuId} ref={menuRef} role="menu" aria-label={`Save ${target.title}`}>
+        <div className="sv-menu" id={menuId} ref={menuRef} role="menu" aria-label={`${menuLabel} ${target.title}`}>
           {target.download && (
             <button type="button" role="menuitem" className="sv-item" onClick={() => void runDownload()} disabled={!!busy}>
               <DownloadSimpleIcon size={16} aria-hidden="true" />
@@ -174,20 +198,31 @@ export default function SaveButton({ target, compact = false, onSaved }: SaveBut
               </span>
             </button>
           )}
-          <button type="button" role="menuitem" className="sv-item" onClick={() => void store(true)} disabled={!!busy}>
-            <CloudArrowDownIcon size={16} aria-hidden="true" />
-            <span>
-              <strong>{busy === 'offline' ? 'Saving...' : 'Save for offline'}</strong>
-              <small>Opens without a connection</small>
-            </span>
-          </button>
-          <button type="button" role="menuitem" className="sv-item" onClick={() => void store(false)} disabled={!!busy}>
-            <BookmarkSimpleIcon size={16} aria-hidden="true" />
-            <span>
-              <strong>{busy === 'bookmark' ? 'Saving...' : 'Save to Materials'}</strong>
-              <small>Find it in your library</small>
-            </span>
-          </button>
+          {target.exports?.map((action) => (
+            <button type="button" role="menuitem" className="sv-item" key={action.label} onClick={() => void runExport(action)} disabled={!!busy}>
+              <DownloadSimpleIcon size={16} aria-hidden="true" />
+              <span>
+                <strong>{busy === `export:${action.label}` ? 'Exporting...' : action.label}</strong>
+                <small>{action.description || 'Download a server-formatted copy'}</small>
+              </span>
+            </button>
+          ))}
+          {!hideSaveActions && <>
+            <button type="button" role="menuitem" className="sv-item" onClick={() => void store(true)} disabled={!!busy}>
+              <CloudArrowDownIcon size={16} aria-hidden="true" />
+              <span>
+                <strong>{busy === 'offline' ? 'Saving...' : 'Save for offline'}</strong>
+                <small>Opens without a connection</small>
+              </span>
+            </button>
+            <button type="button" role="menuitem" className="sv-item" onClick={() => void store(false)} disabled={!!busy}>
+              <BookmarkSimpleIcon size={16} aria-hidden="true" />
+              <span>
+                <strong>{busy === 'bookmark' ? 'Saving...' : 'Save to Materials'}</strong>
+                <small>Find it in your library</small>
+              </span>
+            </button>
+          </>}
         </div>,
         document.body,
       )}
