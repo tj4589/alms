@@ -2,18 +2,47 @@
 // Start Vite on 5173 and headless Chrome with --remote-debugging-port=9225.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
-const target = await (await fetch('http://127.0.0.1:9225/json/new?about:blank', {method:'PUT'})).json();
+const cdpEndpoint = 'http://127.0.0.1:9225';
+const cdpTimeoutMs = 5000;
+const withTimeout = (promise, label, timeoutMs = cdpTimeoutMs) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)),
+]);
+const targetResponse = await withTimeout(fetch(`${cdpEndpoint}/json/new?about:blank`, { method: 'PUT' }), 'CDP target creation');
+if (!targetResponse.ok) throw new Error(`CDP target creation failed with HTTP ${targetResponse.status}`);
+const target = await withTimeout(targetResponse.json(), 'CDP target response');
+if (target.type !== 'page' || typeof target.webSocketDebuggerUrl !== 'string') {
+  throw new Error(`CDP returned an invalid page target: ${JSON.stringify({ id: target.id, type: target.type, url: target.url })}`);
+}
 const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise(resolve => ws.addEventListener('open', resolve, { once: true }));
+await withTimeout(new Promise((resolve, reject) => {
+  ws.addEventListener('open', resolve, { once: true });
+  ws.addEventListener('error', () => reject(new Error('CDP WebSocket emitted an error before opening')), { once: true });
+}), 'CDP WebSocket open');
 let seq = 0;
 const pending = new Map();
 const errors = [];
 ws.onmessage = e => {
-  const msg = JSON.parse(e.data);
+  const msg = JSON.parse(typeof e.data === 'string' ? e.data : String(e.data));
   if (msg.method === 'Runtime.exceptionThrown') errors.push(msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text);
   if (msg.id) { const promise = pending.get(msg.id); pending.delete(msg.id); if (msg.error) promise.reject(msg.error); else promise.resolve(msg.result); }
 };
-const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params })); });
+ws.onclose = () => {
+  for (const { reject } of pending.values()) reject(new Error('CDP WebSocket closed while a command was pending'));
+  pending.clear();
+};
+const send = (method, params = {}) => withTimeout(new Promise((resolve, reject) => {
+  const id = ++seq;
+  const timer = setTimeout(() => {
+    pending.delete(id);
+    reject(new Error(`CDP command ${method}#${id} timed out for target ${target.id}`));
+  }, cdpTimeoutMs);
+  pending.set(id, {
+    resolve: value => { clearTimeout(timer); resolve(value); },
+    reject: error => { clearTimeout(timer); reject(error); },
+  });
+  try { ws.send(JSON.stringify({ id, method, params })); } catch (error) { pending.delete(id); clearTimeout(timer); reject(error); }
+}), `CDP command ${method}`);
 const evaluate = async expression => {
   const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
@@ -27,7 +56,11 @@ const waitFor = async expression => {
   }
   throw new Error('Timed out: ' + expression);
 };
-await send('Page.enable');
+try {
+  await send('Page.enable');
+} catch (error) {
+  throw new Error(`CDP Page.enable failed for target ${target.id} (${target.type}, ${target.url || 'blank'}): ${error instanceof Error ? error.message : String(error)}`);
+}
 await send('Runtime.enable');
 await send('Network.enable');
 await send('Network.setBypassServiceWorker', { bypass: true });
@@ -41,15 +74,35 @@ if (sessionStorage.getItem('exammind-workspace-public-check') !== 'true') {
 window.__workspaceFixture = 'empty';
 window.__fixtureRequests = [];
 window.__learningAttemptRecorded = 0;
+window.__shareLinks = [];
+window.__shareLinkId = 40;
+window.__copiedShareLink = '';
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedShareLink = text; } } });
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (...args) => {
   const url = String(args[0]);
+  const method = String(args[1]?.method || 'GET').toUpperCase();
   if (!url.includes(':8001')) return originalFetch(...args);
   window.__fixtureRequests.push(url);
   if (window.__workspaceFixture === 'error') return new Response(JSON.stringify({detail:'Test offline'}),{status:503,headers:{'Content-Type':'application/json'}});
   const populated = window.__workspaceFixture === 'populated';
   let data = [];
   if (url.includes('/auth/me')) data = {id:1,name:'Test Student',username:'test_student',email:'test@example.com',role:'student',account_status:'active'};
+  else if (url.includes('/collaboration/share-links/') && method === 'DELETE') {
+    const linkId = Number(url.split('/').pop());
+    const link = window.__shareLinks.find(item => item.id === linkId);
+    if (link) link.revoked_at = new Date().toISOString();
+    data = {status:'revoked',id:linkId};
+  }
+  else if (url.endsWith('/collaboration/share-links') && method === 'GET') data = window.__shareLinks;
+  else if (url.endsWith('/collaboration/share-links') && method === 'POST') {
+    const request = JSON.parse(args[1]?.body || '{}');
+    const linkId = ++window.__shareLinkId;
+    const expiresInHours = request.expires_in_hours == null ? null : Number(request.expires_in_hours);
+    const link = {id:linkId,content_type:'resource',access_policy:request.access_policy || 'owner',expires_at:expiresInHours == null ? null : new Date(Date.now() + expiresInHours * 3600000).toISOString(),revoked_at:null,created_at:new Date().toISOString()};
+    window.__shareLinks.unshift(link);
+    data = {...link,token:'fixture-share-token-'+linkId};
+  }
   else if (url.endsWith('/learning-spaces')) {
     const cu = {id:1,slug:'cu',name:'Covenant University',type:'university',status:'active',membership:{id:1,role:'member',status:'active',onboarding_required:false}};
     data = {active_space:cu,memberships:[{space:cu}],available_spaces:[]};
@@ -89,12 +142,13 @@ window.fetch = async (...args) => {
   }
   else if (url.includes('/analytics/student/')) data = populated ? {readiness:[{id:1,topic:'Opportunity cost',score:62,course_id:1}],attempts:[{id:1,score:70,total_questions:10,topic:'Demand and supply',course_id:1,completed_at:'2026-09-15T14:00:00Z'}]} : {readiness:[],attempts:[]};
   else if (url.includes('/courses')) data = [{id:1,code:'ECO 101',name:'Introduction to Economics'},{id:2,code:'BIO 102',name:'Cell Biology'}];
-  else if (url.includes('/lecture-notes/1')) data = {id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,course_id:1,content_text:'Market structures and competitive strategy.',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'},sections:[{id:11,heading:'Market structure',body:'Market structures describe how firms compete in an industry.',page_from:null,page_to:null}]};
-  else if (url.includes('/lecture-notes/2')) data = {id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,course_id:1,content_text:'Opportunity cost explains the value of the next best alternative.',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'},sections:[{id:12,heading:'Opportunity cost',body:'Opportunity cost is the value of the next best alternative forgone.',page_from:4,page_to:4}]};
-  else if (url.includes('/lecture-notes/3')) data = {id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,course_id:1,content_text:'The recording explains market structures.',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}};
-  else if (url.includes('/lecture-notes')) data = populated ? [{id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,course_id:1,created_at:'2026-09-16T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'}},{id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,course_id:1,created_at:'2026-09-15T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'}},{id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,course_id:1,created_at:'2026-09-14T10:00:00Z',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}}] : [];
+  else if (url.includes('/lecture-notes/1')) data = {id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'Market structures and competitive strategy.',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'},sections:[{id:11,heading:'Market structure',body:'Market structures describe how firms compete in an industry.',page_from:null,page_to:null}]};
+  else if (url.includes('/lecture-notes/2')) data = {id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'Opportunity cost explains the value of the next best alternative.',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'},sections:[{id:12,heading:'Opportunity cost',body:'Opportunity cost is the value of the next best alternative forgone.',page_from:4,page_to:4}]};
+  else if (url.includes('/lecture-notes/3')) data = {id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'The recording explains market structures.',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}};
+  else if (url.includes('/lecture-notes')) data = populated ? [{id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,uploaded_by:1,course_id:1,created_at:'2026-09-16T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'}},{id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,uploaded_by:1,course_id:1,created_at:'2026-09-15T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'}},{id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,uploaded_by:1,course_id:1,created_at:'2026-09-14T10:00:00Z',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}}] : [];
   else if (url.includes('/materials/audio/3/transcript')) data = {resource_id:3,title:'Week 4 recording',transcription_status:'completed',segments:[{id:31,segment_index:0,start_time:842,end_time:906,text:'The recording explains market structures.',topic:'Market structures'}]};
-  else if (url.includes('/past-questions')) data = populated ? [{id:1,title:'First semester past questions',course_id:2,year:2025,created_at:'2026-09-15T10:00:00Z'}] : [];
+  else if (url.includes('/past-questions')) data = populated ? [{id:1,title:'First semester past questions',uploaded_by:2,course_id:2,year:2025,created_at:'2026-09-15T10:00:00Z'}] : [];
+  else if (url.includes('/study-groups')) data = populated ? [{id:9,name:'Economics revision group',is_member:true,status:'active'}] : [];
   else if (url.includes('/study-sessions')) data = populated ? [{id:1,title:'Let’s work through economics',topic:'Demand and supply',starts_at:new Date(Date.now()+86400000).toISOString()}] : [];
   else if (url.endsWith(':8001/')) data = {status:'ok'};
   return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
@@ -225,6 +279,33 @@ await waitFor(`document.querySelectorAll('#s-workspace .ai-citation').length > 0
 assert.equal(await evaluate(`document.querySelector('#s-workspace .ai-citation').textContent.includes('Page 4')`),true,'PDF citation did not render');
 await evaluate(`document.querySelectorAll('#s-workspace .ai-citation').item(document.querySelectorAll('#s-workspace .ai-citation').length - 1).click()`);
 await waitFor(`document.querySelector('#s-workspace .ws-native-preview')?.src.includes('#page=4')`);
+
+await evaluate(`document.querySelector('#s-workspace .ws-share-button').click()`);
+await waitFor(`document.querySelector('#s-workspace .ws-share-panel')`);
+await waitFor(`document.querySelector('#s-workspace .ws-share-state')?.textContent.includes('No share links yet')`);
+assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-share-state')?.textContent.includes('No share links yet')`),'Share-link empty state did not render');
+await evaluate(`document.querySelector('#s-workspace .ws-share-form').requestSubmit()`);
+await waitFor(`document.querySelector('#s-workspace .ws-share-latest')`);
+assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-share-alert.is-success')?.textContent.includes('Share link created')`),'Share-link success state did not render');
+const createdShareUrl = await evaluate(`document.querySelector('#s-workspace .ws-share-latest input')?.value`);
+assert.ok(String(createdShareUrl).includes('/collaboration/share/'),'Created share link did not use the supported resolve endpoint');
+await evaluate(`document.querySelector('#s-workspace button[aria-label="Copy new share link"]').click()`);
+await waitFor(`document.querySelector('#s-workspace .ws-share-alert.is-success')?.textContent.includes('copied')`);
+assert.equal(await evaluate(`window.__copiedShareLink`),createdShareUrl,'Share link copy action did not reach the clipboard fixture');
+await evaluate(`navigator.clipboard.writeText = async () => { throw new Error('clipboard blocked'); }; document.querySelector('#s-workspace button[aria-label="Copy new share link"]').click()`);
+await waitFor(`document.querySelector('#s-workspace .ws-share-alert.is-error')?.textContent.includes('Clipboard access is unavailable')`);
+await evaluate(`navigator.clipboard.writeText = async text => { window.__copiedShareLink = text; };`);
+await evaluate(`document.querySelector('#s-workspace .ws-share-inline-action.is-danger').click()`);
+await waitFor(`document.querySelector('#s-workspace .ws-share-status.is-revoked')`);
+assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-share-status.is-revoked')?.textContent.includes('Revoked')`),'Revoked share-link status did not refresh');
+await captureViewport(1440,'workspace-sharing-desktop',1000);
+await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),'Sharing panel has horizontal overflow on mobile');
+await captureViewport(390,'workspace-sharing-mobile',844);
+await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+
+await selectWorkspaceSource('First semester past questions');
+assert.equal(await evaluate(`document.querySelector('#s-workspace .ws-share-button')`),null,'Share controls were shown for a resource the current user does not own');
 
 await evaluate(`document.querySelector('#s-workspace .ai-mode-toggle button:nth-child(2)').click()`);
 assert.equal(await evaluate(`document.querySelector('#s-workspace .ai-mode-toggle button:nth-child(2)').getAttribute('aria-pressed')`),'true');

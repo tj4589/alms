@@ -18,6 +18,10 @@ export function clearAuthToken() {
   clearToken();
 }
 
+export function apiUrl(path: string) {
+  return `${API_BASE_URL}${path}`;
+}
+
 async function readErrorMessage(response: Response, fallback: string) {
   try {
     const data = await response.json();
