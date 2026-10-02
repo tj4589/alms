@@ -19,6 +19,7 @@ from material_access import accessible_material_filter
 from learning_spaces import authorized_active_space
 from resource_index import citation_payload
 from learning_intelligence import learning_suggestion
+from rate_limiting import user_rate_limit
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 MAX_RAG_QUESTION_CHARS = int(os.getenv("MAX_RAG_QUESTION_CHARS", "2000"))
@@ -552,6 +553,7 @@ def ask_question(
     req: AskQuestionRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("maxe", auth.get_current_user)),
 ):
     question = req.question.strip()
     if not question:

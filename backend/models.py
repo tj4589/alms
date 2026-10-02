@@ -25,6 +25,18 @@ class LearningSpace(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
 
+class RateLimitBucket(Base):
+    """Shared fixed-window counters used by distributed API throttling."""
+
+    __tablename__ = "rate_limit_buckets"
+
+    bucket_key = Column(String(255), primary_key=True)
+    window_started_at = Column(DateTime(timezone=True), nullable=False)
+    window_expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    request_count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
 class User(Base):
     __tablename__ = "users"
 

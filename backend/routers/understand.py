@@ -20,6 +20,7 @@ import auth
 import models
 from database import get_db
 from query_understanding import CONVERSATIONAL_NONTOPICS, GUIDANCE_NEEDED_MARKERS, understand_query
+from rate_limiting import user_rate_limit
 
 try:
     from ai_clients import generate_ai_response
@@ -283,6 +284,7 @@ def understand_message(
     req: UnderstandRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),  # noqa: ARG001
+    _rate_limit: None = Depends(user_rate_limit("maxe", auth.get_current_user)),
 ):
     message = (req.message or "").strip()
     context = (req.conversation_context or "").strip()

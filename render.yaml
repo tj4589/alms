@@ -86,6 +86,56 @@ services:
         value: "40"
       - key: MAX_RAG_QUESTION_CHARS
         value: "2000"
+      # Shared PostgreSQL-backed rate limits. Keep failure mode closed so an
+      # unavailable limiter cannot allow protected work to continue unchecked.
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_FAILURE_MODE
+        value: closed
+      - key: RATE_LIMIT_AUTH_SESSION_LIMIT
+        value: "10"
+      - key: RATE_LIMIT_AUTH_SESSION_WINDOW_SECONDS
+        value: "900"
+      - key: RATE_LIMIT_KSA_VERIFY_LIMIT
+        value: "5"
+      - key: RATE_LIMIT_KSA_VERIFY_WINDOW_SECONDS
+        value: "900"
+      - key: RATE_LIMIT_UPLOAD_LIMIT
+        value: "20"
+      - key: RATE_LIMIT_UPLOAD_WINDOW_SECONDS
+        value: "3600"
+      - key: RATE_LIMIT_MAXE_LIMIT
+        value: "30"
+      - key: RATE_LIMIT_MAXE_WINDOW_SECONDS
+        value: "60"
+      - key: RATE_LIMIT_SESSION_AI_LIMIT
+        value: "20"
+      - key: RATE_LIMIT_SESSION_AI_WINDOW_SECONDS
+        value: "60"
+      - key: RATE_LIMIT_QUIZ_GENERATE_LIMIT
+        value: "10"
+      - key: RATE_LIMIT_QUIZ_GENERATE_WINDOW_SECONDS
+        value: "900"
+      - key: RATE_LIMIT_SHARE_CREATE_LIMIT
+        value: "20"
+      - key: RATE_LIMIT_SHARE_CREATE_WINDOW_SECONDS
+        value: "3600"
+      - key: RATE_LIMIT_DOWNLOAD_LIMIT
+        value: "60"
+      - key: RATE_LIMIT_DOWNLOAD_WINDOW_SECONDS
+        value: "3600"
+      - key: RATE_LIMIT_EXPORT_LIMIT
+        value: "30"
+      - key: RATE_LIMIT_EXPORT_WINDOW_SECONDS
+        value: "3600"
+      - key: RATE_LIMIT_SHARE_READ_LIMIT
+        value: "120"
+      - key: RATE_LIMIT_SHARE_READ_WINDOW_SECONDS
+        value: "900"
+      - key: RATE_LIMIT_PUBLIC_FEEDBACK_LIMIT
+        value: "5"
+      - key: RATE_LIMIT_PUBLIC_FEEDBACK_WINDOW_SECONDS
+        value: "900"
       - key: SQL_ECHO
         value: "false"
       - key: DB_CONNECT_TIMEOUT

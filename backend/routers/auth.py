@@ -11,6 +11,7 @@ from firebase_tokens import FirebaseTokenError, verify_firebase_id_token, verify
 import models
 import schemas
 from database import get_db
+from rate_limiting import client_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ def get_account_deletion_status():
 def firebase_session(
     payload: schemas.FirebaseSessionRequest,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(client_rate_limit("auth_session")),
 ):
     try:
         try:
@@ -240,6 +242,7 @@ def deactivate_account(
 def reactivate_account(
     payload: schemas.FirebaseIdentityRequest,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(client_rate_limit("auth_session")),
 ):
     try:
         claims = verify_firebase_id_token(payload.firebase_id_token)

@@ -7,6 +7,7 @@ import models
 from database import get_db
 from routers.rag import AskQuestionRequest, AskQuestionResponse, run_rag_query
 from sqlalchemy.orm import Session
+from rate_limiting import user_rate_limit
 
 
 router = APIRouter(prefix="/maxe", tags=["maxe"])
@@ -17,6 +18,7 @@ def chat(
     req: AskQuestionRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("maxe", auth.get_current_user)),
 ):
     """Answer one Maxe turn without exposing an unauthorized context."""
     question = req.question.strip()

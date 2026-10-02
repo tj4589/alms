@@ -35,6 +35,7 @@ from material_access import (
     validate_share_groups,
 )
 from resource_index import chunk_provenance_fields, classify_workspace_relevance
+from rate_limiting import user_rate_limit
 
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response, normalize_transcript_segments, transcribe_audio
 
@@ -2966,6 +2967,7 @@ def upload_document(
     duplicate_resolution: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
+    _rate_limit: None = Depends(user_rate_limit("upload", auth.require_role("student"))),
 ):
     extraction = extract_pdf_text(file)
     is_audio = extraction.get("resource_type") == "audio"

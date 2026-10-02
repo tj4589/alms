@@ -1,9 +1,6 @@
 """Authenticated and public product feedback endpoints."""
 
-from collections import defaultdict, deque
 from datetime import datetime
-from threading import Lock
-from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,47 +10,12 @@ import auth
 import models
 import schemas
 from database import get_db
+from rate_limiting import client_rate_limit
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 PUBLIC_FEEDBACK_MAX_BYTES = 64 * 1024
-PUBLIC_FEEDBACK_RATE_LIMIT = 5
-PUBLIC_FEEDBACK_RATE_WINDOW_SECONDS = 15 * 60
 PUBLIC_FEEDBACK_SUCCESS = "Thanks for helping us improve ExamMind."
-
-
-class FeedbackRateLimiter:
-    """Small in-process limiter; keys and timestamps are never persisted."""
-
-    def __init__(self, limit: int = PUBLIC_FEEDBACK_RATE_LIMIT, window_seconds: int = PUBLIC_FEEDBACK_RATE_WINDOW_SECONDS):
-        self.limit = limit
-        self.window_seconds = window_seconds
-        self._buckets: dict[str, deque[float]] = defaultdict(deque)
-        self._lock = Lock()
-
-    def allow(self, key: str, now: float | None = None) -> bool:
-        current = monotonic() if now is None else now
-        with self._lock:
-            bucket = self._buckets[key]
-            while bucket and bucket[0] <= current - self.window_seconds:
-                bucket.popleft()
-            if len(bucket) >= self.limit:
-                return False
-            bucket.append(current)
-            if len(self._buckets) > 2048:
-                stale_keys = [name for name, values in self._buckets.items() if not values]
-                for stale_key in stale_keys:
-                    self._buckets.pop(stale_key, None)
-            return True
-
-
-public_feedback_rate_limiter = FeedbackRateLimiter()
-
-
-def _request_rate_key(request: Request) -> str:
-    # Render's proxy address is used transiently for abuse protection only.
-    # It is not written to the Feedback row, logs, or any analytics payload.
-    return request.client.host if request.client and request.client.host else "unknown-client"
 
 
 def _save_feedback(db: Session, **values) -> models.Feedback:
@@ -80,14 +42,10 @@ def create_public_feedback(
     payload: schemas.PublicFeedbackRequest,
     request: Request,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(client_rate_limit("public_feedback")),
 ):
     if payload.website:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="We could not accept that feedback.")
-    if not public_feedback_rate_limiter.allow(_request_rate_key(request)):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Please wait before sending another message.",
-        )
 
     _save_feedback(
         db,

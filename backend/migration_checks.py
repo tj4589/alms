@@ -55,6 +55,7 @@ REQUIRED_TABLES = frozenset(
         "study_session_participants",
         "thread_messages",
         "learning_space_role_audits",
+        "rate_limit_buckets",
     }
 )
 
@@ -70,6 +71,7 @@ REQUIRED_COLUMNS = {
     "learning_quiz_attempts": {"graded_questions", "needs_review_count", "percentage"},
     "learning_quiz_questions": {"citation_json", "correct_answer"},
     "learning_space_role_audits": {"learning_space_id", "learning_space_slug", "target_user_id", "membership_id", "previous_role", "new_role", "performed_by_user_id", "reason", "created_at"},
+    "rate_limit_buckets": {"bucket_key", "window_started_at", "window_expires_at", "request_count", "updated_at"},
 }
 
 REQUIRED_INDEXES = frozenset(
@@ -87,6 +89,7 @@ REQUIRED_INDEXES = frozenset(
         "ix_learning_space_role_audits_target_user_id",
         "ix_learning_space_role_audits_membership_id",
         "ix_learning_space_role_audits_performed_by_user_id",
+        "ix_rate_limit_buckets_window_expires_at",
     }
 )
 

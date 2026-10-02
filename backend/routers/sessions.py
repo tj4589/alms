@@ -11,6 +11,7 @@ import auth
 import models
 from database import get_db
 from routers.rag import run_rag_query
+from rate_limiting import user_rate_limit
 
 router = APIRouter(prefix="/study-sessions", tags=["sessions"])
 
@@ -630,6 +631,7 @@ def ask_ai(
     req: AskAIRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
+    _rate_limit: None = Depends(user_rate_limit("session_ai", auth.require_role("student"))),
 ):
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:

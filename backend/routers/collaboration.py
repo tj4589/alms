@@ -40,6 +40,7 @@ from material_access import (
     require_material_owner,
     sharing_payload,
 )
+from rate_limiting import share_read_rate_limit, user_rate_limit
 
 router = APIRouter(prefix="/collaboration", tags=["collaboration"])
 
@@ -430,6 +431,7 @@ def create_share_link(
     req: ShareLinkRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("share_create", auth.get_current_user)),
 ):
     if req.content_type == "resource":
         if not req.material_type or not req.material_id:
@@ -486,6 +488,7 @@ def resolve_share_link(
     token: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(share_read_rate_limit),
 ):
     link = _require_link(db, token)
     if not _policy_allows_link(db, link, current_user):
@@ -541,6 +544,7 @@ def export_material(
     format: Literal["md", "txt"] = "md",
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("export", auth.get_current_user)),
 ):
     row = _material_row(db, material_type, material_id)
     if not can_view_material(db, row, current_user):
@@ -566,6 +570,7 @@ def export_material(
 def export_selected_content(
     req: ExportRequest,
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("export", auth.get_current_user)),
 ):
     payload = _safe_content_payload(req.payload)
     text = _markdown(req.title, payload, req.content_type) if req.format == "md" else f"{req.title}\n\n{payload.get('answer') or payload.get('body') or ''}\n"

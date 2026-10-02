@@ -22,6 +22,7 @@ from learning_spaces import (
     mark_ksa_onboarding_complete,
     normalize_ksa_id,
 )
+from rate_limiting import user_rate_limit
 
 router = APIRouter(prefix="/learning-spaces", tags=["learning-spaces"])
 
@@ -122,6 +123,7 @@ def verify_ksa_member(
     payload: KsaVerificationRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
+    _rate_limit: None = Depends(user_rate_limit("ksa_verify", auth.require_role("student"))),
 ):
     return claim_ksa_member(db, current_user, payload.ksa_id)
 

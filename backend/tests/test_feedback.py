@@ -77,13 +77,6 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 400)
         self.assertFalse(db.added)
 
-    def test_rate_limiter_rejects_after_limit(self):
-        limiter = feedback.FeedbackRateLimiter(limit=2, window_seconds=60)
-        self.assertTrue(limiter.allow("198.51.100.13", now=100))
-        self.assertTrue(limiter.allow("198.51.100.13", now=101))
-        self.assertFalse(limiter.allow("198.51.100.13", now=102))
-        self.assertTrue(limiter.allow("198.51.100.13", now=161))
-
     def test_public_payload_cannot_supply_identity_or_workflow_fields(self):
         with self.assertRaises(ValidationError):
             self.valid_public_payload(user_id=42, source="authenticated", status="closed")

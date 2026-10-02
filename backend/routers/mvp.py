@@ -48,6 +48,7 @@ from learning_intelligence import (
     readiness_payload,
     record_quiz_attempt,
 )
+from rate_limiting import user_rate_limit
 
 router = APIRouter(tags=["mvp"])
 
@@ -672,6 +673,7 @@ def download_lecture_note(
     note_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("download", auth.get_current_user)),
 ):
     note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
     if not note:
@@ -743,6 +745,7 @@ def download_audio(
     audio_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("download", auth.get_current_user)),
 ):
     note = _audio_note_or_404(audio_id, db, current_user)
     if not note.file_data:
@@ -755,6 +758,7 @@ def download_past_question(
     question_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("download", auth.get_current_user)),
 ):
     row = db.query(models.PastQuestion).filter(models.PastQuestion.id == question_id).first()
     if not row:
@@ -1098,6 +1102,7 @@ def generate_practice(
     req: PracticeGenerateRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
+    _rate_limit: None = Depends(user_rate_limit("quiz_generate", auth.require_role("student"))),
 ):
     try:
         quiz = create_grounded_quiz(
