@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -2529,12 +2530,20 @@ def _normalise_audio_transcription(result: Any) -> tuple[str, str, list[dict[str
     # Re-check fixture/provider output after normalization so production and
     # tests follow the same ordering and timestamp rules.
     validated: list[dict[str, Any]] = []
-    ordered_segments = sorted(enumerate(segments), key=lambda pair: (float(pair[1]["start_time"]), pair[0]))
-    for segment_index, (_, segment) in enumerate(ordered_segments):
-        start_time = float(segment["start_time"])
-        end_time = float(segment["end_time"])
+    prepared_segments: list[tuple[int, dict[str, Any], float, float]] = []
+    for original_index, segment in enumerate(segments):
+        try:
+            start_time = float(segment["start_time"])
+            end_time = float(segment["end_time"])
+        except (KeyError, TypeError, ValueError):
+            raise AIProviderError("Audio transcription returned a segment without valid timestamps.")
+        if not math.isfinite(start_time) or not math.isfinite(end_time) or start_time < 0 or end_time < 0 or end_time < start_time:
+            raise AIProviderError("Audio transcription returned a segment with invalid timestamps.")
+        prepared_segments.append((original_index, segment, start_time, end_time))
+    ordered_segments = sorted(prepared_segments, key=lambda item: (item[2], item[0]))
+    for segment_index, (_, segment, start_time, end_time) in enumerate(ordered_segments):
         text = str(segment.get("text") or "").strip()
-        if not text or start_time < 0 or end_time < start_time:
+        if not text:
             continue
         item = {"segment_index": segment_index, "start_time": start_time, "end_time": end_time, "text": text}
         if isinstance(segment.get("speaker"), str) and segment["speaker"].strip():

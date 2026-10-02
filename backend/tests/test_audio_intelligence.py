@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import socket
 import sys
 import unittest
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite://")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import models  # noqa: E402
+import ai_clients  # noqa: E402
 from ai_clients import AIProviderError  # noqa: E402
 from resource_index import citation_payload  # noqa: E402
 from routers import ingest, mvp  # noqa: E402
@@ -171,6 +173,71 @@ class AudioIntelligenceTests(unittest.TestCase):
         self.assertEqual([segment["text"] for segment in segments], ["first", "second"])
         self.assertEqual(segments[0]["speaker"], "A")
         self.assertEqual(segments[0]["confidence"], 0.8)
+
+    def test_configured_openai_provider_returns_timestamped_segments(self):
+        with (
+            patch.object(ai_clients, "TRANSCRIPTION_PROVIDER", "openai"),
+            patch.object(ai_clients, "OPENAI_API_KEY", "test-key"),
+            patch.object(ai_clients, "OPENAI_TRANSCRIPTION_MODEL", "whisper-1"),
+            patch.object(ai_clients, "OPENAI_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1"),
+            patch.object(ai_clients, "TRANSCRIPTION_TIMEOUT_SECONDS", 90.0),
+            patch.object(ai_clients, "_openai_transcription_request", return_value={"segments": [{"start": 1, "end": 2, "text": "configured"}]}),
+        ):
+            result = ai_clients.transcribe_audio("seminar.mp3", "audio/mpeg", b"audio")
+
+        self.assertEqual(result["provider"], "openai")
+        self.assertEqual(result["model"], "whisper-1")
+        self.assertEqual(result["segments"][0]["start_time"], 1.0)
+
+    def test_missing_api_key_is_reported_without_exposing_configuration(self):
+        with (
+            patch.object(ai_clients, "TRANSCRIPTION_PROVIDER", "openai"),
+            patch.object(ai_clients, "OPENAI_API_KEY", ""),
+        ):
+            status = ai_clients.transcription_configuration_status()
+            with self.assertRaisesRegex(AIProviderError, "OPENAI_API_KEY"):
+                ai_clients.transcribe_audio("seminar.mp3", "audio/mpeg", b"audio")
+
+        self.assertFalse(status["configured"])
+        self.assertNotIn("test-key", json.dumps(status))
+
+    def test_invalid_provider_response_is_rejected(self):
+        with (
+            patch.object(ai_clients, "TRANSCRIPTION_PROVIDER", "openai"),
+            patch.object(ai_clients, "OPENAI_API_KEY", "test-key"),
+            patch.object(ai_clients, "_openai_transcription_request", return_value={"text": "no segments"}),
+        ):
+            with self.assertRaisesRegex(AIProviderError, "timestamped segments"):
+                ai_clients.transcribe_audio("seminar.mp3", "audio/mpeg", b"audio")
+
+    def test_provider_timeout_is_cleanly_reported(self):
+        with (
+            patch.object(ai_clients, "TRANSCRIPTION_PROVIDER", "openai"),
+            patch.object(ai_clients, "OPENAI_API_KEY", "test-key"),
+            patch.object(ai_clients, "OPENAI_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1"),
+            patch.object(ai_clients, "TRANSCRIPTION_TIMEOUT_SECONDS", 1.0),
+            patch.object(ai_clients.urllib.request, "urlopen", side_effect=socket.timeout()),
+        ):
+            with self.assertRaisesRegex(AIProviderError, "timed out"):
+                ai_clients.transcribe_audio("seminar.mp3", "audio/mpeg", b"audio")
+
+    def test_invalid_timestamps_are_rejected(self):
+        for segment in (
+            {"start": -1, "end": 2, "text": "negative"},
+            {"start": 3, "end": 2, "text": "reversed"},
+            {"start": "nan", "end": 2, "text": "non-finite"},
+        ):
+            with self.subTest(segment=segment):
+                with self.assertRaisesRegex(AIProviderError, "invalid timestamps"):
+                    ai_clients.normalize_transcript_segments({"segments": [segment]})
+
+    def test_invalid_timestamps_from_normalised_fixture_are_rejected(self):
+        with self.assertRaisesRegex(AIProviderError, "invalid timestamps"):
+            ingest._normalise_audio_transcription({
+                "provider": "openai",
+                "model": "whisper-1",
+                "segments": [{"start_time": float("nan"), "end_time": 2, "text": "invalid"}],
+            })
 
     def test_invalid_audio_signature_is_rejected(self):
         with self.assertRaises(HTTPException) as error:

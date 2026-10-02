@@ -114,6 +114,24 @@ production database is reset or recreated by this process.
      Firebase project's Authentication/Google provider configuration. The API
      uses it as the expected audience for the Google provider ID token.
 
+   Audio transcription uses the OpenAI Audio Transcriptions API when it is
+   configured. The current implementation sends `verbose_json` and expects
+   timestamped segments, so `whisper-1` remains the intended model:
+
+   ```text
+   TRANSCRIPTION_PROVIDER=openai
+   OPENAI_TRANSCRIPTION_MODEL=whisper-1
+   OPENAI_TRANSCRIPTION_BASE_URL=https://api.openai.com/v1
+   TRANSCRIPTION_TIMEOUT_SECONDS=90
+   ```
+
+   Set `OPENAI_API_KEY` as a Render secret on the API service. If it is
+   missing, the provider is unsupported, the endpoint times out, or the
+   response has invalid timestamps, the upload remains safely stored but is
+   marked as transcription failed and is not reported as searchable. The API
+   returns a configuration-safe message without exposing credentials or
+   provider response bodies.
+
    The API also needs these Firebase verification values (the Blueprint fills
    the fixed values automatically):
 

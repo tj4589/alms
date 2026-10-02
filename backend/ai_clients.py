@@ -1,11 +1,13 @@
 """AI client singletons and provider fallback helpers."""
 
 import json
+import math
 import os
 import socket
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 try:
     from dotenv import load_dotenv
@@ -162,9 +164,50 @@ def generate_ai_response(prompt: str, temperature: float = 0.3) -> str:
 
 TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "openai").strip().lower()
 OPENAI_TRANSCRIPTION_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1").strip()
-OPENAI_TRANSCRIPTION_BASE_URL = os.getenv("OPENAI_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-TRANSCRIPTION_TIMEOUT_SECONDS = float(os.getenv("TRANSCRIPTION_TIMEOUT_SECONDS", "90"))
+OPENAI_TRANSCRIPTION_BASE_URL = (os.getenv("OPENAI_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1") or "").strip().rstrip("/")
+OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
+
+
+def _read_transcription_timeout(value: str | None) -> float | None:
+    try:
+        timeout = float(value or "90")
+    except (TypeError, ValueError):
+        return None
+    return timeout if math.isfinite(timeout) and timeout > 0 else None
+
+
+TRANSCRIPTION_TIMEOUT_SECONDS = _read_transcription_timeout(os.getenv("TRANSCRIPTION_TIMEOUT_SECONDS"))
+
+
+def transcription_configuration_error() -> str | None:
+    """Return a safe, actionable configuration error without exposing secrets."""
+    if TRANSCRIPTION_PROVIDER != "openai":
+        return "Audio transcription provider is unsupported. Set TRANSCRIPTION_PROVIDER=openai."
+    if not OPENAI_API_KEY:
+        return "Audio transcription is not configured. Set OPENAI_API_KEY for the OpenAI transcription provider."
+    if not OPENAI_TRANSCRIPTION_MODEL:
+        return "Audio transcription is not configured. Set OPENAI_TRANSCRIPTION_MODEL."
+    try:
+        parsed_base_url = urlsplit(OPENAI_TRANSCRIPTION_BASE_URL)
+    except ValueError:
+        return "Audio transcription is not configured. Set a valid OPENAI_TRANSCRIPTION_BASE_URL."
+    if parsed_base_url.scheme not in {"http", "https"} or not parsed_base_url.netloc:
+        return "Audio transcription is not configured. Set a valid OPENAI_TRANSCRIPTION_BASE_URL."
+    if TRANSCRIPTION_TIMEOUT_SECONDS is None:
+        return "Audio transcription is not configured. Set TRANSCRIPTION_TIMEOUT_SECONDS to a positive number."
+    return None
+
+
+def transcription_configuration_status() -> dict[str, object]:
+    """Expose non-secret configuration state for diagnostics and tests."""
+    error = transcription_configuration_error()
+    return {
+        "configured": error is None,
+        "provider": TRANSCRIPTION_PROVIDER,
+        "model": OPENAI_TRANSCRIPTION_MODEL,
+        "timeout_seconds": TRANSCRIPTION_TIMEOUT_SECONDS,
+        "error": error,
+    }
 
 
 def _multipart_form_data(fields: dict[str, str], file_name: str, mime_type: str, content: bytes) -> tuple[bytes, str]:
@@ -186,8 +229,9 @@ def _multipart_form_data(fields: dict[str, str], file_name: str, mime_type: str,
 
 
 def _openai_transcription_request(file_name: str, mime_type: str, content: bytes) -> dict:
-    if not OPENAI_API_KEY:
-        raise AIProviderError("Audio transcription is not configured. Set OPENAI_API_KEY for the OpenAI transcription provider.")
+    configuration_error = transcription_configuration_error()
+    if configuration_error:
+        raise AIProviderError(configuration_error)
     body, content_type = _multipart_form_data(
         {"model": OPENAI_TRANSCRIPTION_MODEL, "response_format": "verbose_json"},
         file_name,
@@ -205,9 +249,9 @@ def _openai_transcription_request(file_name: str, mime_type: str, content: bytes
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise AIProviderError(f"Audio transcription provider returned HTTP {exc.code}.") from exc
-    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+    except (urllib.error.URLError, OSError) as exc:
         raise AIProviderError("Audio transcription timed out or could not reach the provider.") from exc
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise AIProviderError("Audio transcription provider returned an invalid response.") from exc
 
 
@@ -227,7 +271,9 @@ def normalize_transcript_segments(payload: dict | list) -> list[dict]:
             end = float(raw.get("end"))
         except (TypeError, ValueError):
             raise AIProviderError("Audio transcription returned a segment without valid timestamps.")
-        if not text or start < 0 or end < start:
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < 0 or end < start:
+            raise AIProviderError("Audio transcription returned a segment with invalid timestamps.")
+        if not text:
             continue
         item = {
             "start_time": start,
@@ -254,8 +300,9 @@ def normalize_transcript_segments(payload: dict | list) -> list[dict]:
 
 def transcribe_audio(file_name: str, mime_type: str, content: bytes) -> dict:
     """Transcribe audio through the configured provider and return safe segments."""
-    if TRANSCRIPTION_PROVIDER != "openai":
-        raise AIProviderError(f"Unsupported audio transcription provider '{TRANSCRIPTION_PROVIDER}'.")
+    configuration_error = transcription_configuration_error()
+    if configuration_error:
+        raise AIProviderError(configuration_error)
     payload = _openai_transcription_request(file_name, mime_type, content)
     return {
         "provider": "openai",
