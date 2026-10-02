@@ -40,6 +40,8 @@ type KsaClaimInspection = {
   audit_history: KsaAuditEvent[];
 };
 
+type ModeratorRoleAction = 'promote' | 'demote';
+
 type ModerationProps = { go: (screen: ScreenType) => void; isGlobalAdmin: boolean };
 
 function formatDate(value?: string | null) {
@@ -52,13 +54,15 @@ function displayName(claimant: KsaClaimInspection['claimant']) {
   return claimant?.name || claimant?.username || claimant?.email || 'Student account';
 }
 
-function supportError(error: unknown, action: 'search' | 'release') {
+function supportError(error: unknown, action: 'search' | 'release' | 'role') {
   const message = error instanceof Error ? error.message.toLowerCase() : '';
   if (message.includes('403') || message.includes('permission') || message.includes('admin')) return 'You do not have permission to manage KSA access.';
   if (message.includes('404') || message.includes('not found')) return 'No KSA claim was found for this ID.';
+  if (action === 'role' && message.includes('409')) return 'This KSA member role changed before the action completed. Search again and review the current role.';
   if (message.includes('409') && (message.includes('not currently') || message.includes('owned'))) return 'This academy ID is not currently claimed.';
   if (message.includes('inconsistent')) return 'Claim records are inconsistent. No changes were made.';
   if (message.includes('422') || message.includes('invalid') || message.includes('reason')) return 'Check the academy ID or release reason.';
+  if (action === 'role') return 'The KSA role change could not be saved. No changes were confirmed.';
   return action === 'search' ? 'The KSA access record could not be loaded.' : 'Something went wrong. No changes were confirmed.';
 }
 
@@ -78,6 +82,9 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
   const [releaseTarget, setReleaseTarget] = useState<KsaClaimInspection | null>(null);
   const [releaseReason, setReleaseReason] = useState('');
   const [releaseBusy, setReleaseBusy] = useState(false);
+  const [roleTarget, setRoleTarget] = useState<{ claim: KsaClaimInspection; action: ModeratorRoleAction } | null>(null);
+  const [roleReason, setRoleReason] = useState('');
+  const [roleBusy, setRoleBusy] = useState(false);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -101,11 +108,11 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
   }, [loadQueue, view]);
 
   useEffect(() => {
-    if (!releaseTarget) return undefined;
+    if (!releaseTarget && !roleTarget) return undefined;
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const frame = window.requestAnimationFrame(() => reasonRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
-  }, [releaseTarget]);
+  }, [releaseTarget, roleTarget]);
 
   const decide = async (status: 'approved' | 'rejected' | 'changes_requested', markOfficial = false) => {
     if (!selected) return;
@@ -135,6 +142,12 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
   const closeReleaseDialog = () => {
     setReleaseTarget(null);
     setReleaseReason('');
+    window.requestAnimationFrame(() => previousFocusRef.current?.focus());
+  };
+
+  const closeRoleDialog = () => {
+    setRoleTarget(null);
+    setRoleReason('');
     window.requestAnimationFrame(() => previousFocusRef.current?.focus());
   };
 
@@ -183,10 +196,49 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
     }
   };
 
+  const changeModeratorRole = async (event: FormEvent) => {
+    event.preventDefault();
+    const targetUserId = roleTarget?.claim.claimant?.id;
+    if (!roleTarget || !targetUserId || !roleReason.trim()) return;
+    setRoleBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const path = `/learning-spaces/ksa/admin/moderators/${targetUserId}${roleTarget.action === 'demote' ? '/demote' : ''}`;
+      const result = await apiPost(path, { reason: roleReason.trim() }) as { new_role?: string };
+      const changedId = roleTarget.claim.ksa_id;
+      const action = roleTarget.action;
+      const confirmedRole = result.new_role === 'moderator' || result.new_role === 'member'
+        ? result.new_role
+        : action === 'promote' ? 'moderator' : 'member';
+      const successNotice = action === 'promote'
+        ? `${changedId} is now a KSA moderator for this academy.`
+        : `${changedId} is now a KSA member. Their KSA access and learning history are unchanged.`;
+      closeRoleDialog();
+      setClaim({
+        ...roleTarget.claim,
+        membership: { ...(roleTarget.claim.membership || {}), role: confirmedRole },
+      });
+      try {
+        const refreshed = await apiGet(`/learning-spaces/ksa/admin/claims/${changedId}`);
+        setClaim(refreshed as KsaClaimInspection);
+        setNotice(successNotice);
+      } catch {
+        setNotice(successNotice);
+        setError('The role change was saved, but the latest KSA record could not be reloaded. Search again to confirm the current role.');
+      }
+    } catch (err) {
+      setError(supportError(err, 'role'));
+    } finally {
+      setRoleBusy(false);
+    }
+  };
+
   const onDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      closeReleaseDialog();
+      if (roleTarget) closeRoleDialog();
+      else closeReleaseDialog();
       return;
     }
     if (event.key !== 'Tab') return;
@@ -230,15 +282,15 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
               <h2>Inspect academy access</h2>
               <p>Search a canonical KSA ID to inspect its claim, membership state and immutable audit history.</p>
             </div>
-            <span className="moderation-support-note">No direct reassignment</span>
+            <span className="moderation-support-note">Global admin only</span>
           </div>
           <form className="moderation-search" onSubmit={searchClaim}>
-            <label htmlFor="ksa-search">Search academy ID</label>
+            <label htmlFor="ksa-search">Search KSA member</label>
             <div className="moderation-search-row">
               <input id="ksa-search" value={ksaId} onChange={event => setKsaId(event.target.value)} placeholder="KSA-78" autoComplete="off" />
               <button type="submit" className="moderation-button moderation-button--primary" disabled={claimLoading}><Search size={16} /> {claimLoading ? 'Searching…' : 'Search'}</button>
             </div>
-            <span className="moderation-help">Use the format KSA-78. Inspection shows only support-safe account and membership details.</span>
+            <span className="moderation-help">Use the format KSA-78. Review the current membership role before managing moderator access.</span>
           </form>
 
           {claim && (
@@ -252,6 +304,26 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
                 <div><span>Membership</span><strong>{claim.membership?.status === 'active' ? 'Active' : claim.membership?.status === 'inactive' ? 'Inactive' : 'Not created'}</strong><small>{claim.membership?.role || '—'} · {claim.membership?.onboarding_state || '—'}</small></div>
                 <div><span>Active space</span><strong>{claim.active_space?.name || 'None selected'}</strong><small>{claim.active_space?.slug || 'No active context'}</small></div>
                 <div><span>Claimed at</span><strong>{formatDate(claim.claimed_at)}</strong></div>
+              </div>
+              <div className="moderation-role-panel" data-testid="ksa-moderator-management">
+                <div className="moderation-role-copy">
+                  <p className="eyebrow">KSA moderator access</p>
+                  <h3>Manage this member&apos;s role</h3>
+                  <p>Role changes apply only to Kora Sales Academy. The member&apos;s claim, ownership, resources and learning history remain intact.</p>
+                </div>
+                <div className="moderation-role-state">
+                  <span>Current role</span>
+                  <strong>{claim.membership?.role || 'Not available'}</strong>
+                </div>
+                {claim.claimed && claim.membership?.status === 'active' && claim.claimant && (claim.membership.role === 'member' || claim.membership.role === 'moderator') ? (
+                  <div className="moderation-role-actions">
+                    <button type="button" className="moderation-button moderation-button--primary" data-testid={claim.membership.role === 'member' ? 'promote-ksa-moderator' : 'demote-ksa-moderator'} onClick={() => { setRoleTarget({ claim, action: claim.membership?.role === 'member' ? 'promote' : 'demote' }); setRoleReason(''); }} disabled={roleBusy}>
+                      {claim.membership.role === 'member' ? 'Promote to moderator' : 'Demote to member'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="moderation-role-help">Only an active KSA member or moderator can use this controlled transition.</p>
+                )}
               </div>
               <div className="moderation-claim-actions">
                 <button type="button" className="moderation-button moderation-button--quiet" data-testid="history-toggle" onClick={() => setHistoryOpen(open => !open)} aria-expanded={historyOpen}>{historyOpen ? 'Hide history' : 'View history'}</button>
@@ -316,6 +388,17 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
           <form onSubmit={releaseClaim}>
             <label className="moderation-reason"><span>Reason <strong aria-hidden="true">*</strong></span><textarea ref={reasonRef} value={releaseReason} onChange={event => setReleaseReason(event.target.value)} placeholder="Explain why this claim is being released." rows={4} required /></label>
             <div className="moderation-dialog-actions"><button type="button" className="moderation-button moderation-button--quiet" onClick={closeReleaseDialog}>Cancel</button><button type="submit" className="moderation-button moderation-button--danger" disabled={releaseBusy || !releaseReason.trim()}>{releaseBusy ? 'Releasing…' : 'Release claim'}</button></div>
+          </form>
+        </div>
+      </div>}
+
+      {roleTarget && <div className="moderation-dialog-backdrop" role="presentation">
+        <div className="moderation-dialog" role="dialog" aria-modal="true" aria-labelledby="role-dialog-title" aria-describedby="role-dialog-description" onKeyDown={onDialogKeyDown}>
+          <div className="moderation-dialog-head"><div><p className="eyebrow">Confirm role change</p><h2 id="role-dialog-title">{roleTarget.action === 'promote' ? 'Promote to moderator?' : 'Demote to member?'}</h2></div><button type="button" className="moderation-dialog-close" onClick={closeRoleDialog} aria-label="Close role change dialog"><X size={18} /></button></div>
+          <p id="role-dialog-description">{roleTarget.action === 'promote' ? 'This grants Kora Sales Academy moderation access to the active member. It does not grant global administrator access or change any other learning space.' : "This removes Kora Sales Academy moderation access while preserving the member's active membership, resources and learning history."}</p>
+          <form onSubmit={changeModeratorRole}>
+            <label className="moderation-reason"><span>Reason <strong aria-hidden="true">*</strong></span><textarea ref={reasonRef} value={roleReason} onChange={event => setRoleReason(event.target.value)} placeholder="Explain why this role change is being made." rows={4} required /></label>
+            <div className="moderation-dialog-actions"><button type="button" className="moderation-button moderation-button--quiet" onClick={closeRoleDialog}>Cancel</button><button type="submit" className="moderation-button moderation-button--primary" disabled={roleBusy || !roleReason.trim()}>{roleBusy ? 'Savingâ€¦' : roleTarget.action === 'promote' ? 'Promote member' : 'Demote member'}</button></div>
           </form>
         </div>
       </div>}

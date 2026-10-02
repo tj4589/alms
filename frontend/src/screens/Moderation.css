@@ -60,6 +60,15 @@
 .moderation-state--released, .moderation-state--available { background: #f7eadc; color: #9f4929; }
 .moderation-facts--claim { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 24px 0 18px; }
 .moderation-facts small { display: block; color: #817a6e; font-size: 11px; line-height: 1.4; margin-top: 5px; overflow-wrap: anywhere; }
+.moderation-role-panel { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(150px, .7fr) auto; gap: 18px; align-items: center; border: 1px solid #e4d6c8; border-radius: 14px; background: #f8f2e7; padding: 18px; }
+.moderation-role-copy { min-width: 0; }
+.moderation-role-copy h3 { margin: 6px 0 7px; color: #343930; font-size: 17px; }
+.moderation-role-copy p:not(.eyebrow) { max-width: 560px; color: #655f54; font-size: 12px; line-height: 1.55; margin: 0; }
+.moderation-role-state { border-left: 1px solid #dfcbbb; padding-left: 18px; }
+.moderation-role-state span { display: block; color: #817a6e; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 5px; }
+.moderation-role-state strong { color: #9f4223; font-size: 13px; text-transform: capitalize; }
+.moderation-role-actions { display: flex; justify-content: flex-end; }
+.moderation-role-help { grid-column: 1 / -1; color: #817a6e; font-size: 11px; line-height: 1.5; margin: 0; }
 .moderation-claim-actions { display: flex; flex-wrap: wrap; gap: 9px; border-top: 1px solid #e8e4dc; padding-top: 16px; }
 .moderation-timeline { display: grid; gap: 0; border-top: 1px solid #e8e4dc; margin-top: 18px; padding-top: 4px; }
 .moderation-timeline-event { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding: 14px 0; }
@@ -95,6 +104,10 @@
   .moderation-search-row .moderation-button { width: 100%; }
   .moderation-facts--claim { grid-template-columns: 1fr; }
   .moderation-claim-result { padding: 20px; }
+  .moderation-role-panel { grid-template-columns: 1fr; gap: 14px; }
+  .moderation-role-state { border-left: 0; border-top: 1px solid #dfcbbb; padding: 14px 0 0; }
+  .moderation-role-actions { display: grid; }
+  .moderation-role-actions .moderation-button { width: 100%; }
   .moderation-claim-actions { display: grid; }
   .moderation-claim-actions .moderation-button { width: 100%; }
   .moderation-dialog-backdrop { padding: 12px; }
