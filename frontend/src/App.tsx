@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type ReactNode } from 'react';
 import { BellIcon } from '@phosphor-icons/react/dist/icons/Bell';
 import { BooksIcon } from '@phosphor-icons/react/dist/icons/Books';
 import { ChatsCircleIcon } from '@phosphor-icons/react/dist/icons/ChatsCircle';
@@ -35,38 +35,88 @@ const INITIAL_CHAT: ChatMessage[] = [
 ];
 const AUTH_RESET_KEY = 'exammind-first-upload-auth-reset-v1';
 const NAV_COLLAPSE_TIMER_MS = 240;
-import Dashboard from './screens/Dashboard';
-import Questions from './screens/Questions';
-import Assistant from './screens/Assistant';
-import Upload from './screens/Upload';
-import Offline from './screens/Offline';
-import Collab from './screens/Collab';
-import Practice from './screens/Practice';
-import Progress from './screens/Progress';
-import StudyGroups from './screens/StudyGroups';
-import Empty from './screens/Empty';
-import SearchResults from './screens/SearchResults';
-import Settings from './screens/Settings';
-import Profile from './screens/Profile';
-import Reader from './screens/Reader';
-import Workspace from './screens/Workspace';
-import Onboarding from './screens/Onboarding';
-import LearningSpaces from './screens/LearningSpaces';
-import Moderation from './screens/Moderation';
+const Dashboard = lazy(() => import('./screens/Dashboard'));
+const Questions = lazy(() => import('./screens/Questions'));
+const Assistant = lazy(() => import('./screens/Assistant'));
+const Upload = lazy(() => import('./screens/Upload'));
+const Offline = lazy(() => import('./screens/Offline'));
+const Collab = lazy(() => import('./screens/Collab'));
+const Practice = lazy(() => import('./screens/Practice'));
+const Progress = lazy(() => import('./screens/Progress'));
+const StudyGroups = lazy(() => import('./screens/StudyGroups'));
+const Empty = lazy(() => import('./screens/Empty'));
+const SearchResults = lazy(() => import('./screens/SearchResults'));
+const Settings = lazy(() => import('./screens/Settings'));
+const Profile = lazy(() => import('./screens/Profile'));
+const Reader = lazy(() => import('./screens/Reader'));
+const Workspace = lazy(() => import('./screens/Workspace'));
+const Onboarding = lazy(() => import('./screens/Onboarding'));
+const LearningSpaces = lazy(() => import('./screens/LearningSpaces'));
+const Moderation = lazy(() => import('./screens/Moderation'));
 import Logo from './components/Logo';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
 import OfflineStatus from './components/OfflineStatus';
 import MaxeTrigger from './components/Maxe/MaxeTrigger';
-import MaxeWorkspace from './components/Maxe/MaxeWorkspace';
-import { Auth } from './components/Auth';
-import Landing from './components/Landing';
-import Privacy from './components/Privacy';
-import FeedbackPage from './components/FeedbackPage';
-import GroupInvite from './components/GroupInvite';
+const MaxeWorkspace = lazy(() => import('./components/Maxe/MaxeWorkspace'));
+const Auth = lazy(() => import('./components/Auth').then(({ Auth: AuthScreen }) => ({ default: AuthScreen })));
+const Landing = lazy(() => import('./components/Landing'));
+const Privacy = lazy(() => import('./components/Privacy'));
+const FeedbackPage = lazy(() => import('./components/FeedbackPage'));
+const GroupInvite = lazy(() => import('./components/GroupInvite'));
 import { apiGet, apiPost } from './lib/api';
 import { firebaseAuth } from './lib/firebase';
 import { signOut as signOutFirebase } from 'firebase/auth';
+
+function RouteLoading() {
+  return (
+    <div className="account-bootstrap" role="status" aria-live="polite">
+      <div className="account-bootstrap-card">
+        <div className="account-bootstrap-mark"><Logo size={30} /></div>
+        <p className="account-bootstrap-kicker">EXAMMIND / LOADING</p>
+        <h1>Opening your study space.</h1>
+        <p>We’re loading this part of ExamMind. It should only take a moment.</p>
+        <span className="account-bootstrap-loader" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
+class LazyRouteBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="account-bootstrap" role="alert">
+          <div className="account-bootstrap-card">
+            <div className="account-bootstrap-mark"><Logo size={30} /></div>
+            <p className="account-bootstrap-kicker">EXAMMIND / LOADING</p>
+            <h1>This study space could not open.</h1>
+            <p>There was a problem loading this part of ExamMind. Reload to try again.</p>
+            <button type="button" className="account-bootstrap-action account-bootstrap-action-primary" onClick={() => window.location.reload()}>Reload</button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function LazyRoute({ children }: { children: ReactNode }) {
+  return (
+    <LazyRouteBoundary>
+      <Suspense fallback={<RouteLoading />}>
+        {children}
+      </Suspense>
+    </LazyRouteBoundary>
+  );
+}
 
 type NavigationItem = {
   label: string;
@@ -836,67 +886,77 @@ export default function App() {
 
   if (publicView === 'privacy') {
     return (
-      <Privacy
-        onBackToHome={returnToLanding}
-        onGetStarted={() => openAuth('register')}
-        onSignIn={() => openAuth('login')}
-      />
+      <LazyRoute>
+        <Privacy
+          onBackToHome={returnToLanding}
+          onGetStarted={() => openAuth('register')}
+          onSignIn={() => openAuth('login')}
+        />
+      </LazyRoute>
     );
   }
 
   if (publicView === 'feedback') {
     return (
-      <FeedbackPage
-        onBackToHome={returnToLanding}
-        onGetStarted={() => openAuth('register')}
-        onSignIn={() => openAuth('login')}
-      />
+      <LazyRoute>
+        <FeedbackPage
+          onBackToHome={returnToLanding}
+          onGetStarted={() => openAuth('register')}
+          onSignIn={() => openAuth('login')}
+        />
+      </LazyRoute>
     );
   }
 
   if (publicView === 'invite' && inviteTokenFromPath()) {
     return (
-      <GroupInvite
-        token={inviteTokenFromPath()!}
-        authenticated={Boolean(token)}
-        onBack={returnToLanding}
-        onSignIn={() => openAuth('login')}
-        onOpenGroups={() => { setPublicView('landing'); go('groups'); }}
-      />
+      <LazyRoute>
+        <GroupInvite
+          token={inviteTokenFromPath()!}
+          authenticated={Boolean(token)}
+          onBack={returnToLanding}
+          onSignIn={() => openAuth('login')}
+          onOpenGroups={() => { setPublicView('landing'); go('groups'); }}
+        />
+      </LazyRoute>
     );
   }
 
   if (!token) {
     if (publicView === 'landing') {
       return (
-        <Landing
-          onGetStarted={() => openAuth('register')}
-          onSignIn={() => openAuth('login')}
-          onPrivacy={openPrivacy}
-          onFeedback={openFeedback}
-          deletionNotice={deletionNotice}
-        />
+        <LazyRoute>
+          <Landing
+            onGetStarted={() => openAuth('register')}
+            onSignIn={() => openAuth('login')}
+            onPrivacy={openPrivacy}
+            onFeedback={openFeedback}
+            deletionNotice={deletionNotice}
+          />
+        </LazyRoute>
       );
     }
 
     return (
-      <Auth
-        key={authInitialMode}
-        onLogin={handleLogin}
-        initialMode={authInitialMode}
-        onBackToLanding={returnToLanding}
-        onPublicFeedback={openFeedback}
-        deletionRecoveryPending={deletionRecoveryPending}
-        deletionFirebaseDeleted={deletionFirebaseDeleted}
-        deletionMessage={deletionNotice}
-        accountLifecycleRecovery={accountLifecycleRecovery}
-        onDeletionRecoveryComplete={handleAccountDeleted}
-        onDeletionRecoveryPending={handleAccountDeletionPending}
-        onAccountLifecycleState={handleAccountLifecycleState}
-        onAccountLifecycleCleanupComplete={handleAccountLifecycleCleanupComplete}
-        onAccountRecoverySignOut={handleLogout}
-        onDismissDeletionRecovery={dismissAccountDeletionRecovery}
-      />
+      <LazyRoute>
+        <Auth
+          key={authInitialMode}
+          onLogin={handleLogin}
+          initialMode={authInitialMode}
+          onBackToLanding={returnToLanding}
+          onPublicFeedback={openFeedback}
+          deletionRecoveryPending={deletionRecoveryPending}
+          deletionFirebaseDeleted={deletionFirebaseDeleted}
+          deletionMessage={deletionNotice}
+          accountLifecycleRecovery={accountLifecycleRecovery}
+          onDeletionRecoveryComplete={handleAccountDeleted}
+          onDeletionRecoveryPending={handleAccountDeletionPending}
+          onAccountLifecycleState={handleAccountLifecycleState}
+          onAccountLifecycleCleanupComplete={handleAccountLifecycleCleanupComplete}
+          onAccountRecoverySignOut={handleLogout}
+          onDismissDeletionRecovery={dismissAccountDeletionRecovery}
+        />
+      </LazyRoute>
     );
   }
 
@@ -949,47 +1009,53 @@ export default function App() {
 
   if (learningSpaceRoute === 'first_access') {
     return (
-      <LearningSpaces
-        spaces={learningSpaces}
-        entryMode="first_access"
-        onOpenFeedback={openFeedback}
-        onRefresh={refreshLearningSpaces}
-        onLogout={handleLogout}
-        onKsaVerified={(onboardingRequired, space) => {
-          setOnboardingSpace(space);
-          setNeedsOnboarding(onboardingRequired);
-          if (onboardingRequired) setActiveScreen('onboarding');
-        }}
-      />
+      <LazyRoute>
+        <LearningSpaces
+          spaces={learningSpaces}
+          entryMode="first_access"
+          onOpenFeedback={openFeedback}
+          onRefresh={refreshLearningSpaces}
+          onLogout={handleLogout}
+          onKsaVerified={(onboardingRequired, space) => {
+            setOnboardingSpace(space);
+            setNeedsOnboarding(onboardingRequired);
+            if (onboardingRequired) setActiveScreen('onboarding');
+          }}
+        />
+      </LazyRoute>
     );
   }
 
   if (learningSpaceRoute === 'space_selection') {
     return (
-      <LearningSpaces
-        spaces={learningSpaces}
-        entryMode="selection"
-        onOpenFeedback={openFeedback}
-        onRefresh={refreshLearningSpaces}
-        onLogout={handleLogout}
-        onKsaVerified={(onboardingRequired, space) => {
-          setOnboardingSpace(space);
-          setNeedsOnboarding(onboardingRequired);
-        }}
-      />
+      <LazyRoute>
+        <LearningSpaces
+          spaces={learningSpaces}
+          entryMode="selection"
+          onOpenFeedback={openFeedback}
+          onRefresh={refreshLearningSpaces}
+          onLogout={handleLogout}
+          onKsaVerified={(onboardingRequired, space) => {
+            setOnboardingSpace(space);
+            setNeedsOnboarding(onboardingRequired);
+          }}
+        />
+      </LazyRoute>
     );
   }
 
   if (learningSpaceRoute === 'ksa_onboarding' || learningSpaceRoute === 'profile_onboarding') {
     return (
-      <Onboarding
-        userName={user.name}
-        learningSpace={onboardingSpace}
-        isEditing={editingProfile}
-        onComplete={handleOnboardingComplete}
-        onCancel={() => { setEditingProfile(false); setActiveScreen(onboardingReturnScreen); }}
-        onLogout={handleLogout}
-      />
+      <LazyRoute>
+        <Onboarding
+          userName={user.name}
+          learningSpace={onboardingSpace}
+          isEditing={editingProfile}
+          onComplete={handleOnboardingComplete}
+          onCancel={() => { setEditingProfile(false); setActiveScreen(onboardingReturnScreen); }}
+          onLogout={handleLogout}
+        />
+      </LazyRoute>
     );
   }
 
@@ -1261,6 +1327,7 @@ export default function App() {
 
         {toast && <div className="app-toast" role="status">{toast}</div>}
 
+        <LazyRoute>
         {activeScreen === 'dashboard' && (
           <Dashboard
             go={go}
@@ -1318,20 +1385,23 @@ export default function App() {
             go={go}
           />
         )}
+        </LazyRoute>
       </main>
 
       <MaxeTrigger ref={maxeTriggerRef} open={maxeOpen} onOpen={() => { setSearchOpen(false); setSidebarOpen(false); setMaxeOpen(true); }} />
       {maxeOpen && (
-        <MaxeWorkspace
-          go={go}
-          selectedQuestion={selectedQuestion}
-          notifyUnavailable={notifyUnavailable}
-          messages={chatMessages}
-          onMessagesChange={setChatMessages}
-          onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }}
-          onClose={closeMaxe}
-          user={user}
-        />
+        <LazyRoute>
+          <MaxeWorkspace
+            go={go}
+            selectedQuestion={selectedQuestion}
+            notifyUnavailable={notifyUnavailable}
+            messages={chatMessages}
+            onMessagesChange={setChatMessages}
+            onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }}
+            onClose={closeMaxe}
+            user={user}
+          />
+        </LazyRoute>
       )}
 
       {sidebarOpen && (
