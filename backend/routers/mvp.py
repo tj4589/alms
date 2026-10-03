@@ -349,8 +349,8 @@ Context:
 
     try:
         raw = generate_ai_response(prompt, temperature=0.3)
-    except AIProviderError as exc:
-        return [], f"Practice generation from notes is temporarily unavailable: {exc}"
+    except AIProviderError:
+        return [], "Practice generation from notes is temporarily unavailable."
     except Exception:
         return [], "Practice generation from notes is temporarily unavailable."
 

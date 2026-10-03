@@ -71,6 +71,8 @@ services:
         value: deepseek
       - key: AI_MODEL
         value: deepseek-chat
+      - key: AI_PROVIDER_TIMEOUT_SECONDS
+        value: "45"
       - key: AI_FALLBACK_PROVIDER
         value: cohere
       - key: COHERE_MODEL

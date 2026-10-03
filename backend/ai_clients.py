@@ -1,6 +1,7 @@
 """AI client singletons and provider fallback helpers."""
 
 import json
+import logging
 import math
 import os
 import socket
@@ -8,6 +9,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
 
 try:
     from dotenv import load_dotenv
@@ -20,14 +23,62 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "deepseek").strip().lower()
 AI_FALLBACK_PROVIDER = os.getenv("AI_FALLBACK_PROVIDER", "cohere").strip().lower()
 AI_MODEL = os.getenv("AI_MODEL", "deepseek-chat").strip()
 COHERE_MODEL = os.getenv("COHERE_MODEL", "command-r7b-12-2024").strip()
+MAX_PROVIDER_TIMEOUT_SECONDS = 120.0
 
 DEEPSEEK_UNAVAILABLE_MESSAGE = (
     "The primary AI provider is temporarily unavailable. ExamMind tried the fallback provider."
 )
 BOTH_PROVIDERS_UNAVAILABLE_MESSAGE = (
-    "AI answers are temporarily unavailable because the primary provider balance is low. "
+    "AI answers are temporarily unavailable. "
     "Uploaded materials, search, and practice data are still available."
 )
+
+
+def _read_bounded_timeout(value: str | None, default: float, maximum: float = MAX_PROVIDER_TIMEOUT_SECONDS) -> float | None:
+    """Parse a provider timeout without allowing an unbounded network wait."""
+    if value is None or not str(value).strip():
+        return default
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(timeout) or timeout <= 0 or timeout > maximum:
+        return None
+    return timeout
+
+
+AI_PROVIDER_TIMEOUT_SECONDS = _read_bounded_timeout(
+    os.getenv("AI_PROVIDER_TIMEOUT_SECONDS"),
+    default=45.0,
+)
+if AI_PROVIDER_TIMEOUT_SECONDS is None:
+    AI_PROVIDER_TIMEOUT_SECONDS = 45.0
+
+
+def _provider_status(exc: BaseException) -> str:
+    """Return only a status code, never an exception message or response body."""
+    current: BaseException | None = exc
+    for _ in range(4):
+        if current is None:
+            break
+        status = getattr(current, "status_code", None)
+        if status is None:
+            status = getattr(current, "code", None)
+        if isinstance(status, int):
+            return str(status)
+        cause = current.__cause__ or current.__context__
+        current = cause if isinstance(cause, BaseException) else None
+    return "unknown"
+
+
+def _log_provider_failure(provider: str, exc: BaseException) -> None:
+    """Log diagnostic fields only; provider messages can contain secrets or bodies."""
+    logger.warning(
+        "provider_call_failed provider=%s status=%s error_class=%s",
+        provider,
+        _provider_status(exc),
+        type(exc).__name__,
+    )
 
 
 try:
@@ -45,24 +96,31 @@ try:
         base_url="https://api.deepseek.com/v1",
         api_key=_deepseek_api_key,
         temperature=0.3,
+        timeout=AI_PROVIDER_TIMEOUT_SECONDS,
+        max_retries=0,
     )
     metadata_llm = ChatOpenAI(
         model=AI_MODEL,
         base_url="https://api.deepseek.com/v1",
         api_key=_deepseek_api_key,
         temperature=0,
+        timeout=AI_PROVIDER_TIMEOUT_SECONDS,
+        max_retries=0,
     )
-    print("AI: DeepSeek primary ready")
+    logger.info("provider_ready provider=deepseek timeout_seconds=%s max_retries=0", AI_PROVIDER_TIMEOUT_SECONDS)
 except Exception as _e:
     llm = None
     metadata_llm = None
-    print(f"Warning: DeepSeek LLM not configured - {_e}")
+    logger.warning(
+        "provider_unavailable provider=deepseek status=not_configured error_class=%s",
+        type(_e).__name__,
+    )
 
 _cohere_api_key = os.getenv("COHERE_API_KEY")
 if AI_FALLBACK_PROVIDER == "cohere" and _cohere_api_key:
-    print("AI: Cohere fallback ready")
+    logger.info("provider_ready provider=cohere timeout_seconds=%s max_retries=0", AI_PROVIDER_TIMEOUT_SECONDS)
 else:
-    print("AI: Cohere fallback not configured")
+    logger.info("provider_unavailable provider=cohere status=not_configured")
 
 
 class AIProviderError(RuntimeError):
@@ -102,10 +160,31 @@ def _cohere_chat(prompt: str, temperature: float) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=45) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=AI_PROVIDER_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            message = "Cohere fallback authentication failed."
+        elif exc.code == 429:
+            message = "Cohere fallback rate limit reached."
+        elif exc.code >= 500:
+            message = "Cohere fallback server is temporarily unavailable."
+        else:
+            message = "Cohere fallback request failed."
+        raise AIProviderError(message) from exc
+    except (TimeoutError, socket.timeout):
+        raise AIProviderError("Cohere fallback request timed out.") from None
+    except (urllib.error.URLError, OSError):
+        raise AIProviderError("Cohere fallback could not reach the provider.") from None
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        raise AIProviderError("Cohere fallback returned an invalid response.") from None
 
+    if not isinstance(data, dict):
+        raise AIProviderError("Cohere fallback returned an invalid response.")
     message = data.get("message") or {}
+    if not isinstance(message, dict):
+        raise AIProviderError("Cohere fallback returned an invalid response.")
     content = message.get("content") or []
     if isinstance(content, str):
         answer = content
@@ -121,16 +200,6 @@ def _cohere_chat(prompt: str, temperature: float) -> str:
     return answer
 
 
-def _provider_error_text(exc: Exception) -> str:
-    if isinstance(exc, urllib.error.HTTPError):
-        try:
-            body = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            body = ""
-        return f"HTTP {exc.code}: {body or exc.reason}"
-    return str(exc)
-
-
 def generate_ai_response(prompt: str, temperature: float = 0.3) -> str:
     """Generate text with DeepSeek first, then optional Cohere fallback."""
     deepseek_error: Exception | None = None
@@ -141,24 +210,24 @@ def generate_ai_response(prompt: str, temperature: float = 0.3) -> str:
             if answer:
                 return answer
             raise AIProviderError("DeepSeek returned an empty response.")
-        except (TimeoutError, socket.timeout, Exception) as exc:
+        except Exception as exc:
             deepseek_error = exc
-            print(f"AI: DeepSeek primary failed - {_provider_error_text(exc)}")
+            _log_provider_failure("deepseek", exc)
     else:
         deepseek_error = AIProviderError("DeepSeek primary is not configured.")
-        print("AI: DeepSeek primary failed - not configured")
+        logger.warning("provider_call_failed provider=deepseek status=not_configured error_class=ConfigurationError")
 
     if AI_FALLBACK_PROVIDER == "cohere" and _cohere_api_key:
-        print("AI: Trying Cohere fallback...")
+        logger.info("provider_fallback_attempt provider=cohere")
         try:
             answer = _cohere_chat(prompt, temperature)
-            print("AI: Cohere fallback succeeded")
+            logger.info("provider_call_succeeded provider=cohere")
             return answer
         except Exception as exc:
-            print(f"AI: Cohere fallback failed - {_provider_error_text(exc)}")
+            _log_provider_failure("cohere", exc)
             raise AIProviderError(BOTH_PROVIDERS_UNAVAILABLE_MESSAGE) from exc
 
-    print("AI: Both providers unavailable")
+    logger.warning("provider_chain_unavailable providers=deepseek,cohere")
     raise AIProviderError(BOTH_PROVIDERS_UNAVAILABLE_MESSAGE) from deepseek_error
 
 
@@ -169,11 +238,7 @@ OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
 
 
 def _read_transcription_timeout(value: str | None) -> float | None:
-    try:
-        timeout = float(value or "90")
-    except (TypeError, ValueError):
-        return None
-    return timeout if math.isfinite(timeout) and timeout > 0 else None
+    return _read_bounded_timeout(value, default=90.0)
 
 
 TRANSCRIPTION_TIMEOUT_SECONDS = _read_transcription_timeout(os.getenv("TRANSCRIPTION_TIMEOUT_SECONDS"))
@@ -248,11 +313,25 @@ def _openai_transcription_request(file_name: str, mime_type: str, content: bytes
         with urllib.request.urlopen(request, timeout=TRANSCRIPTION_TIMEOUT_SECONDS) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise AIProviderError(f"Audio transcription provider returned HTTP {exc.code}.") from exc
+        _log_provider_failure("openai_transcription", exc)
+        if exc.code in {401, 403}:
+            message = "Audio transcription authentication failed."
+        elif exc.code == 429:
+            message = "Audio transcription rate limit reached."
+        elif exc.code >= 500:
+            message = "Audio transcription provider is temporarily unavailable."
+        else:
+            message = "Audio transcription provider request failed."
+        raise AIProviderError(message) from exc
+    except (TimeoutError, socket.timeout) as exc:
+        _log_provider_failure("openai_transcription", exc)
+        raise AIProviderError("Audio transcription request timed out.") from None
     except (urllib.error.URLError, OSError) as exc:
-        raise AIProviderError("Audio transcription timed out or could not reach the provider.") from exc
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise AIProviderError("Audio transcription provider returned an invalid response.") from exc
+        _log_provider_failure("openai_transcription", exc)
+        raise AIProviderError("Audio transcription could not reach the provider.") from None
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
+        _log_provider_failure("openai_transcription", exc)
+        raise AIProviderError("Audio transcription provider returned an invalid response.") from None
 
 
 def normalize_transcript_segments(payload: dict | list) -> list[dict]:

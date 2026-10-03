@@ -518,8 +518,8 @@ def run_rag_query(
 
     try:
         answer = get_maxe_provider().generate(prompt)
-    except AIProviderError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+    except AIProviderError:
+        raise HTTPException(status_code=503, detail="AI answers are temporarily unavailable. Please try again shortly.")
     except Exception:
         raise HTTPException(
             status_code=503,

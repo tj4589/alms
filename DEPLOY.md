@@ -109,6 +109,10 @@ production database is reset or recreated by this process.
    - `DATABASE_URL` — the Neon string from step 1.
    - `DEEPSEEK_API_KEY` — the configured primary provider key.
    - `COHERE_API_KEY` — the optional fallback provider key.
+   - `AI_PROVIDER_TIMEOUT_SECONDS` — maximum wait for each DeepSeek/Cohere
+     request; keep this within the application safety bound (45 seconds is
+     the recommended deployment value). Provider retries are disabled so one
+     user action does not create uncontrolled duplicate billable calls.
    - `CORS_ORIGINS` — leave it until step 4, when the frontend has a URL.
    - `GOOGLE_OAUTH_CLIENT_ID` â€” the OAuth 2.0 Web client ID shown in the
      Firebase project's Authentication/Google provider configuration. The API

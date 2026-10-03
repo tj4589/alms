@@ -1253,9 +1253,15 @@ Document excerpt:
             raw = generate_ai_response(prompt, temperature=0).strip()
             ai_metadata = _parse_strict_ai_metadata(raw)
         except AIProviderError as exc:
-            print(f"AI: Both providers unavailable, using heuristics - {exc}")
+            logger.warning(
+                "metadata_provider_unavailable error_class=%s fallback=heuristics",
+                type(exc).__name__,
+            )
         except Exception as exc:
-            print(f"AI: Metadata JSON invalid, using heuristics - {exc}")
+            logger.warning(
+                "metadata_response_invalid error_class=%s fallback=heuristics",
+                type(exc).__name__,
+            )
 
     merged = normalize_metadata_fields(_merge_ai_metadata_with_heuristics(heuristic, ai_metadata))
     merged = _attach_metadata_review(
