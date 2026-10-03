@@ -56,6 +56,7 @@ from learning_intelligence import (
     readiness_payload,
     record_quiz_attempt,
 )
+from storage_safety import defer_binary_column
 from rate_limiting import user_rate_limit
 
 router = APIRouter(tags=["mvp"])
@@ -552,7 +553,7 @@ def list_past_questions(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    query = db.query(models.PastQuestion).filter(
+    query = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).filter(
         accessible_material_filter(db, models.PastQuestion, current_user),
     )
     if course_id is not None:
@@ -583,7 +584,7 @@ def list_lecture_notes(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    query = db.query(models.LectureNote).filter(
+    query = defer_binary_column(db.query(models.LectureNote), models.LectureNote).filter(
         accessible_material_filter(db, models.LectureNote, current_user),
     )
     if course_id is not None:
@@ -609,7 +610,7 @@ def read_lecture_note(
     lecture_note_sections, which is cut for eyes; the retrieval chunks are not
     exposed here because they overlap and break mid-word.
     """
-    note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
+    note = defer_binary_column(db.query(models.LectureNote), models.LectureNote).filter(models.LectureNote.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="That material does not exist.")
     if not can_view_material(db, note, current_user):
@@ -671,8 +672,17 @@ def download_lecture_note(
     return _file_response(note.file_data, note.file_name, note.file_mime, note.title)
 
 
-def _audio_note_or_404(audio_id: int, db: Session, current_user: models.User) -> models.LectureNote:
-    note = db.query(models.LectureNote).filter(models.LectureNote.id == audio_id).first()
+def _audio_note_or_404(
+    audio_id: int,
+    db: Session,
+    current_user: models.User,
+    *,
+    include_file: bool = False,
+) -> models.LectureNote:
+    query = db.query(models.LectureNote)
+    if not include_file:
+        query = defer_binary_column(query, models.LectureNote)
+    note = query.filter(models.LectureNote.id == audio_id).first()
     if not note or not can_view_material(db, note, current_user):
         raise HTTPException(status_code=404, detail="That audio resource does not exist.")
     metadata = note.metadata_json or {}
@@ -729,7 +739,7 @@ def download_audio(
     current_user: models.User = Depends(auth.get_current_user),
     _rate_limit: None = Depends(user_rate_limit("download", auth.get_current_user)),
 ):
-    note = _audio_note_or_404(audio_id, db, current_user)
+    note = _audio_note_or_404(audio_id, db, current_user, include_file=True)
     if not note.file_data:
         raise HTTPException(status_code=404, detail="The original audio file is not stored.")
     return _file_response(note.file_data, note.file_name, note.file_mime, "audio-recording")
@@ -804,7 +814,7 @@ def update_material_visibility(
     current_user: models.User = Depends(auth.require_role("student")),
 ):
     model = material_model(material_type)
-    row = db.query(model).filter(model.id == material_id).first()
+    row = defer_binary_column(db.query(model), model).filter(model.id == material_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="That material does not exist.")
     require_material_owner(row, current_user)
@@ -823,7 +833,7 @@ def update_material_visibility(
         wanted = _document_key(row)
         rows = [
             candidate
-            for candidate in db.query(models.PastQuestion)
+            for candidate in defer_binary_column(db.query(models.PastQuestion), models.PastQuestion)
             .filter(models.PastQuestion.uploaded_by == row.uploaded_by)
             .all()
             if _document_key(candidate) == wanted
@@ -1220,7 +1230,7 @@ def _validate_thread_context(
     if course_id is not None and not db.query(models.Course.id).filter(models.Course.id == course_id).first():
         raise HTTPException(status_code=400, detail="That course could not be found.")
     if past_question_id is not None:
-        past_question = db.query(models.PastQuestion).filter(models.PastQuestion.id == past_question_id).first()
+        past_question = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).filter(models.PastQuestion.id == past_question_id).first()
         if not past_question or not can_view_material(db, past_question, current_user):
             raise HTTPException(status_code=400, detail="That past question could not be found.")
     if group_id is None:

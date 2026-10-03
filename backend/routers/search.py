@@ -23,8 +23,13 @@ from public_schemas import (
     PublicSearchPastQuestionResponse,
     public_material_metadata,
 )
+from storage_safety import defer_binary_column
 
 router = APIRouter(tags=["search"])
+
+
+def _material_query(db: Session, model: Any):
+    return defer_binary_column(db.query(model), model)
 
 def _public_metadata(value: dict | None) -> dict:
     return public_material_metadata(value)
@@ -84,7 +89,7 @@ def smart_search(
                 if course_id:
                     pq_base = pq_base.filter(models.PastQuestion.course_id == course_id)
                 pq_chunks = pq_base.order_by(models.ResourceChunk.embedding.l2_distance(vec)).limit(limit * 4).all()
-                parent_rows = [db.query(models.PastQuestion).filter(models.PastQuestion.id == chunk.resource_id).first() for chunk in pq_chunks]
+                parent_rows = [_material_query(db, models.PastQuestion).filter(models.PastQuestion.id == chunk.resource_id).first() for chunk in pq_chunks]
                 past_questions = _group_past_questions([row for row in parent_rows if row], limit)
 
                 chunk_base = db.query(models.ResourceChunk).join(
@@ -101,11 +106,11 @@ def smart_search(
                     nid = chunk.resource_id
                     if nid and nid not in seen_note_ids:
                         seen_note_ids.add(nid)
-                        note = db.query(models.LectureNote).filter(models.LectureNote.id == nid).first()
+                        note = _material_query(db, models.LectureNote).filter(models.LectureNote.id == nid).first()
                         if note:
                             lecture_notes.append(_ln(note))
             else:
-                pq_base = db.query(models.PastQuestion).filter(
+                pq_base = _material_query(db, models.PastQuestion).filter(
                     accessible_material_filter(db, models.PastQuestion, current_user),
                 )
                 if course_id:
@@ -127,7 +132,7 @@ def smart_search(
                     nid = chunk.lecture_note_id
                     if nid and nid not in seen_note_ids:
                         seen_note_ids.add(nid)
-                        note = db.query(models.LectureNote).filter(models.LectureNote.id == nid).first()
+                        note = _material_query(db, models.LectureNote).filter(models.LectureNote.id == nid).first()
                         if note:
                             lecture_notes.append(_ln(note))
 
@@ -146,7 +151,7 @@ def smart_search(
         )
         if course_id:
             pq_chunk_query = pq_chunk_query.filter(models.PastQuestion.course_id == course_id)
-        parent_rows = [db.query(models.PastQuestion).filter(models.PastQuestion.id == chunk.resource_id).first() for chunk in pq_chunk_query.limit(limit * 4).all()]
+        parent_rows = [_material_query(db, models.PastQuestion).filter(models.PastQuestion.id == chunk.resource_id).first() for chunk in pq_chunk_query.limit(limit * 4).all()]
         past_questions = _group_past_questions([row for row in parent_rows if row], limit)
 
         note_chunk_query = db.query(models.ResourceChunk).join(
@@ -159,9 +164,9 @@ def smart_search(
         for chunk in note_chunk_query.limit(limit * 3).all():
             if chunk.resource_id not in note_ids:
                 note_ids.append(chunk.resource_id)
-        lecture_notes = [_ln(note) for note in db.query(models.LectureNote).filter(models.LectureNote.id.in_(note_ids)).all()] if note_ids else []
+        lecture_notes = [_ln(note) for note in _material_query(db, models.LectureNote).filter(models.LectureNote.id.in_(note_ids)).all()] if note_ids else []
     elif not semantic_ok:
-        pq_q = db.query(models.PastQuestion).filter(
+        pq_q = _material_query(db, models.PastQuestion).filter(
             accessible_material_filter(db, models.PastQuestion, current_user),
             _past_question_filter(terms),
         )
@@ -169,7 +174,7 @@ def smart_search(
             pq_q = pq_q.filter(models.PastQuestion.course_id == course_id)
         past_questions = _group_past_questions(pq_q.limit(limit * 4).all(), limit)
 
-        ln_q = db.query(models.LectureNote).filter(
+        ln_q = _material_query(db, models.LectureNote).filter(
             accessible_material_filter(db, models.LectureNote, current_user),
             _lecture_note_filter(terms),
         )
@@ -194,7 +199,7 @@ def smart_search(
             for note_id in chunk_note_ids:
                 if note_id in seen_note_ids or len(lecture_notes) >= limit:
                     continue
-                note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
+                note = _material_query(db, models.LectureNote).filter(models.LectureNote.id == note_id).first()
                 if note:
                     seen_note_ids.add(note_id)
                     lecture_notes.append(_ln(note))
@@ -395,8 +400,8 @@ def _metadata_context(db: Session, current_user: models.User | None = None) -> l
         context.append({"code": course.code, "name": course.name, "description": course.description})
     for topic in db.query(models.Topic).limit(120).all():
         context.append({"topic": topic.name})
-    notes_query = db.query(models.LectureNote)
-    past_query = db.query(models.PastQuestion)
+    notes_query = _material_query(db, models.LectureNote)
+    past_query = _material_query(db, models.PastQuestion)
     if current_user is not None:
         notes_query = notes_query.filter(accessible_material_filter(db, models.LectureNote, current_user))
         past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))

@@ -4,6 +4,7 @@ import math
 import mimetypes
 import os
 import re
+import zipfile
 from difflib import SequenceMatcher
 from io import BytesIO
 from hashlib import sha256
@@ -37,6 +38,7 @@ from material_access import (
 )
 from resource_index import chunk_provenance_fields, classify_workspace_relevance
 from rate_limiting import user_rate_limit
+from storage_safety import UPLOAD_READ_CHUNK_BYTES, defer_binary_column
 
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response, normalize_transcript_segments, transcribe_audio
 
@@ -96,6 +98,27 @@ AUDIO_MIME_TYPES = {
     ".flac": "audio/flac",
     ".webm": "audio/webm",
 }
+UPLOAD_MIME_TYPES = {
+    ".pdf": {"application/pdf"},
+    ".docx": {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/zip",
+    },
+    ".pptx": {
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/zip",
+    },
+    ".png": {"image/png"},
+    ".jpg": {"image/jpeg"},
+    ".jpeg": {"image/jpeg"},
+    ".mp3": {"audio/mpeg", "audio/mp3"},
+    ".wav": {"audio/wav", "audio/x-wav"},
+    ".m4a": {"audio/mp4", "audio/x-m4a", "video/mp4"},
+    ".ogg": {"audio/ogg", "application/ogg"},
+    ".flac": {"audio/flac", "audio/x-flac"},
+    ".webm": {"audio/webm", "video/webm"},
+}
+GENERIC_UPLOAD_MIME_TYPES = {"", "application/octet-stream", "binary/octet-stream"}
 SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg", *AUDIO_UPLOAD_EXTENSIONS}
 IMAGE_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 OCR_CONFIGS = [
@@ -390,11 +413,11 @@ def clear_uploaded_materials(
     material_count = 0
 
     try:
-        past_questions = db.query(models.PastQuestion).all()
+        past_questions = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).all()
         material_count += len(past_questions)
         _merge_delete_summary(summary, _delete_past_questions(db, past_questions))
 
-        lecture_notes = db.query(models.LectureNote).all()
+        lecture_notes = defer_binary_column(db.query(models.LectureNote), models.LectureNote).all()
         material_count += len(lecture_notes)
         _merge_delete_summary(summary, _delete_lecture_notes(db, lecture_notes))
 
@@ -1000,6 +1023,69 @@ def _extract_pdf_content(content: bytes, warnings: list[str]) -> Dict[str, Any]:
     }
 
 
+def _read_bounded_upload(file: UploadFile) -> bytes:
+    """Read an upload in bounded chunks and reject as soon as it exceeds the limit."""
+
+    chunks: list[bytes] = []
+    total = 0
+    while total < MAX_UPLOAD_BYTES:
+        chunk = file.file.read(min(UPLOAD_READ_CHUNK_BYTES, MAX_UPLOAD_BYTES - total))
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        total += len(chunk)
+
+    # Read one byte only when the declared limit has been reached.  The full
+    # oversized payload is never copied into memory just to return 413.
+    if file.file.read(1):
+        try:
+            file.file.close()
+        except OSError:
+            pass
+        raise HTTPException(
+            status_code=413,
+            detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_BYTES} bytes.",
+        )
+    return b"".join(chunks)
+
+
+def _zip_contains(content: bytes, required_prefix: str) -> bool:
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            names = set(archive.namelist())
+        return "[Content_Types].xml" in names and any(name.startswith(required_prefix) for name in names)
+    except (zipfile.BadZipFile, OSError):
+        return False
+
+
+def _content_signature_matches(content: bytes, extension: str) -> bool:
+    """Check the container signature instead of trusting a filename alone."""
+
+    if extension == ".pdf":
+        return content.startswith(b"%PDF-")
+    if extension == ".docx":
+        return _zip_contains(content, "word/")
+    if extension == ".pptx":
+        return _zip_contains(content, "ppt/")
+    if extension == ".png":
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+    if extension in {".jpg", ".jpeg"}:
+        return content.startswith(b"\xff\xd8\xff")
+    if extension in AUDIO_UPLOAD_EXTENSIONS:
+        return _audio_signature_matches(content, extension)
+    return False
+
+
+def _validate_upload_content(file: UploadFile, content: bytes, extension: str) -> str:
+    supplied_mime = (file.content_type or "").strip().lower()
+    expected_mimes = UPLOAD_MIME_TYPES[extension]
+    if supplied_mime not in GENERIC_UPLOAD_MIME_TYPES and supplied_mime not in expected_mimes:
+        raise HTTPException(status_code=400, detail="The uploaded file type does not match its filename or supported format.")
+    if not _content_signature_matches(content, extension):
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid supported file of that type.")
+    return next(iter(expected_mimes - {"application/zip"}), "application/octet-stream")
+
+
 def _audio_signature_matches(content: bytes, extension: str) -> bool:
     """Reject renamed executables and unrelated files before transcription."""
     if not content:
@@ -1021,11 +1107,9 @@ def _audio_signature_matches(content: bytes, extension: str) -> bool:
 
 def _audio_mime_type(file: UploadFile, extension: str) -> str:
     supplied = (file.content_type or "").strip().lower()
-    if supplied and supplied not in {"application/octet-stream", "binary/octet-stream"} and not (
-        supplied.startswith("audio/") or supplied in {"application/ogg", "video/webm", "video/mp4"}
-    ):
-        raise HTTPException(status_code=400, detail="The uploaded audio MIME type is not supported.")
-    return supplied if supplied and supplied not in {"application/octet-stream", "binary/octet-stream"} else AUDIO_MIME_TYPES[extension]
+    if supplied not in GENERIC_UPLOAD_MIME_TYPES and supplied not in UPLOAD_MIME_TYPES[extension]:
+        raise HTTPException(status_code=400, detail="The uploaded audio MIME type does not match its filename or supported format.")
+    return AUDIO_MIME_TYPES[extension]
 
 
 def _audio_extraction(file: UploadFile, content: bytes, extension: str) -> Dict[str, Any]:
@@ -1059,17 +1143,23 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     filename = file.filename or ""
     extension = os.path.splitext(filename.lower())[1]
     if extension not in SUPPORTED_UPLOAD_EXTENSIONS:
+        try:
+            file.file.close()
+        except OSError:
+            pass
         raise HTTPException(
             status_code=400,
             detail="Only PDF, Word, PowerPoint, image, and supported audio files are supported.",
         )
 
-    content = file.file.read(MAX_UPLOAD_BYTES + 1)
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_BYTES} bytes.",
-        )
+    content = _read_bounded_upload(file)
+    # The extractor and confirmation path use the in-memory bytes below, not
+    # the multipart spool. Release the temporary file as soon as it is safe.
+    try:
+        file.file.close()
+    except OSError:
+        pass
+    canonical_mime = _validate_upload_content(file, content, extension)
 
     warnings: list[str] = []
     if extension in AUDIO_UPLOAD_EXTENSIONS:
@@ -1091,7 +1181,7 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     result["file_bytes"] = content
     result["source_checksum"] = sha256(content).hexdigest()
     result["file_name"] = filename or "upload"
-    result["file_mime"] = result.get("file_mime") or file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    result["file_mime"] = result.get("file_mime") or canonical_mime or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     if extension == ".pdf":
         result["page_texts"] = _page_texts(content)
     else:
@@ -2381,7 +2471,7 @@ def find_duplicate(
     document_type = metadata.get("document_type")
     model = models.PastQuestion if document_type == "past_question" else models.LectureNote
     material_type = "past_question" if document_type == "past_question" else "audio" if document_type == "audio" else "lecture_note"
-    query = db.query(model).filter(accessible_material_filter(db, model, current_user))
+    query = defer_binary_column(db.query(model), model).filter(accessible_material_filter(db, model, current_user))
     candidates = query.limit(200).all()
     if not candidates:
         return None
@@ -2777,7 +2867,7 @@ def _metadata_matches(metadata: Optional[Dict[str, Any]], source_file: str = "",
 
 def _authorized_material_query(db: Session, model: Any, current_user: models.User, owner_id: int | None = None):
     """Build the material query with the ownership boundary applied in SQL."""
-    query = db.query(model)
+    query = defer_binary_column(db.query(model), model)
     if current_user.role == "admin":
         if owner_id is not None:
             query = query.filter(model.uploaded_by == owner_id)

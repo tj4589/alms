@@ -40,6 +40,7 @@ from material_access import (
     require_material_owner,
     sharing_payload,
 )
+from storage_safety import defer_binary_column
 from public_schemas import (
     PublicContributionMaterial,
     PublicContributionResponse,
@@ -133,7 +134,7 @@ def _document_rows(db: Session, row: Any, material_type: str) -> list[Any]:
     metadata = row.metadata_json or {}
     source_file = str(metadata.get("source_file") or "").strip().lower()
     source_title = str(metadata.get("document_title") or "").strip().lower()
-    candidates = db.query(models.PastQuestion).filter(
+    candidates = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).filter(
         models.PastQuestion.uploaded_by == row.uploaded_by,
     ).all()
     return [

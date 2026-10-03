@@ -26,6 +26,7 @@ from public_schemas import (
     PublicUnderstanding,
 )
 from rate_limiting import user_rate_limit
+from storage_safety import defer_binary_column
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 MAX_RAG_QUESTION_CHARS = int(os.getenv("MAX_RAG_QUESTION_CHARS", "2000"))
@@ -229,7 +230,7 @@ def _active_resource_context(
     try:
         if resource_type == "past_question":
             row = (
-                db.query(models.PastQuestion)
+                defer_binary_column(db.query(models.PastQuestion), models.PastQuestion)
                 .filter(models.PastQuestion.id == resource_id)
                 .filter(accessible_material_filter(db, models.PastQuestion, current_user))
                 .first()
@@ -244,7 +245,7 @@ def _active_resource_context(
             )
 
         row = (
-            db.query(models.LectureNote)
+            defer_binary_column(db.query(models.LectureNote), models.LectureNote)
             .filter(models.LectureNote.id == resource_id)
             .filter(accessible_material_filter(db, models.LectureNote, current_user))
             .first()
@@ -596,8 +597,8 @@ def _metadata_context(db: Session, current_user: models.User | None = None) -> l
         context.append({"code": course.code, "name": course.name, "description": course.description})
     for topic in db.query(models.Topic).limit(120).all():
         context.append({"topic": topic.name})
-    notes_query = db.query(models.LectureNote)
-    past_query = db.query(models.PastQuestion)
+    notes_query = defer_binary_column(db.query(models.LectureNote), models.LectureNote)
+    past_query = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion)
     if current_user is not None:
         notes_query = notes_query.filter(accessible_material_filter(db, models.LectureNote, current_user))
         past_query = past_query.filter(accessible_material_filter(db, models.PastQuestion, current_user))

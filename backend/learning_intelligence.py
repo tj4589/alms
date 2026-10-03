@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 import models
 from material_access import accessible_material_filter
 from resource_index import citation_payload
+from storage_safety import defer_binary_column
 
 
 MIN_READINESS_ANSWERS = 10
@@ -207,8 +208,8 @@ def authorized_sources(
         raise ValueError("resource scope requires a resource type and id")
 
     rows: list[Any] = []
-    note_query = db.query(models.LectureNote).filter(accessible_material_filter(db, models.LectureNote, user))
-    past_query = db.query(models.PastQuestion).filter(accessible_material_filter(db, models.PastQuestion, user))
+    note_query = defer_binary_column(db.query(models.LectureNote), models.LectureNote).filter(accessible_material_filter(db, models.LectureNote, user))
+    past_query = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).filter(accessible_material_filter(db, models.PastQuestion, user))
     if course_id is not None:
         note_query = note_query.filter(models.LectureNote.course_id == course_id)
         past_query = past_query.filter(models.PastQuestion.course_id == course_id)

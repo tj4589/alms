@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 import models
+from storage_safety import defer_binary_column
 
 
 SPACE_SIGNALS = {
@@ -221,7 +222,7 @@ def backfill_resource_chunks(db) -> int:
         created += 1
 
     grouped: dict[str, list[Any]] = {}
-    for row in db.query(models.PastQuestion).all():
+    for row in defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).all():
         metadata = row.metadata_json or {}
         key = "|".join(str(value or "").strip().lower() for value in (
             getattr(row, "source_checksum", None) or metadata.get("source_checksum"),
