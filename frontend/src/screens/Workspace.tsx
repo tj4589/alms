@@ -35,13 +35,13 @@ type AudioTranscriptPayload = {
 type RawResource = {
   id: number; title?: string | null; topic?: string | null; file_name?: string | null;
   file_size?: number | null; has_file?: boolean; content_text?: string | null;
-  uploaded_by?: number | null; course_id?: number | null; year?: number | null; semester?: string | null;
+  is_owner?: boolean; course_id?: number | null; year?: number | null; semester?: string | null;
   visibility?: 'space_shared' | 'official' | 'public' | 'group' | 'private'; metadata_json?: Record<string, unknown> | null;
   created_at?: string | null;
 };
 type Resource = {
   key: string; id: number; kind: ResourceKind; title: string; fileName: string | null;
-  fileSize: number | null; hasFile: boolean; uploadedBy: number | null; contentText: string; courseCode: string | null;
+  fileSize: number | null; hasFile: boolean; isOwner: boolean; contentText: string; courseCode: string | null;
   courseTitle: string | null; year: number | null; semester: string | null;
   visibility: 'space_shared' | 'official' | 'public' | 'group' | 'private'; metadata: Record<string, unknown>;
   status: ResourceStatus; statusLabel: string; createdAt: string | null; isAudio: boolean;
@@ -98,7 +98,7 @@ function normalizeResource(raw: RawResource, kind: ResourceKind): Resource {
   const documentKey = metadataValue(metadata, 'source_checksum') || `${raw.file_name || title}:${raw.course_id || 'archive'}:${raw.year || ''}:${raw.semester || ''}`;
   return {
     key: `${kind}:${documentKey}`, id: raw.id, kind, title, fileName: raw.file_name || null,
-    fileSize: raw.file_size || null, hasFile: Boolean(raw.has_file || raw.file_size), uploadedBy: raw.uploaded_by ?? null, contentText: raw.content_text || '',
+    fileSize: raw.file_size || null, hasFile: Boolean(raw.has_file || raw.file_size), isOwner: Boolean(raw.is_owner), contentText: raw.content_text || '',
     courseCode: metadataValue(metadata, 'course_code'), courseTitle: metadataValue(metadata, 'course_title'),
     year: raw.year || null, semester: raw.semester || null, visibility: raw.visibility || 'private', metadata,
     status: status.status, statusLabel: status.statusLabel, createdAt: raw.created_at || null,
@@ -430,7 +430,7 @@ function ResourceReader({ resource, go, onSelection, citationTarget, user }: { r
   const [error, setError] = useState(''); const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false); const [downloadError, setDownloadError] = useState(''); const [previewError, setPreviewError] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const canManageSharing = Boolean(user && resource.uploadedBy === user.id);
+  const canManageSharing = Boolean(user && resource.isOwner);
   useEffect(() => {
     let cancelled = false; setError(''); setPreviewError(false); setSourceUrl(null);
     if (resource.kind === 'past_question' || resource.isAudio) { setDetail({ ...resource, sections: [] }); setLoading(false); return () => { cancelled = true; }; }

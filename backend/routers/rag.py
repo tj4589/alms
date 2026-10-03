@@ -19,6 +19,12 @@ from material_access import accessible_material_filter
 from learning_spaces import authorized_active_space
 from resource_index import citation_payload
 from learning_intelligence import learning_suggestion
+from public_schemas import (
+    PublicLearningSuggestion,
+    PublicMaxeContext,
+    PublicSourceCitation,
+    PublicUnderstanding,
+)
 from rate_limiting import user_rate_limit
 
 router = APIRouter(prefix="/rag", tags=["rag"])
@@ -60,16 +66,16 @@ class AskQuestionResponse(BaseModel):
     sources: List[str]
     past_question_sources: List[str] = []
     lecture_note_sources: List[str] = []
-    source_citations: List[dict] = []
+    source_citations: List[PublicSourceCitation] = []
     insufficient_sources: bool = False
     no_past_questions_found: bool = False
     no_lecture_notes_found: bool = False
-    understanding: dict | None = None
+    understanding: PublicUnderstanding | None = None
     mode: Literal["source", "beyond_materials"] = SOURCE_MODE
     knowledge_gap: bool = False
     knowledge_gap_message: str | None = None
-    context: dict = Field(default_factory=dict)
-    learning_suggestion: dict | None = None
+    context: PublicMaxeContext = Field(default_factory=lambda: PublicMaxeContext(mode=SOURCE_MODE))
+    learning_suggestion: PublicLearningSuggestion | None = None
 
 
 def source_from_metadata(prefix: str, year, metadata: dict | None):

@@ -40,6 +40,20 @@ from material_access import (
     require_material_owner,
     sharing_payload,
 )
+from public_schemas import (
+    PublicContributionMaterial,
+    PublicContributionResponse,
+    PublicLearningSpace,
+    PublicModerationAudit,
+    PublicModerationDetailResponse,
+    PublicResolvedResourceResponse,
+    PublicShareLinkListResponse,
+    PublicShareLinkResponse,
+    PublicUploader,
+    PublicContributionState,
+    public_material_metadata,
+    public_shared_content_payload,
+)
 from rate_limiting import share_read_rate_limit, user_rate_limit
 
 router = APIRouter(prefix="/collaboration", tags=["collaboration"])
@@ -100,16 +114,7 @@ def _safe_text(value: Any, limit: int = 4_000) -> str:
 
 
 def _safe_metadata(row: Any) -> dict[str, Any]:
-    blocked = {
-        "file_bytes", "file_data", "raw_audio", "audio_bytes", "storage_reference",
-        "raw_extracted_text", "cleaned_text", "cleaned_text_sample", "page_texts",
-        "transcript", "transcript_text", "complete_transcript", "source_checksum",
-    }
-    return {
-        key: value
-        for key, value in (getattr(row, "metadata_json", None) or {}).items()
-        if key not in blocked
-    }
+    return public_material_metadata(getattr(row, "metadata_json", None))
 
 
 def _material_row(db: Session, material_type: str, material_id: int):
@@ -142,25 +147,38 @@ def _document_rows(db: Session, row: Any, material_type: str) -> list[Any]:
 def _contribution_view(db: Session, contribution: models.MaterialContribution, row: Any | None = None) -> dict[str, Any]:
     uploader = db.query(models.User).filter(models.User.id == contribution.submitted_by).first()
     space = db.query(models.LearningSpace).filter(models.LearningSpace.id == contribution.learning_space_id).first()
-    return {
-        **contribution_payload(contribution),
-        "material_type": contribution.material_type,
-        "material_id": contribution.material_id,
-        "learning_space": {"id": space.id, "slug": space.slug, "name": space.name} if space else None,
-        "uploader": {
-            "id": uploader.id,
-            "name": uploader.name,
-            "username": uploader.username,
-        } if uploader else None,
-        "material": {
-            "title": getattr(row, "title", None) or ((getattr(row, "metadata_json", None) or {}).get("document_title")),
-            "file_name": getattr(row, "file_name", None),
-            "file_mime": getattr(row, "file_mime", None),
-            "file_size": getattr(row, "file_size", None),
-            "metadata": _safe_metadata(row) if row is not None else {},
-            "preview": _safe_text(getattr(row, "content_text", None), 1_200) if row is not None else "",
-        } if row is not None else None,
-    }
+    payload = contribution_payload(contribution)
+    raw_metadata = getattr(row, "metadata_json", None) or {}
+    return PublicContributionResponse(
+        id=contribution.id,
+        contribution_id=payload.get("contribution_id"),
+        moderation_status=payload.get("moderation_status") or "not_submitted",
+        requested_visibility=payload.get("requested_visibility"),
+        review_reason=payload.get("review_reason"),
+        learning_space_id=payload.get("learning_space_id"),
+        submitted_at=payload.get("submitted_at"),
+        reviewed_at=payload.get("reviewed_at"),
+        material_type=contribution.material_type,
+        material_id=contribution.material_id,
+        learning_space=PublicLearningSpace(
+            id=space.id,
+            slug=space.slug,
+            name=space.name,
+        ) if space else None,
+        uploader=PublicUploader(
+            id=uploader.id,
+            name=uploader.name,
+            username=uploader.username,
+        ) if uploader else None,
+        material=PublicContributionMaterial(
+            title=getattr(row, "title", None) or raw_metadata.get("document_title"),
+            file_name=getattr(row, "file_name", None),
+            file_mime=getattr(row, "file_mime", None),
+            file_size=getattr(row, "file_size", None),
+            metadata=_safe_metadata(row) if row is not None else {},
+            preview=_safe_text(getattr(row, "content_text", None), 1_200) if row is not None else "",
+        ) if row is not None else None,
+    ).model_dump(mode="json")
 
 
 def _audit(
@@ -338,7 +356,7 @@ def withdraw_contribution(
     return {"status": "withdrawn", "sharing": {**sharing_payload(PRIVATE), **contribution_payload(contribution)}}
 
 
-@router.get("/contributions/mine")
+@router.get("/contributions/mine", response_model=list[PublicContributionResponse])
 def list_my_contributions(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
@@ -349,7 +367,7 @@ def list_my_contributions(
     return [_contribution_view(db, item, _material_row(db, item.material_type, item.material_id)) for item in contributions]
 
 
-@router.get("/moderation/contributions")
+@router.get("/moderation/contributions", response_model=list[PublicContributionResponse])
 def list_moderation_queue(
     status: str = Query(default="pending_review"),
     db: Session = Depends(get_db),
@@ -364,7 +382,7 @@ def list_moderation_queue(
     return [_contribution_view(db, item, _material_row(db, item.material_type, item.material_id)) for item in visible]
 
 
-@router.get("/moderation/contributions/{contribution_id}")
+@router.get("/moderation/contributions/{contribution_id}", response_model=PublicModerationDetailResponse)
 def moderation_detail(
     contribution_id: int,
     db: Session = Depends(get_db),
@@ -377,13 +395,20 @@ def moderation_detail(
     audits = db.query(models.ModerationAudit).filter(
         models.ModerationAudit.contribution_id == contribution.id,
     ).order_by(models.ModerationAudit.created_at.asc()).all()
-    return {
-        **_contribution_view(db, contribution, row),
-        "audit": [
-            {"action": item.action, "reason": item.reason, "previous_state": item.previous_state, "new_state": item.new_state, "created_at": item.created_at}
+    base = _contribution_view(db, contribution, row)
+    return PublicModerationDetailResponse(
+        **base,
+        audit=[
+            PublicModerationAudit(
+                action=item.action,
+                reason=item.reason,
+                previous_state=PublicContributionState.model_validate(item.previous_state or {}),
+                new_state=PublicContributionState.model_validate(item.new_state or {}),
+                created_at=item.created_at,
+            )
             for item in audits
         ],
-    }
+    )
 
 
 @router.post("/moderation/contributions/{contribution_id}/decision")
@@ -480,7 +505,13 @@ def create_share_link(
     db.add(link)
     db.commit()
     db.refresh(link)
-    return {"id": link.id, "token": raw_token, "expires_at": link.expires_at, "access_policy": link.access_policy, "content_type": link.content_type}
+    return PublicShareLinkResponse(
+        id=link.id,
+        token=raw_token,
+        expires_at=link.expires_at,
+        access_policy=link.access_policy,
+        content_type=link.content_type,
+    ).model_dump(mode="json")
 
 
 @router.get("/share/{token}")
@@ -499,26 +530,41 @@ def resolve_share_link(
         row = _material_row(db, link.material_type, link.material_id)
         if not can_view_material(db, row, current_user):
             raise HTTPException(status_code=404, detail="That shared item is not available to you.")
-        return {
-            "content_type": "resource",
-            "material_type": link.material_type,
-            "material_id": link.material_id,
-            "title": getattr(row, "title", None) or (row.metadata_json or {}).get("document_title"),
-            "visibility": getattr(row, "visibility", PRIVATE),
-            "metadata": _safe_metadata(row),
-            "verified_citations": [],
-        }
+        return PublicResolvedResourceResponse(
+            content_type="resource",
+            material_type=link.material_type,
+            material_id=link.material_id,
+            title=getattr(row, "title", None) or (row.metadata_json or {}).get("document_title"),
+            visibility=getattr(row, "visibility", PRIVATE) or PRIVATE,
+            metadata=_safe_metadata(row),
+            verified_citations=[],
+        ).model_dump(mode="json")
     payload = _citation_access(db, link.payload_json or {}, current_user)
-    return {"content_type": link.content_type, "content_id": link.content_id, "payload": payload, "created_at": link.created_at}
+    return {
+        "content_type": link.content_type,
+        "content_id": link.content_id,
+        "payload": public_shared_content_payload(payload),
+        "created_at": link.created_at,
+    }
 
 
-@router.get("/share-links")
+@router.get("/share-links", response_model=list[PublicShareLinkListResponse])
 def list_share_links(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
     links = db.query(models.SecureShareLink).filter(models.SecureShareLink.owner_id == current_user.id).order_by(models.SecureShareLink.created_at.desc()).limit(100).all()
-    return [{"id": item.id, "content_type": item.content_type, "access_policy": item.access_policy, "expires_at": item.expires_at, "revoked_at": item.revoked_at, "created_at": item.created_at} for item in links]
+    return [
+        PublicShareLinkListResponse(
+            id=item.id,
+            content_type=item.content_type,
+            access_policy=item.access_policy,
+            expires_at=item.expires_at,
+            revoked_at=item.revoked_at,
+            created_at=item.created_at,
+        )
+        for item in links
+    ]
 
 
 @router.delete("/share-links/{link_id}")

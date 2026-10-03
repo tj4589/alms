@@ -41,6 +41,14 @@ from material_access import (
     sharing_payload,
     validate_share_groups,
 )
+from public_schemas import (
+    PublicAudioTranscriptResponse,
+    PublicLectureNoteReaderResponse,
+    PublicLectureNoteResponse,
+    PublicPastQuestionResponse,
+    PublicReaderSection,
+    public_material_metadata,
+)
 from learning_intelligence import (
     attempt_payload,
     create_grounded_quiz,
@@ -82,30 +90,6 @@ class PracticeSubmitRequest(BaseModel):
 
 MAX_NOTE_PRACTICE_CHUNKS = 6
 MAX_NOTE_PRACTICE_CONTEXT_CHARS = 4500
-PUBLIC_METADATA_EXCLUDED_FIELDS = frozenset({
-    "file_bytes",
-    "file_data",
-    "raw_audio",
-    "audio_bytes",
-    "storage_reference",
-    "page_texts",
-    "raw_extracted_text",
-    "cleaned_text",
-    "cleaned_text_sample",
-    "transcript",
-    "transcript_text",
-    "complete_transcript",
-})
-
-
-def public_material_metadata(value: dict | None) -> dict:
-    """Keep list/read metadata useful without exposing storage or full text."""
-    metadata = value or {}
-    return {
-        key: item
-        for key, item in metadata.items()
-        if key not in PUBLIC_METADATA_EXCLUDED_FIELDS
-    }
 
 
 def _topic_terms(topic: str | None) -> list[str]:
@@ -432,32 +416,31 @@ def serialize_course(row: models.Course) -> dict:
     }
 
 
-def serialize_past_question(row: models.PastQuestion) -> dict:
+def serialize_past_question(row: models.PastQuestion, current_user_id: int | None = None) -> dict:
     metadata = public_material_metadata(row.metadata_json)
-    return {
-        "id": row.id,
-        "course_id": row.course_id,
-        "topic_id": row.topic_id,
-        "uploaded_by": row.uploaded_by,
-        "year": row.year,
-        "semester": row.semester,
-        "difficulty": row.difficulty,
-        "content_text": row.content_text,
-        "file_url": row.file_url,
-        "file_name": row.file_name,
-        "file_size": row.file_size,
+    visibility = normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility"))
+    return PublicPastQuestionResponse(
+        id=row.id,
+        course_id=row.course_id,
+        topic_id=row.topic_id,
+        year=row.year,
+        semester=row.semester,
+        difficulty=row.difficulty,
+        file_name=row.file_name,
+        file_size=row.file_size,
         # Uploads from before files were kept have no bytes to serve, so the
         # UI hides the download rather than offering one that cannot work.
-        "has_file": bool(row.file_size),
-        "has_text": bool(row.content_text),
-        "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
-        "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
-        "contributor_label": "Official KSA resource" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == OFFICIAL else "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP, SPACE_SHARED} else None,
-        "moderation_status": metadata.get("moderation_status") or "not_submitted",
-        "requested_visibility": metadata.get("requested_visibility"),
-        "created_at": row.created_at,
-        "metadata_json": metadata,
-    }
+        has_file=bool(row.file_size),
+        has_text=bool(row.content_text),
+        content_text=row.content_text,
+        is_owner=current_user_id is not None and current_user_id == row.uploaded_by,
+        visibility=visibility,
+        contributor_label="Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", GROUP, SPACE_SHARED} else None,
+        moderation_status=metadata.get("moderation_status") or "not_submitted",
+        requested_visibility=metadata.get("requested_visibility"),
+        created_at=row.created_at,
+        metadata_json=metadata,
+    ).model_dump(mode="json")
 
 
 # A past-question upload writes one row per text chunk, because each chunk
@@ -486,28 +469,27 @@ def _document_keys(rows) -> set:
     }
 
 
-def serialize_lecture_note(row: models.LectureNote) -> dict:
+def serialize_lecture_note(row: models.LectureNote, current_user_id: int | None = None) -> dict:
     metadata = public_material_metadata(row.metadata_json)
-    return {
-        "id": row.id,
-        "course_id": row.course_id,
-        "uploaded_by": row.uploaded_by,
-        "topic": row.topic,
-        "title": row.title,
-        "year": row.year,
-        "semester": row.semester,
-        "file_url": row.file_url,
-        "has_file": bool(row.file_size),
-        "file_name": row.file_name,
-        "file_size": row.file_size,
-        "visibility": normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")),
-        "shared_group_ids": metadata.get("shared_group_ids", []) if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == GROUP else [],
-        "contributor_label": "Official KSA resource" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) == OFFICIAL else "Shared by a student contributor" if normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility")) in {"public", GROUP, SPACE_SHARED} else None,
-        "moderation_status": metadata.get("moderation_status") or "not_submitted",
-        "requested_visibility": metadata.get("requested_visibility"),
-        "created_at": row.created_at,
-        "metadata_json": metadata,
-    }
+    visibility = normalize_visibility(getattr(row, "visibility", None) or metadata.get("visibility"))
+    return PublicLectureNoteResponse(
+        id=row.id,
+        course_id=row.course_id,
+        topic=row.topic,
+        title=row.title,
+        year=row.year,
+        semester=row.semester,
+        has_file=bool(row.file_size),
+        is_owner=current_user_id is not None and current_user_id == row.uploaded_by,
+        file_name=row.file_name,
+        file_size=row.file_size,
+        visibility=visibility,
+        contributor_label="Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", GROUP, SPACE_SHARED} else None,
+        moderation_status=metadata.get("moderation_status") or "not_submitted",
+        requested_visibility=metadata.get("requested_visibility"),
+        created_at=row.created_at,
+        metadata_json=metadata,
+    ).model_dump(mode="json")
 
 
 def serialize_thread(row: models.DiscussionThread, reply_count: int = 0) -> dict:
@@ -560,7 +542,7 @@ def list_courses(db: Session = Depends(get_db), current_user: models.User = Depe
     return [serialize_course(row) for row in rows]
 
 
-@router.get("/past-questions")
+@router.get("/past-questions", response_model=list[PublicPastQuestionResponse])
 def list_past_questions(
     course_id: Optional[int] = None,
     year: Optional[int] = None,
@@ -590,10 +572,10 @@ def list_past_questions(
             if lowered in (row.content_text or "").lower()
             or lowered in " ".join((row.metadata_json or {}).get("topics_covered", [])).lower()
         ]
-    return [serialize_past_question(row) for row in rows]
+    return [serialize_past_question(row, current_user.id) for row in rows]
 
 
-@router.get("/lecture-notes")
+@router.get("/lecture-notes", response_model=list[PublicLectureNoteResponse])
 def list_lecture_notes(
     course_id: Optional[int] = None,
     topic: Optional[str] = None,
@@ -611,10 +593,10 @@ def list_lecture_notes(
     if uploaded_by is not None:
         query = query.filter(models.LectureNote.uploaded_by == uploaded_by)
     rows = query.order_by(models.LectureNote.created_at.desc()).limit(100).all()
-    return [serialize_lecture_note(row) for row in rows]
+    return [serialize_lecture_note(row, current_user.id) for row in rows]
 
 
-@router.get("/materials/lecture-notes/{note_id}")
+@router.get("/materials/lecture-notes/{note_id}", response_model=PublicLectureNoteReaderResponse)
 def read_lecture_note(
     note_id: int,
     db: Session = Depends(get_db),
@@ -643,28 +625,29 @@ def read_lecture_note(
     uploader = db.query(models.User).filter(models.User.id == note.uploaded_by).first()
     course = db.query(models.Course).filter(models.Course.id == note.course_id).first()
 
-    payload = serialize_lecture_note(note)
-    payload.update({
-        "course_code": course.code if course else None,
-        "course_name": course.name if course else None,
-        "uploaded_by_username": uploader.username if uploader else None,
-        "sections": [
-            {
-                "id": section.id,
-                "index": section.section_index,
-                "heading": section.heading,
-                "body": section.body,
-                "page_from": section.page_from,
-                "page_to": section.page_to,
-                "cut_by": section.cut_by,
-            }
-            for section in sections
-        ],
-    })
-    # Notes uploaded before sections existed still have their text, so the
-    # reader shows the whole thing rather than an empty page.
-    if not sections:
-        payload["content_text"] = note.content_text
+    base = serialize_lecture_note(note, current_user.id)
+    reader_sections = [
+        PublicReaderSection(
+            id=section.id,
+            index=section.section_index,
+            heading=section.heading,
+            body=section.body,
+            page_from=section.page_from,
+            page_to=section.page_to,
+            cut_by=section.cut_by,
+        )
+        for section in sections
+    ]
+    payload = PublicLectureNoteReaderResponse(
+        **base,
+        course_code=course.code if course else None,
+        course_name=course.name if course else None,
+        uploaded_by_username=uploader.username if uploader else None,
+        sections=reader_sections,
+        # Notes uploaded before sections existed still have their text, so the
+        # reader shows the whole thing rather than an empty page.
+        content_text=note.content_text if not sections else None,
+    ).model_dump(mode="json")
     return payload
 
 
@@ -698,7 +681,7 @@ def _audio_note_or_404(audio_id: int, db: Session, current_user: models.User) ->
     return note
 
 
-@router.get("/materials/audio/{audio_id}/transcript")
+@router.get("/materials/audio/{audio_id}/transcript", response_model=PublicAudioTranscriptResponse)
 def read_audio_transcript(
     audio_id: int,
     db: Session = Depends(get_db),
@@ -712,19 +695,18 @@ def read_audio_transcript(
         .order_by(models.AudioTranscriptSegment.segment_index)
         .all()
     )
-    return {
-        "resource_id": note.id,
-        "title": note.title,
-        "file_name": note.file_name,
-        "processing_status": metadata.get("processing_status") or "unknown",
-        "transcription_status": metadata.get("transcription_status") or "unknown",
-        "message": (
+    return PublicAudioTranscriptResponse(
+        resource_id=note.id,
+        title=note.title,
+        file_name=note.file_name,
+        processing_status=str(metadata.get("processing_status") or "unknown"),
+        transcription_status=str(metadata.get("transcription_status") or "unknown"),
+        message=(
             "Transcript is ready."
             if segments
-            else metadata.get("transcription_error")
-            or "A timestamped transcript is not available for this recording yet."
+            else "A timestamped transcript is not available for this recording yet."
         ),
-        "segments": [
+        segments=[
             {
                 "id": segment.id,
                 "segment_index": segment.segment_index,
@@ -737,7 +719,7 @@ def read_audio_transcript(
             }
             for segment in segments
         ],
-    }
+    )
 
 
 @router.get("/materials/audio/{audio_id}/download")

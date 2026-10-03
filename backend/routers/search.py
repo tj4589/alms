@@ -18,18 +18,16 @@ from query_understanding import (
     understand_query,
 )
 from material_access import OFFICIAL, SPACE_SHARED, accessible_material_filter
+from public_schemas import (
+    PublicSearchLectureNoteResponse,
+    PublicSearchPastQuestionResponse,
+    public_material_metadata,
+)
 
 router = APIRouter(tags=["search"])
 
-_PUBLIC_METADATA_BLOCKED = {
-    "file_bytes", "file_data", "raw_audio", "audio_bytes", "storage_reference",
-    "raw_extracted_text", "cleaned_text", "cleaned_text_sample", "page_texts",
-    "transcript", "transcript_text", "complete_transcript",
-}
-
-
 def _public_metadata(value: dict | None) -> dict:
-    return {key: item for key, item in (value or {}).items() if key not in _PUBLIC_METADATA_BLOCKED}
+    return public_material_metadata(value)
 
 
 @router.get("/search")
@@ -507,11 +505,15 @@ def _metadata_snippets(metadata: dict) -> list[str]:
 def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[dict]:
     grouped: dict[str, dict] = {}
     for row in rows:
-        metadata = _public_metadata(row.metadata_json)
+        raw_metadata = row.metadata_json or {}
+        metadata = _public_metadata(raw_metadata)
         key = _document_key(row) or f"row-{row.id}"
-        title = _display_title(metadata)
+        title = _display_title(raw_metadata)
         if key not in grouped:
-            snippets = _metadata_snippets(metadata)
+            # Search snippets are deliberately bounded preview text, not a
+            # pass-through of metadata. The response metadata remains an
+            # explicit catalogue allowlist.
+            snippets = _metadata_snippets(raw_metadata)
             fallback_snippet = _clean_snippet(row.content_text)
             if not snippets and fallback_snippet:
                 snippets = [fallback_snippet]
@@ -537,40 +539,45 @@ def _group_past_questions(rows: list[models.PastQuestion], limit: int) -> list[d
             cleaned = _clean_snippet(row.content_text)
             if cleaned and cleaned not in grouped[key]["snippets"] and len(grouped[key]["snippets"]) < 3:
                 grouped[key]["snippets"].append(cleaned)
-    return list(grouped.values())[:limit]
+    return [
+        PublicSearchPastQuestionResponse(**item).model_dump(mode="json")
+        for item in list(grouped.values())[:limit]
+    ]
 
 
 def _pq(r: models.PastQuestion) -> dict:
-    metadata = _public_metadata(r.metadata_json)
+    raw_metadata = r.metadata_json or {}
+    metadata = _public_metadata(raw_metadata)
     visibility = getattr(r, "visibility", None) or metadata.get("visibility") or "private"
-    return {
-        "id": r.id,
-        "course_id": r.course_id,
-        "year": r.year,
-        "semester": r.semester,
-        "difficulty": r.difficulty,
-        "title": _display_title(metadata),
-        "content_text": _metadata_snippets(metadata)[0] if _metadata_snippets(metadata) else _clean_snippet(r.content_text),
-        "snippets": _metadata_snippets(metadata) or [_clean_snippet(r.content_text)],
-        "chunk_ids": [r.id],
-        "matching_sections": 1,
-        "visibility": visibility,
-        "contributor_label": "Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", "group", SPACE_SHARED} else None,
-        "metadata_json": metadata,
-    }
+    snippets = _metadata_snippets(raw_metadata) or [_clean_snippet(r.content_text)]
+    return PublicSearchPastQuestionResponse(
+        id=r.id,
+        course_id=r.course_id,
+        year=r.year,
+        semester=r.semester,
+        difficulty=r.difficulty,
+        title=_display_title(raw_metadata),
+        content_text=snippets[0] if snippets else "",
+        snippets=snippets,
+        chunk_ids=[r.id],
+        matching_sections=1,
+        visibility=visibility,
+        contributor_label="Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", "group", SPACE_SHARED} else None,
+        metadata_json=metadata,
+    ).model_dump(mode="json")
 
 
 def _ln(r: models.LectureNote) -> dict:
     metadata = _public_metadata(r.metadata_json)
     visibility = getattr(r, "visibility", None) or metadata.get("visibility") or "private"
-    return {
-        "id": r.id,
-        "course_id": r.course_id,
-        "topic": r.topic,
-        "title": r.title,
-        "year": r.year,
-        "semester": r.semester,
-        "visibility": visibility,
-        "contributor_label": "Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", "group", SPACE_SHARED} else None,
-        "metadata_json": metadata,
-    }
+    return PublicSearchLectureNoteResponse(
+        id=r.id,
+        course_id=r.course_id,
+        topic=r.topic,
+        title=r.title,
+        year=r.year,
+        semester=r.semester,
+        visibility=visibility,
+        contributor_label="Official KSA resource" if visibility == OFFICIAL else "Shared by a student contributor" if visibility in {"public", "group", SPACE_SHARED} else None,
+        metadata_json=metadata,
+    ).model_dump(mode="json")
