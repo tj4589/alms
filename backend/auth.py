@@ -234,11 +234,14 @@ def get_or_create_firebase_user(
 
 
 def delete_user_account(db: Session, user: models.User) -> None:
-    """Delete private data and anonymise shared records before removing a user.
+    """Delete account-owned data and detach approved archive resources.
 
     There are no ORM cascades on this schema, deliberately. Keeping the policy
     explicit makes deletion auditable and prevents a new relationship from
     silently retaining identity data or breaking the transaction later.
+    Approved space resources are the exception: they remain available to the
+    learning space after the uploader is removed, with uploader references
+    anonymised.
     """
     require_permanent_deletion_enabled()
     user_id = user.id
@@ -289,15 +292,19 @@ def delete_user_account(db: Session, user: models.User) -> None:
         models.LearningProfile.user_id == user_id
     ).delete(synchronize_session=False)
 
-    # ExamMind uploads are account-private today, so remove the file, extracted
-    # text and retrieval/index rows. Admin/global rows have uploaded_by=NULL
-    # and remain in the shared archive. Discussions that pointed at a deleted
-    # private question lose only that anchor, not the conversation itself.
-    private_question_ids = {
-        row.id for row in db.query(models.PastQuestion.id).filter(
-            models.PastQuestion.uploaded_by == user_id
-        ).all()
-    }
+    # Approved archive resources have space ownership, not account ownership.
+    # Detach those rows from the deleted uploader while preserving their file,
+    # extracted content, retrieval chunks and contribution history. Everything
+    # else remains account-owned and is removed below.
+    retained_questions, private_questions = _partition_uploaded_materials(
+        db, models.PastQuestion, "past_question", user_id
+    )
+    for row in retained_questions:
+        row.uploaded_by = None
+    private_question_ids = {row.id for row in private_questions}
+
+    # Discussions that pointed at a deleted private question lose only that
+    # anchor, not the conversation itself.
     if private_question_ids:
         db.query(models.MaterialGroupShare).filter(
             models.MaterialGroupShare.material_type == "past_question",
@@ -322,19 +329,22 @@ def delete_user_account(db: Session, user: models.User) -> None:
         db.query(models.DiscussionThread).filter(
             models.DiscussionThread.past_question_id.in_(private_question_ids)
         ).update({models.DiscussionThread.past_question_id: None}, synchronize_session=False)
+        db.query(models.PastQuestion).filter(
+            models.PastQuestion.version_of_id.in_(private_question_ids)
+        ).update({models.PastQuestion.version_of_id: None}, synchronize_session=False)
         db.query(models.ResourceChunk).filter(
             models.ResourceChunk.resource_type == "past_question",
             models.ResourceChunk.resource_id.in_(private_question_ids),
         ).delete(synchronize_session=False)
-    db.query(models.PastQuestion).filter(models.PastQuestion.uploaded_by == user_id).delete(
-        synchronize_session=False
-    )
+    for row in private_questions:
+        db.delete(row)
 
-    private_note_ids = {
-        row.id for row in db.query(models.LectureNote.id).filter(
-            models.LectureNote.uploaded_by == user_id
-        ).all()
-    }
+    retained_notes, private_notes = _partition_uploaded_materials(
+        db, models.LectureNote, "lecture_note", user_id
+    )
+    for row in retained_notes:
+        row.uploaded_by = None
+    private_note_ids = {row.id for row in private_notes}
     if private_note_ids:
         db.query(models.MaterialGroupShare).filter(
             models.MaterialGroupShare.material_type == "lecture_note",
@@ -365,13 +375,15 @@ def delete_user_account(db: Session, user: models.User) -> None:
         db.query(models.AudioTranscriptSegment).filter(
             models.AudioTranscriptSegment.resource_id.in_(private_note_ids)
         ).delete(synchronize_session=False)
+        db.query(models.LectureNote).filter(
+            models.LectureNote.version_of_id.in_(private_note_ids)
+        ).update({models.LectureNote.version_of_id: None}, synchronize_session=False)
         db.query(models.ResourceChunk).filter(
             models.ResourceChunk.resource_type.in_(["lecture_note", "audio"]),
             models.ResourceChunk.resource_id.in_(private_note_ids),
         ).delete(synchronize_session=False)
-    db.query(models.LectureNote).filter(models.LectureNote.uploaded_by == user_id).delete(
-        synchronize_session=False
-    )
+    for row in private_notes:
+        db.delete(row)
 
     # Links owned by a deleted account cannot remain usable, and moderation
     # history keeps no dangling actor identity. Shared resource ownership is
@@ -402,6 +414,9 @@ def delete_user_account(db: Session, user: models.User) -> None:
         (models.StudySessionAIQuestion, models.StudySessionAIQuestion.asked_by),
         (models.CommunityReport, models.CommunityReport.reporter_id),
         (models.Feedback, models.Feedback.user_id),
+        # A group grant is retained with an approved resource, but the
+        # deleted uploader's identity must not remain attached to it.
+        (models.MaterialGroupShare, models.MaterialGroupShare.shared_by),
     ):
         db.query(model).filter(field == user_id).update({field: None}, synchronize_session=False)
 
@@ -523,6 +538,45 @@ def require_role(required_role: str):
 
 
 GLOBAL_ADMIN_REQUIRED_MESSAGE = "Administrator access is required."
+
+# Account deletion retains only resources that have crossed the moderation
+# boundary into the shared archive.  Visibility alone is not enough: a
+# share-link, a group grant, or a legacy visibility value must never turn a
+# private upload into archival content.
+APPROVED_SHARED_VISIBILITIES = frozenset({"space_shared", "official"})
+
+
+def _partition_uploaded_materials(
+    db: Session,
+    model: type,
+    material_type: str,
+    user_id: int,
+) -> tuple[list, list]:
+    """Separate approved archive rows from account-owned material.
+
+    The contribution is the moderation/source-of-truth record.  A material
+    is retained only when that record is approved and the material is in one
+    of the two archive visibility states.  This intentionally does not use a
+    share link or a visibility value by itself as proof of community
+    ownership.
+    """
+    rows = db.query(model).filter(model.uploaded_by == user_id).all()
+    retained = []
+    private = []
+    for row in rows:
+        contribution = db.query(models.MaterialContribution).filter(
+            models.MaterialContribution.material_type == material_type,
+            models.MaterialContribution.material_id == row.id,
+        ).first()
+        if (
+            contribution is not None
+            and contribution.moderation_status == "approved"
+            and getattr(row, "visibility", None) in APPROVED_SHARED_VISIBILITIES
+        ):
+            retained.append(row)
+        else:
+            private.append(row)
+    return retained, private
 
 
 def require_global_admin_user(current_user: models.User) -> models.User:

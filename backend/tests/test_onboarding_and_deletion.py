@@ -721,5 +721,290 @@ class AccountDeletionPolicyTests(unittest.TestCase):
         self.assertEqual(len(tombstones), 1)
 
 
+class ApprovedResourceDeletionTests(unittest.TestCase):
+    """S10 retention policy against the model's real relationship graph."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(cls.engine)
+        cls.Session = sessionmaker(bind=cls.engine)
+
+    def setUp(self):
+        models.Base.metadata.drop_all(self.engine)
+        models.Base.metadata.create_all(self.engine)
+        self.db = self.Session()
+        self.flags = patch.dict(os.environ, {
+            "PERMANENT_ACCOUNT_DELETION_ENABLED": "true",
+            "FIREBASE_ADMIN_DELETE_ENABLED": "true",
+        })
+        self.flags.start()
+
+        self.owner = models.User(
+            email="deleted-owner@example.test",
+            firebase_uid="firebase-deleted-owner",
+            name="Deleted Owner",
+        )
+        self.member = models.User(
+            email="space-member@example.test",
+            firebase_uid="firebase-space-member",
+            name="Space Member",
+        )
+        self.outsider = models.User(
+            email="other-space@example.test",
+            firebase_uid="firebase-other-space",
+            name="Other Space",
+        )
+        self.moderator = models.User(
+            email="space-moderator@example.test",
+            firebase_uid="firebase-space-moderator",
+            name="Space Moderator",
+        )
+        self.space = models.LearningSpace(
+            slug="retention-space",
+            name="Retention Space",
+            type="academy",
+            status="active",
+        )
+        self.other_space = models.LearningSpace(
+            slug="other-space",
+            name="Other Space",
+            type="academy",
+            status="active",
+        )
+        self.db.add_all([
+            self.owner,
+            self.member,
+            self.outsider,
+            self.moderator,
+            self.space,
+            self.other_space,
+        ])
+        self.db.flush()
+        self.member.active_learning_space_id = self.space.id
+        self.outsider.active_learning_space_id = self.other_space.id
+        self.moderator.active_learning_space_id = self.space.id
+        self.db.add_all([
+            models.LearningSpaceMembership(
+                user_id=self.member.id,
+                learning_space_id=self.space.id,
+                status="active",
+                role="member",
+            ),
+            models.LearningSpaceMembership(
+                user_id=self.outsider.id,
+                learning_space_id=self.other_space.id,
+                status="active",
+                role="member",
+            ),
+            models.LearningSpaceMembership(
+                user_id=self.moderator.id,
+                learning_space_id=self.space.id,
+                status="active",
+                role="moderator",
+            ),
+        ])
+        self.db.flush()
+
+    def tearDown(self):
+        self.db.close()
+        self.flags.stop()
+
+    def test_only_approved_archive_material_survives_with_dependencies_and_provenance_anonymised(self):
+        private_parent = models.LectureNote(
+            uploaded_by=self.owner.id,
+            title="Private parent",
+            visibility="private",
+            file_data=b"private-parent",
+        )
+        retained_note = models.LectureNote(
+            uploaded_by=self.owner.id,
+            title="Approved note",
+            visibility="space_shared",
+            content_text="Archive content remains available.",
+            file_data=b"approved-pdf",
+            file_name="approved.pdf",
+            file_mime="application/pdf",
+            version_of_id=None,
+        )
+        private_note = models.LectureNote(
+            uploaded_by=self.owner.id,
+            title="Private note",
+            visibility="private",
+            file_data=b"private-note",
+        )
+        pending_note = models.LectureNote(
+            uploaded_by=self.owner.id,
+            title="Pending note",
+            visibility="private",
+            file_data=b"pending-note",
+        )
+        link_only_note = models.LectureNote(
+            uploaded_by=self.owner.id,
+            title="Link only note",
+            visibility="private",
+            file_data=b"link-only-note",
+        )
+        self.db.add_all([private_parent, retained_note, private_note, pending_note, link_only_note])
+        self.db.flush()
+        retained_note.version_of_id = private_parent.id
+
+        retained_contribution = models.MaterialContribution(
+            material_type="lecture_note",
+            material_id=retained_note.id,
+            learning_space_id=self.space.id,
+            submitted_by=self.owner.id,
+            moderation_status="approved",
+            requested_visibility="space_shared",
+        )
+        pending_contribution = models.MaterialContribution(
+            material_type="lecture_note",
+            material_id=pending_note.id,
+            learning_space_id=self.space.id,
+            submitted_by=self.owner.id,
+            moderation_status="pending_review",
+            requested_visibility="space_shared",
+        )
+        self.db.add_all([retained_contribution, pending_contribution])
+        self.db.flush()
+        retained_contribution_id = retained_contribution.id
+        pending_contribution_id = pending_contribution.id
+        self.db.add_all([
+            models.LectureNoteSection(
+                lecture_note_id=retained_note.id,
+                section_index=0,
+                heading="Introduction",
+                body="Archive section",
+            ),
+            models.LectureNoteChunk(
+                lecture_note_id=retained_note.id,
+                chunk_index=0,
+                chunk_text="Archive chunk",
+            ),
+            models.ResourceChunk(
+                resource_type="lecture_note",
+                resource_id=retained_note.id,
+                chunk_index=0,
+                chunk_text="Archive retrieval chunk",
+            ),
+            models.AudioTranscriptSegment(
+                resource_id=retained_note.id,
+                segment_index=0,
+                start_time=0,
+                end_time=1,
+                text="Archive transcript",
+            ),
+            models.ModerationAudit(
+                contribution_id=retained_contribution.id,
+                actor_id=self.owner.id,
+                action="submitted",
+                material_type="lecture_note",
+                material_id=retained_note.id,
+            ),
+            models.SecureShareLink(
+                token_hash="retained-link",
+                owner_id=self.owner.id,
+                content_type="resource",
+                material_type="lecture_note",
+                material_id=retained_note.id,
+                access_policy="owner",
+            ),
+            models.SecureShareLink(
+                token_hash="private-link",
+                owner_id=self.owner.id,
+                content_type="resource",
+                material_type="lecture_note",
+                material_id=private_note.id,
+                access_policy="owner",
+            ),
+            models.SecureShareLink(
+                token_hash="link-only-link",
+                owner_id=self.owner.id,
+                content_type="resource",
+                material_type="lecture_note",
+                material_id=link_only_note.id,
+                access_policy="owner",
+            ),
+        ])
+        self.db.commit()
+
+        auth.delete_user_account(self.db, self.owner)
+        self.db.commit()
+
+        retained = self.db.get(models.LectureNote, retained_note.id)
+        self.assertIsNotNone(retained)
+        self.assertIsNone(retained.uploaded_by)
+        self.assertEqual(retained.file_data, b"approved-pdf")
+        self.assertIsNone(retained.version_of_id)
+        self.assertEqual(self.db.query(models.LectureNoteSection).filter(
+            models.LectureNoteSection.lecture_note_id == retained_note.id,
+        ).count(), 1)
+        self.assertEqual(self.db.query(models.LectureNoteChunk).filter(
+            models.LectureNoteChunk.lecture_note_id == retained_note.id,
+        ).count(), 1)
+        self.assertEqual(self.db.query(models.AudioTranscriptSegment).filter(
+            models.AudioTranscriptSegment.resource_id == retained_note.id,
+        ).count(), 1)
+        self.assertEqual(self.db.query(models.ResourceChunk).filter(
+            models.ResourceChunk.resource_type == "lecture_note",
+            models.ResourceChunk.resource_id == retained_note.id,
+        ).count(), 1)
+
+        retained_contribution = self.db.get(models.MaterialContribution, retained_contribution_id)
+        self.assertIsNotNone(retained_contribution)
+        self.assertEqual(retained_contribution.moderation_status, "approved")
+        self.assertIsNone(retained_contribution.submitted_by)
+        self.assertIsNone(self.db.query(models.ModerationAudit).first().actor_id)
+
+        self.assertIsNone(self.db.get(models.LectureNote, private_parent.id))
+        self.assertIsNone(self.db.get(models.LectureNote, private_note.id))
+        self.assertIsNone(self.db.get(models.LectureNote, pending_note.id))
+        self.assertIsNone(self.db.get(models.LectureNote, link_only_note.id))
+        self.assertIsNone(self.db.get(models.MaterialContribution, pending_contribution_id))
+        self.assertTrue(all(
+            link.revoked_at is not None
+            for link in self.db.query(models.SecureShareLink).all()
+        ))
+
+        from material_access import can_view_material
+        self.assertTrue(can_view_material(self.db, retained, self.member))
+        self.assertTrue(can_view_material(self.db, retained, self.moderator))
+        self.assertFalse(can_view_material(self.db, retained, self.outsider))
+
+        from routers import collaboration
+        manager_link = models.SecureShareLink(
+            token_hash="manager-link",
+            owner_id=None,
+            content_type="resource",
+            material_type="lecture_note",
+            material_id=retained.id,
+            learning_space_id=self.space.id,
+            access_policy="space",
+        )
+        self.db.add(manager_link)
+        self.db.commit()
+        collaboration.revoke_share_link(manager_link.id, self.db, self.moderator)
+        self.assertIsNotNone(self.db.get(models.SecureShareLink, manager_link.id).revoked_at)
+
+    def test_space_shared_without_approval_does_not_become_retained(self):
+        unapproved = models.LectureNote(
+            uploaded_by=self.owner.id,
+            title="Legacy shared flag",
+            visibility="space_shared",
+            file_data=b"not-approved",
+        )
+        self.db.add(unapproved)
+        self.db.commit()
+
+        auth.delete_user_account(self.db, self.owner)
+        self.db.commit()
+
+        self.assertIsNone(self.db.get(models.LectureNote, unapproved.id))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+
 if __name__ == "__main__":
     unittest.main()
