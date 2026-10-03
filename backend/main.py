@@ -3,7 +3,10 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from routers import auth, collaboration, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, search, sessions, understand
+from database import engine
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8001"))
@@ -57,6 +60,33 @@ app.include_router(mvp.router)
 app.include_router(search.router)
 app.include_router(sessions.router)
 app.include_router(understand.router)
+
+
+@app.get("/health", tags=["health"])
+def health():
+    """Return process health without depending on external services."""
+
+    return {"status": "ok", "application": "ok"}
+
+
+@app.get("/health/ready", tags=["health"])
+def readiness():
+    """Report dependency readiness without exposing connection details."""
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except (SQLAlchemyError, OSError, TypeError, ValueError):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "application": "ok",
+                "database": "unavailable",
+            },
+        )
+    return {"status": "ready", "application": "ok", "database": "ok"}
+
 
 @app.get("/")
 def read_root():

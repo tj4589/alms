@@ -28,7 +28,14 @@ services:
     rootDir: backend
     plan: free
     region: oregon
-    healthCheckPath: /docs
+    # Render will not route traffic to a new instance until the process is
+    # listening. This endpoint intentionally does not depend on Neon/provider
+    # readiness; use /health/ready for a redacted dependency check.
+    healthCheckPath: /health
+    # The free web-service plan does not support Render's preDeployCommand.
+    # backend/Dockerfile runs Alembic before Uvicorn binds instead, so a failed
+    # migration leaves this instance unhealthy rather than serving the API.
+    # Complete the existing-schema procedure in DEPLOY.md before deployment.
     envVars:
       # Neon's pooled connection string, pasted in the dashboard. Use the
       # pooled one: database.py disables psycopg's prepared statements when it

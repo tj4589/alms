@@ -158,9 +158,19 @@ production database is reset or recreated by this process.
    The API verifies Firebase ID tokens with Google's published certificates.
    No Firebase service-account JSON file or private key belongs in Render or
    this repository.
-3. Deploy `exammind-api` first. First build takes a few minutes; `fastembed`
-   and `onnxruntime` are large wheels. Check
-   `https://<your-api>.onrender.com/docs` loads.
+3. Deploy `exammind-api` first. This Blueprint uses Render's free web-service
+   plan, which does not support `preDeployCommand`; the Docker start command
+   runs `python -m alembic -c alembic.ini upgrade head` and only then starts
+   Uvicorn. A migration failure therefore prevents this instance from binding
+   or becoming healthy. If the service is later moved to a Render plan that
+   supports pre-deploy commands, keep the migration gate in exactly one place
+   and move it to that supported hook deliberately. First build takes a few
+   minutes; `fastembed` and `onnxruntime` are large wheels.
+   Check `https://<your-api>.onrender.com/health` returns a process-health
+   response. `GET /health` deliberately does not query Neon, so a running API
+   is distinguishable from a dependency-ready API. Check
+   `https://<your-api>.onrender.com/health/ready` separately; it returns only
+   application/database status and HTTP 503 when the database is unavailable.
 4. On **exammind-web**, fill in the `sync: false` values:
    - `VITE_API_BASE_URL` — `https://<your-api>.onrender.com` from step 3.
      **Include `https://`.** `api.ts` builds requests as
@@ -186,8 +196,9 @@ production database is reset or recreated by this process.
 
    In Firebase Console, enable Email/Password and Google sign-in, add
    `localhost` and `exammind-web.onrender.com` to Authentication > Settings >
-   Authorized domains. The backend still performs the authoritative
-   hosted-domain check, so a browser-side domain check is never sufficient.
+   Authorized domains. The backend performs authoritative Firebase identity
+   verification and applies any CU eligibility rules at the CU learning-space
+   boundary; browser-side checks are never sufficient.
 5. Deploy `exammind-web`, then go back to `exammind-api` and set
    `CORS_ORIGINS` to its origin:
    ```
@@ -199,6 +210,45 @@ production database is reset or recreated by this process.
 Because both services live on Render, there's no second dashboard, no
 separate billing relationship, and no cross-provider DNS to get right — just
 two env vars pointing at each other's `.onrender.com` URLs.
+
+### Deployment readiness checklist
+
+The API requires these deployment-time values:
+
+| Area | Required values | Notes |
+| --- | --- | --- |
+| Database | `DATABASE_URL` | Use the pooled Neon PostgreSQL URL; it must have the `vector` extension available. The same database is the shared rate-limit counter store. |
+| Application | `SECRET_KEY`, `APP_ENV=production`, `ENV=production` | Keep the secret in Render's secret store. |
+| Identity | `FIREBASE_PROJECT_ID`, `GOOGLE_OAUTH_CLIENT_ID`, `FIREBASE_CERTS_URL`, `GOOGLE_CERTS_URL` | Certificate URLs must remain the configured HTTPS Google endpoints. No Firebase private key is required. |
+| Providers | `AI_PROVIDER`, `AI_MODEL`, `AI_PROVIDER_TIMEOUT_SECONDS`, `AI_FALLBACK_PROVIDER`, `COHERE_MODEL`, `DEEPSEEK_API_KEY`, `COHERE_API_KEY` | Provider keys are API-service secrets. Requests have bounded timeouts and no uncontrolled retries. |
+| Transcription | `TRANSCRIPTION_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `OPENAI_TRANSCRIPTION_BASE_URL`, `TRANSCRIPTION_TIMEOUT_SECONDS` | OpenAI transcription is optional; when unavailable, audio remains stored and is marked unavailable for transcription. |
+| Safety limits | `MAX_UPLOAD_BYTES`, `UPLOAD_READ_CHUNK_BYTES`, `MAX_INDEX_CHUNKS`, `MAX_RAG_QUESTION_CHARS`, `MAX_OCR_PAGES` | Keep upload, extraction and provider work bounded. |
+| Rate limiting | `RATE_LIMIT_ENABLED=true`, `RATE_LIMIT_FAILURE_MODE=closed`, `RATE_LIMIT_*` values | PostgreSQL is the shared backing store. The service does not fall back to process-local counters. |
+| Browser/API boundary | `CORS_ORIGINS` | Set to the exact frontend origin(s), with scheme and no wildcard. |
+
+The frontend build requires `VITE_API_BASE_URL` plus all six
+`VITE_FIREBASE_*` values (`API_KEY`, `AUTH_DOMAIN`, `PROJECT_ID`,
+`STORAGE_BUCKET`, `MESSAGING_SENDER_ID`, and `APP_ID`). These are injected at
+build time, so changing them requires a new static-site build.
+
+Use this order for a new environment: provision Neon and confirm pgvector;
+for an existing database run `verify_migration.py` and resolve drift before
+stamping the reviewed baseline; run/allow the Alembic upgrade through `0004`;
+seed reference data; deploy the API; verify `/health` and `/health/ready`; set
+the frontend API/Firebase build values and deploy the frontend; then set the
+exact frontend origin in API `CORS_ORIGINS` and redeploy/restart the API.
+
+If the Docker-start migration fails, do not reset or recreate the database.
+Read the migration error from the failed deployment, verify the database URL
+points to the intended Neon branch, confirm pgvector and the current Alembic
+revision, and use the existing-database verification/stamp procedure before
+retrying. If readiness returns 503 while `/health` is 200, inspect Neon
+connectivity and credentials; the process itself is running and no provider
+secrets are returned by either health endpoint.
+
+Live Render, Neon and Firebase settings are not verified by this repository
+review. Confirm them under the relevant provider access before treating a
+deployment as production-ready.
 
 Python is pinned to 3.12.7 on `exammind-api` because the `fastembed` and
 `onnxruntime` wheels lag the newest Python. The pin lives in

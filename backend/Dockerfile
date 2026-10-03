@@ -40,7 +40,9 @@ USER app
 ENV FASTEMBED_CACHE_PATH=/home/app/.cache/fastembed \
     HF_HOME=/home/app/.cache/huggingface
 
-# Render assigns $PORT and fails the health check against anything else. Shell
-# form so it expands; the 8000 default is for running the image by hand.
+# Render assigns $PORT and fails the health check against anything else. On the
+# free web-service plan, Render does not provide a pre-deploy command, so the
+# migration gate runs before Uvicorn binds. Shell form expands $PORT; the 8000
+# default is for running the image by hand.
 EXPOSE 8000
-CMD ["sh", "-c", "exec python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "python -m alembic -c alembic.ini upgrade head && exec python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
