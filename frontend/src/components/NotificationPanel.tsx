@@ -13,6 +13,7 @@ type Counts = {
   pendingUploads: number;
   practiceAttempts: number;
   studyPacks: number;
+  savedItems: number;
 };
 
 // Everything here is read from the real offline queues in IndexedDB. There is no
@@ -44,12 +45,13 @@ export default function NotificationPanel({ open, onClose, go }: NotificationPan
       countRecords('pendingUploads'),
       countRecords('practiceAttempts'),
       countRecords('studyPacks'),
+      countRecords('savedItems'),
     ])
-      .then(([pendingUploads, practiceAttempts, studyPacks]) => {
-        if (!cancelled) setCounts({ pendingUploads, practiceAttempts, studyPacks });
+      .then(([pendingUploads, practiceAttempts, studyPacks, savedItems]) => {
+        if (!cancelled) setCounts({ pendingUploads, practiceAttempts, studyPacks, savedItems });
       })
       .catch(() => {
-        if (!cancelled) setCounts({ pendingUploads: 0, practiceAttempts: 0, studyPacks: 0 });
+        if (!cancelled) setCounts({ pendingUploads: 0, practiceAttempts: 0, studyPacks: 0, savedItems: 0 });
       });
     return () => { cancelled = true; };
   }, [open]);
@@ -85,8 +87,8 @@ export default function NotificationPanel({ open, onClose, go }: NotificationPan
   if (counts && counts.pendingUploads > 0) {
     items.push({
       key: 'uploads',
-      title: `${counts.pendingUploads} upload${counts.pendingUploads === 1 ? '' : 's'} waiting to sync`,
-      body: online ? 'These will send on the next successful request.' : 'These will send when you are back online.',
+      title: `${counts.pendingUploads} upload${counts.pendingUploads === 1 ? '' : 's'} awaiting review`,
+      body: online ? 'Review metadata and confirm access before uploading.' : 'Review and confirm these when you are back online.',
       tone: 'pending',
       action: () => { go('offline'); onClose(); },
       actionLabel: 'See the queue',
@@ -97,18 +99,18 @@ export default function NotificationPanel({ open, onClose, go }: NotificationPan
     items.push({
       key: 'attempts',
       title: `${counts.practiceAttempts} practice result${counts.practiceAttempts === 1 ? '' : 's'} not yet counted`,
-      body: 'Your readiness score updates once these reach the server.',
+      body: 'Older direct scores cannot count as readiness. Review these in your saved library.',
       tone: 'pending',
-      action: () => { go('progress'); onClose(); },
-      actionLabel: 'Open progress',
+      action: () => { go('offline'); onClose(); },
+      actionLabel: 'Open saved library',
     });
   }
 
-  if (counts && counts.studyPacks > 0 && waiting === 0) {
+  if (counts && (counts.studyPacks > 0 || counts.savedItems > 0) && waiting === 0) {
     items.push({
       key: 'packs',
-      title: `${counts.studyPacks} pack${counts.studyPacks === 1 ? '' : 's'} saved for offline`,
-      body: 'These stay readable with no connection.',
+      title: `${counts.studyPacks + counts.savedItems} saved item${counts.studyPacks + counts.savedItems === 1 ? '' : 's'}`,
+      body: 'Open your saved library. Items marked offline can be read without a connection.',
       tone: 'ok',
       action: () => { go('offline'); onClose(); },
       actionLabel: 'Offline library',

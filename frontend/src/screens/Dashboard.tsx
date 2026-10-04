@@ -33,6 +33,7 @@ type AttemptEntry = {
 type StudentAnalytics = {
   readiness: ReadinessEntry[];
   attempts: AttemptEntry[];
+  overall_readiness?: { available: boolean; score: number | null; recommended_next_action: string };
 };
 
 type CourseEntry = {
@@ -261,7 +262,7 @@ export default function Dashboard({
   }, [courseById, lectureNotes, pastQuestions]);
 
   const courseWorkspaces = useMemo<CourseWorkspace[]>(() => {
-    const workspaceMap = new Map<string, CourseWorkspace & { readinessScores: number[] }>();
+    const workspaceMap = new Map<string, CourseWorkspace>();
 
     const ensureWorkspace = (courseId: number | null, fallbackCode = 'Archive') => {
       const course = courseId ? courseById.get(courseId) : null;
@@ -275,7 +276,6 @@ export default function Dashboard({
           materialCount: 0,
           questionCount: 0,
           readiness: null,
-          readinessScores: [],
           lastActiveAt: null,
         });
       }
@@ -291,12 +291,6 @@ export default function Dashboard({
       }
     });
 
-    analytics?.readiness.forEach((entry) => {
-      if (!entry.course_id) return;
-      const workspace = ensureWorkspace(entry.course_id);
-      workspace.readinessScores.push(entry.score);
-    });
-
     analytics?.attempts.forEach((attempt) => {
       if (!attempt.course_id) return;
       const workspace = ensureWorkspace(attempt.course_id);
@@ -306,11 +300,11 @@ export default function Dashboard({
     });
 
     return [...workspaceMap.values()]
-      .map(({ readinessScores, ...workspace }) => ({
+      .map(workspace => ({
         ...workspace,
-        readiness: readinessScores.length
-          ? Math.round(readinessScores.reduce((sum, score) => sum + score, 0) / readinessScores.length)
-          : null,
+        // No canonical per-course readiness contract exists yet. Topic
+        // averages must not be presented as an overall course percentage.
+        readiness: null,
       }))
       .sort((a, b) => {
         const activityDelta = (b.materialCount + b.questionCount) - (a.materialCount + a.questionCount);
@@ -328,10 +322,8 @@ export default function Dashboard({
   }, [analytics]);
 
   const overallReadiness = useMemo(() => {
-    if (!analytics?.readiness.length) return null;
-    return Math.round(
-      analytics.readiness.reduce((sum, entry) => sum + entry.score, 0) / analytics.readiness.length,
-    );
+    const overall = analytics?.overall_readiness;
+    return overall?.available && typeof overall.score === 'number' ? overall.score : null;
   }, [analytics]);
 
   const recentActivity = useMemo(() => {
@@ -436,6 +428,7 @@ export default function Dashboard({
             <span><strong>{archiveItems.length}</strong> saved material{archiveItems.length === 1 ? '' : 's'}</span>
             <span><strong>{analytics?.attempts.length || 0}</strong> practice session{analytics?.attempts.length === 1 ? '' : 's'}</span>
             {overallReadiness !== null && <span><strong>{overallReadiness}%</strong> overall readiness</span>}
+            {analytics?.overall_readiness && overallReadiness === null && <span>Readiness is still gathering quiz evidence</span>}
           </div>}
 
           <section className="desk-section" aria-labelledby="desk-courses-title">

@@ -7,7 +7,7 @@ export type FeedbackMode = 'public' | 'authenticated';
 
 const CATEGORIES = [
   'I cannot sign in',
-  'I am not a CU student',
+  'I need access to a learning space',
   'I have a suggestion',
   'Something is broken',
   'Something felt confusing',
@@ -121,7 +121,7 @@ export default function FeedbackPanel({ mode }: FeedbackPanelProps) {
           </select>
         </label>
 
-        {category === 'I am not a CU student' && (
+        {category === 'I need access to a learning space' && (
           <p className="feedback-context-note">Tell us why you would like access. We cannot promise that access will be granted, but your context is useful.</p>
         )}
 

@@ -249,15 +249,19 @@ export default function SmartSearch({
       difficulty: q.difficulty || 'Mixed',
       text: q.content_text,
     }));
-    await saveStudyPack({
-      id: `search-${Date.now()}`,
-      courseCode: selectedCourseId ? (courseMap.get(Number(selectedCourseId))?.code || 'All') : 'All',
-      title: `"${results.query}" study pack`,
-      savedAt: new Date().toISOString(),
-      questions: packQuestions,
-    });
-    setOfflineMsg(`${packQuestions.length} question${packQuestions.length > 1 ? 's' : ''} saved for offline study.`);
-    window.dispatchEvent(new Event('exammind-offline-updated'));
+    try {
+      await saveStudyPack({
+        id: `search-${Date.now()}`,
+        courseCode: selectedCourseId ? (courseMap.get(Number(selectedCourseId))?.code || 'All') : 'All',
+        title: `"${results.query}" study pack`,
+        savedAt: new Date().toISOString(),
+        questions: packQuestions,
+      });
+      setOfflineMsg(`${packQuestions.length} question${packQuestions.length > 1 ? 's' : ''} saved for offline study.`);
+      window.dispatchEvent(new Event('exammind-offline-updated'));
+    } catch {
+      setOfflineMsg('The study pack could not be saved on this device. Try again.');
+    }
   };
 
   const joinGroup = async (groupId: number) => {

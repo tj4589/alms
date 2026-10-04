@@ -9,7 +9,7 @@
 // Reads check both stores, so a token written under the old behaviour is still
 // found after this shipped and nobody is logged out by the upgrade.
 
-import { clearOfflineAccountData } from '../offline';
+import { clearOfflineAccountData, setOfflineScope } from '../offline';
 
 export type SessionPreference = 'stay' | 'ask';
 
@@ -49,6 +49,7 @@ export function setToken(token: string): void {
 }
 
 export function clearToken(): void {
+  setOfflineScope(null, null);
   safe(() => {
     window.localStorage.removeItem(TOKEN_KEY);
     window.sessionStorage.removeItem(TOKEN_KEY);

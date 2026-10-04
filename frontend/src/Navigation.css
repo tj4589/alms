@@ -124,3 +124,11 @@
 /* The wordmark's ink is set for the light shell, so on dark it was all but
    invisible beside the mark. The accent dot was already fine. */
 :root[data-theme="dark"] .workspace-shell .logo-name{color:var(--text)}
+
+:root[data-theme="dark"] .workspace-shell :is(.rail-button,.rail-account-meta,.nav-section,.workspace-location,.ico-btn,.search-ico){color:var(--text2)}
+:root[data-theme="dark"] .workspace-shell :is(.rail-button:hover,.global-search input,.global-search){color:var(--text)}
+:root[data-theme="dark"] .workspace-shell .global-search input::placeholder{color:var(--text2)}
+:root[data-theme="dark"] .workspace-shell .rail-button.on{color:#eaf2e2}
+:root[data-theme="dark"] .workspace-shell :is(.mobile-nav-sheet-group button,.mobile-nav-sheet-account-actions button){color:var(--text);border-color:var(--border)}
+:root[data-theme="dark"] .workspace-shell :is(.mobile-nav-sheet-group h2,.mobile-nav-sheet-account small){color:var(--text2)}
+:root[data-theme="dark"] .workspace-shell .mobile-nav-sheet-group button.is-active{background:#2c3a2a}

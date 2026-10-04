@@ -42,7 +42,7 @@ export default function Privacy({ onBackToHome, onGetStarted, onSignIn }: Privac
           <p className="privacy-effective">Effective date · {EFFECTIVE_DATE}</p>
           <h1 id="privacy-heading">Privacy, in <em>plain language.</em></h1>
           <p>
-            ExamMind is a study workspace for Covenant University students. This policy explains
+            ExamMind is a study workspace for students in participating learning spaces, including KSA and Covenant University. This policy explains
             what we collect, why we use it, and the choices you have around your account and study material.
           </p>
         </section>

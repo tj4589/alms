@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { BookmarkSimpleIcon } from '@phosphor-icons/react/dist/icons/BookmarkSimple';
 import { DownloadSimpleIcon } from '@phosphor-icons/react/dist/icons/DownloadSimple';
 import { CloudArrowDownIcon } from '@phosphor-icons/react/dist/icons/CloudArrowDown';
-import { saveItem, savedItemId, type SavedItem } from '../offline';
+import { getOfflineScope, saveItem, savedItemId, type SavedItem } from '../offline';
 import './SaveButton.css';
 
 type SaveTarget = {
@@ -116,6 +116,8 @@ export default function SaveButton({ target, compact = false, onSaved, hideSaveA
   const store = useCallback(async (offline: boolean) => {
     setBusy(offline ? 'offline' : 'bookmark');
     try {
+      const scope = getOfflineScope();
+      if (!scope) throw new Error('A verified account and learning space are required.');
       let snapshot: unknown | null = null;
       if (offline && target.snapshot) snapshot = await target.snapshot();
       const item: SavedItem = {
@@ -128,12 +130,12 @@ export default function SaveButton({ target, compact = false, onSaved, hideSaveA
         cachedOffline: offline && snapshot !== null,
         ...(snapshot !== null ? { snapshot } : {}),
       };
-      await saveItem(item);
+      await saveItem(item, scope);
       onSaved?.(item);
       // Say what actually happened: asking for offline and getting a bookmark
       // is a different outcome, and pretending otherwise is a lie the student
       // only discovers when the connection drops.
-      setDone(item.cachedOffline ? 'Saved for offline' : offline ? 'Saved to Materials (nothing to cache)' : 'Saved to Materials');
+      setDone(item.cachedOffline ? 'Saved for offline in your library' : offline ? 'Saved to library (nothing to cache)' : 'Saved to library');
       close();
     } catch {
       setDone('Could not save. Your browser may be blocking storage.');
@@ -218,7 +220,7 @@ export default function SaveButton({ target, compact = false, onSaved, hideSaveA
             <button type="button" role="menuitem" className="sv-item" onClick={() => void store(false)} disabled={!!busy}>
               <BookmarkSimpleIcon size={16} aria-hidden="true" />
               <span>
-                <strong>{busy === 'bookmark' ? 'Saving...' : 'Save to Materials'}</strong>
+                <strong>{busy === 'bookmark' ? 'Saving...' : 'Save to library'}</strong>
                 <small>Find it in your library</small>
               </span>
             </button>

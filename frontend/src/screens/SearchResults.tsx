@@ -18,6 +18,7 @@ type Props = {
   loading: boolean;
   onAskAI: (q: string) => void;
   onUpload: () => void;
+  onOpenResource: (kind: 'lecture_note' | 'past_question', id: number) => void;
   onPractice: (topic: string, context?: SearchActionContext) => void;
   onCommunityAction?: (action: 'discussion' | 'study_group' | 'reading_room', context: SearchActionContext) => void;
   onMaterialDeleted?: () => void;
@@ -50,7 +51,7 @@ function materialMetaLine(item: PastQuestion): string {
   return [documentType, year, semester, `${matches} matching section${matches === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
 }
 
-export default function SearchResults({ query, result, loading, onAskAI, onUpload, onPractice, onCommunityAction, go }: Props) {
+export default function SearchResults({ query, result, loading, onAskAI, onUpload, onOpenResource, onPractice, onCommunityAction, go }: Props) {
   const topic = result?.understanding?.interpreted_topic?.trim() || query;
   const relatedTerms = result?.understanding?.related_terms || [];
   const pastQuestions = result?.past_questions || [];
@@ -128,6 +129,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                       <div className="search-muted">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</div>
                     </div>
                     <span className="search-result-type">Note</span>
+                    <button type="button" className="search-link-btn" onClick={() => onOpenResource('lecture_note', note.id)} aria-label={`Open ${note.title}`}>Open</button>
                   </div>
                 ))}
                 {pastQuestions.slice(0, 2).map((item: PastQuestion) => {
@@ -145,6 +147,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                         </div>
                       </div>
                       <span className="search-result-type">Question</span>
+                      <button type="button" className="search-link-btn" onClick={() => onOpenResource('past_question', item.id)} aria-label={`Open ${materialTitle(item)}`}>Open</button>
                     </div>
                   );
                 })}
@@ -164,6 +167,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                       <div className="search-result-title">{note.title}</div>
                       <div className="search-muted">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</div>
                     </div>
+                    <button type="button" className="search-link-btn" onClick={() => onOpenResource('lecture_note', note.id)} aria-label={`Open ${note.title}`}>Open</button>
                   </div>
                 ))}
               </div>
@@ -193,6 +197,7 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
                           {meta?.topics_covered?.[0] ? ` · ${meta.topics_covered[0]}` : ''}
                         </div>
                       </div>
+                      <button type="button" className="search-link-btn" onClick={() => onOpenResource('past_question', item.id)} aria-label={`Open ${materialTitle(item)}`}>Open</button>
                     </div>
                   );
                 })}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import type { SearchActionContext } from '../types';
 import { apiDownloadPost, apiGet, apiPost } from '../lib/api';
 import SaveButton from '../components/SaveButton';
@@ -182,7 +183,7 @@ export default function Practice({
   return (
     <div className="page workspace-page" id="s-practice">
       <div className="pg-head"><div className="pg-title">Practice <em>Tests</em></div><div className="pg-sub">Build a cited quiz from material you are allowed to access. Every stored result is private to you.</div></div>
-      {notice && <div className="upload-alert practice-notice" role="status">{notice}</div>}
+      {notice && <div className="upload-alert practice-notice" role="status"><CheckCircle2 size={18} aria-hidden="true" />{notice}</div>}
       {error && <div className="upload-alert" role="alert">{error}</div>}
 
       {!quiz ? <>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowRight, ClipboardCheck, FileQuestion, RefreshCw } from 'lucide-react';
 import type { ScreenType } from '../types';
 import { apiGet, apiPatch } from '../lib/api';
@@ -24,6 +24,10 @@ export default function Progress({ go, userId, onPracticeTopic }: { go: (screen:
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reviewId, setReviewId] = useState<number | null>(null);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
+  const [preferenceError, setPreferenceError] = useState('');
+  const [preferenceNotice, setPreferenceNotice] = useState('');
+  const failedPreference = useRef<{ key: 'explanation_preference' | 'preferred_learning_format'; value: string } | null>(null);
+  const preferencePending = useRef(false);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -48,16 +52,27 @@ export default function Progress({ go, userId, onPracticeTopic }: { go: (screen:
   const topics = useMemo(() => [...(readiness?.topics || [])].sort((a, b) => (a.score ?? 101) - (b.score ?? 101) || a.topic.localeCompare(b.topic)), [readiness]);
   const weakest = topics.find(topic => topic.classification === 'weak');
   const savePreference = async (key: 'explanation_preference' | 'preferred_learning_format', value: string) => {
+    if (preferencePending.current) return;
+    preferencePending.current = true;
     setPreferenceSaving(true);
+    setPreferenceError('');
+    setPreferenceNotice('');
     try {
       const next = await apiPatch('/learning/profile', { [key]: value });
       setProfile(next as Profile);
-    } finally { setPreferenceSaving(false); }
+      failedPreference.current = null;
+      setPreferenceNotice('Preference saved.');
+    } catch {
+      failedPreference.current = { key, value };
+      setPreferenceError('Your preference could not be saved. Your previous choice is unchanged.');
+    } finally { preferencePending.current = false; setPreferenceSaving(false); }
   };
 
   const goToTopic = (topic: string) => onPracticeTopic ? onPracticeTopic(topic) : go('practice');
 
   return <div className="page workspace-page progress-report" id="s-progress">
+    {preferenceError && <div className="progress-state progress-state-error" role="alert"><p>{preferenceError}</p><button type="button" disabled={preferenceSaving} onClick={() => { const failed = failedPreference.current; if (failed) void savePreference(failed.key, failed.value); }}>Try saving again</button></div>}
+    {preferenceNotice && <p role="status">{preferenceNotice}</p>}
     <header className="progress-report-head"><div><p className="progress-report-kicker">Private learning record</p><h1>Progress</h1><p>Readiness is calculated from completed quiz answers only. Reading and asking Maxe questions never create mastery evidence.</p></div><button type="button" className="progress-refresh" onClick={() => void load()} disabled={loadState === 'loading'} aria-label="Refresh learning progress" title="Refresh learning progress"><RefreshCw aria-hidden="true" /></button></header>
 
     {!userId ? <section className="progress-state" aria-labelledby="progress-private-title"><AlertCircle aria-hidden="true" /><div><h2 id="progress-private-title">Your progress is private</h2><p>Sign in to view readiness and practice history associated with your account.</p></div></section> : loadState === 'loading' ? <section className="progress-loading" aria-label="Loading your progress" aria-live="polite"><div className="progress-loading-lead" /><div className="progress-loading-line" /><div className="progress-loading-table"><span /><span /><span /></div></section> : loadState === 'error' ? <section className="progress-state progress-state-error" role="alert"><AlertCircle aria-hidden="true" /><div><h2>Your progress could not be loaded</h2><p>Your study record is still safe. Try again.</p><button type="button" onClick={() => void load()}><RefreshCw aria-hidden="true" /> Try again</button></div></section> : readiness ? <>

@@ -11,7 +11,19 @@ from database import engine
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8001"))
 
-app = FastAPI(
+class PublicAPI(FastAPI):
+    def build_middleware_stack(self):
+        # Cover ServerErrorMiddleware as well as ordinary route responses.
+        return CORSMiddleware(
+            super().build_middleware_stack(),
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+
+app = PublicAPI(
     title="AI-Based LMS API",
     description="Backend API for the AI-Powered Learning Management System",
     version="1.0.0"
@@ -24,13 +36,10 @@ cors_origins = [
     if origin.strip()
 ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.exception_handler(Exception)
+async def internal_error(request: Request, exception: Exception):
+    # Never expose raw exceptions, provider bodies, paths or credentials.
+    return JSONResponse(status_code=500, content={"detail": "An internal error occurred. Please try again."})
 
 
 @app.middleware("http")

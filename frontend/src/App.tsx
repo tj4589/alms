@@ -1,4 +1,5 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type ReactNode } from 'react';
+import { getOfflineScope, setOfflineScope, type PendingUpload } from './offline';
 import { BellIcon } from '@phosphor-icons/react/dist/icons/Bell';
 import { BooksIcon } from '@phosphor-icons/react/dist/icons/Books';
 import { ChatsCircleIcon } from '@phosphor-icons/react/dist/icons/ChatsCircle';
@@ -282,6 +283,8 @@ export default function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenType>(() => sharedThreadIdFromPath() ? 'collab' : 'dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
+  const [workspaceTarget, setWorkspaceTarget] = useState<{ kind: 'lecture_note' | 'past_question'; id: number } | null>(null);
+  const [queuedUpload, setQueuedUpload] = useState<PendingUpload | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
@@ -293,6 +296,31 @@ export default function App() {
   const [practiceInitialTopic, setPracticeInitialTopic] = useState('');
   const [practiceContext, setPracticeContext] = useState<SearchActionContext | null>(null);
   const [communityContext, setCommunityContext] = useState<(SearchActionContext & { action: 'discussion' | 'study_group' | 'reading_room' }) | null>(null);
+
+  const verifiedSpace = learningSpaces?.active_space;
+  const verifiedSpaceId = verifiedSpace?.id ?? null;
+  const privateScope = token && user && verifiedSpace?.membership?.status === 'active'
+    ? `${user.id}:${verifiedSpace.id}` : null;
+  useLayoutEffect(() => {
+    setOfflineScope(user?.id ?? null, privateScope ? verifiedSpaceId : null);
+    // Private in-memory context must never follow an identity/space switch.
+    setChatMessages(INITIAL_CHAT);
+    setSelectedQuestion('');
+    setReaderNoteId(null);
+    setWorkspaceTarget(null);
+    setQueuedUpload(null);
+    setPracticeContext(null);
+    setPracticeInitialTopic('');
+    setCommunityContext(null);
+    setSearchResult(null);
+    setSubmittedResult(null);
+    setMaxeOpen(false);
+    setNotificationsOpen(false);
+  }, [privateScope, user?.id, verifiedSpaceId]);
+
+  const updatePrivateMessages = (updater: (current: ChatMessage[]) => ChatMessage[]) => {
+    if (privateScope && getOfflineScope() === privateScope) setChatMessages(updater);
+  };
 
   const refreshLearningSpaces = useCallback(async (): Promise<LearningSpacesResponse | null> => {
     setLearningSpacesLoading(true);
@@ -513,6 +541,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    setChatMessages(INITIAL_CHAT);
     if (firebaseAuth) void signOutFirebase(firebaseAuth).catch(() => undefined);
     clearStoredToken();
     setToken(null);
@@ -1080,7 +1109,7 @@ export default function App() {
   const compactSidebar = true;
 
   return (
-    <div className={`shell workspace-shell${compactSidebar ? ' is-compact-nav' : ''}${navExpanded ? ' is-nav-expanded' : ''}${navWindowFocused ? '' : ' nav-window-blurred'}`}>
+    <div key={privateScope} className={`shell workspace-shell${compactSidebar ? ' is-compact-nav' : ''}${navExpanded ? ' is-nav-expanded' : ''}${navWindowFocused ? '' : ' nav-window-blurred'}`}>
       <aside className="sidebar" id="sidebar" aria-label="Primary navigation" onPointerEnter={handleNavPointerEnter} onPointerLeave={handleNavPointerLeave} onFocusCapture={handleNavFocus} onBlurCapture={handleNavBlur}>
         <div className="logo" aria-label="ExamMind">
           <div className="logo-mark"><Logo size={24} /></div>
@@ -1354,12 +1383,14 @@ export default function App() {
           }}
         />}
         {activeScreen === 'questions' && <Questions go={go} onAskQuestion={askQuestion} user={user} onGoToPractice={handleGoToPractice} />}
-        {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} user={user} />}
-        {activeScreen === 'upload' && <Upload go={go} user={user} />}
+        {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} user={user} />}
+        {activeScreen === 'upload' && <Upload go={go} user={user} archiveName={verifiedSpace?.slug === 'ksa' ? 'KSA' : verifiedSpace?.slug === 'cu' ? 'CU' : verifiedSpace?.name || 'your learning space'} queuedUpload={queuedUpload} onQueuedUploadStored={() => setQueuedUpload(null)} />}
         {activeScreen === 'offline' && (
           <Offline
             go={go}
             onOpenConversation={(saved) => { setChatMessages(saved); setMaxeOpen(true); }}
+            onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }}
+            onReviewUpload={upload => { setQueuedUpload(upload); go('upload'); }}
           />
         )}
         {activeScreen === 'collab' && <Collab go={go} user={user} initialContext={discussionContext} initialThreadId={sharedThreadIdFromPath()} onClearSharedThread={clearSharedThreadUrl} />}
@@ -1371,7 +1402,7 @@ export default function App() {
         {activeScreen === 'settings' && <Settings go={go} user={user} onEditProfile={() => { setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
-        {activeScreen === 'workspace' && <Workspace go={go} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={setChatMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
+        {activeScreen === 'workspace' && <Workspace go={go} initialResource={workspaceTarget} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
         {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={user?.role === 'admin'} />}
         {activeScreen === 'search' && (
           <SearchResults
@@ -1380,6 +1411,7 @@ export default function App() {
             loading={submittedLoading}
             onAskAI={askAIFromSearch}
             onUpload={() => go('upload')}
+            onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }}
             onPractice={(topic, context) => { handleGoToPractice(topic, context); }}
             onCommunityAction={handleCommunityAction}
             go={go}
@@ -1396,7 +1428,7 @@ export default function App() {
             selectedQuestion={selectedQuestion}
             notifyUnavailable={notifyUnavailable}
             messages={chatMessages}
-            onMessagesChange={setChatMessages}
+            onMessagesChange={updatePrivateMessages}
             onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }}
             onClose={closeMaxe}
             user={user}

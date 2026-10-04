@@ -1084,9 +1084,9 @@ def student_analytics(
             "completed_at": attempt.completed_at,
         })
     if not attempts:
-        readiness = db.query(models.ReadinessScore).filter(models.ReadinessScore.user_id == student_id).all()
+        # Legacy direct scores remain history, not canonical quiz evidence.
         attempts = db.query(models.PracticeAttempt).filter(models.PracticeAttempt.user_id == student_id).all()
-    return {"readiness": readiness, "attempts": attempts}
+    return {"readiness": readiness, "attempts": attempts, "overall_readiness": learning}
 
 
 @router.post("/practice/generate")

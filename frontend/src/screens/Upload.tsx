@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, ChevronDown, FileText, Globe2, LockKeyhole, Plus, Users, X } from 'lucide-react';
 import type { Course, ScreenType, User } from '../types';
-import { queuePendingUpload } from '../offline';
+import { getOfflineScope, queuePendingUpload, removePendingUpload, type PendingUpload } from '../offline';
 import { apiFormPost, apiGet, apiPatch } from '../lib/api';
 
 import './Upload.css';
+const ArchiveNameContext = createContext('your learning space');
 
 type RecentUpload = {
   id: number;
@@ -301,6 +302,7 @@ function SharingChoice({
   error?: string;
   compact?: boolean;
 }) {
+  const archiveName = useContext(ArchiveNameContext);
   const selectedGroups = groups.filter(group => selectedGroupIds.includes(group.id));
   return (
     <section className={`sharing-choice${compact ? ' sharing-choice--compact' : ''}`} aria-labelledby="sharing-choice-title">
@@ -322,10 +324,10 @@ function SharingChoice({
           <input type="radio" name="upload-visibility" value="space_shared" checked={visibility === 'space_shared'} onChange={() => { onVisibilityChange('space_shared'); onConsentChange(false); }} />
           <span className="sharing-option-icon"><Globe2 size={17} /></span>
           <span className="sharing-option-copy">
-            <strong>Contribute to KSA <em>Recommended</em></strong>
+            <strong>Contribute to {archiveName} <em>Recommended</em></strong>
             <span>Help everyone studying this course find and use this resource. It stays private until moderation approves it.</span>
             <ul className="sharing-benefits">
-              <li>Build a reliable KSA course archive</li>
+              <li>Build a reliable {archiveName} course archive</li>
               <li>Keep useful materials from getting lost in chats</li>
               <li>Make resources searchable by course and session</li>
               <li>Help other students study and practise from the same resource</li>
@@ -372,7 +374,7 @@ function SharingChoice({
       {visibility === 'space_shared' && (
         <label className="sharing-consent">
           <input type="checkbox" checked={consent} onChange={event => onConsentChange(event.target.checked)} />
-          <span>You are submitting this material for review. If approved, it will be available to verified KSA students in course search, AI study answers and practice generation.</span>
+          <span>You are submitting this material for review. If approved, it will be available to verified {archiveName} members in course search, AI study answers and practice generation.</span>
         </label>
       )}
 
@@ -963,6 +965,7 @@ function ContributionSuccessModal({
   onDismiss: () => void;
 }) {
   const [currentVisibility, setCurrentVisibility] = useState<ShareVisibility>(initialVisibility);
+  const archiveName = useContext(ArchiveNameContext);
   const [moderationStatus, setModerationStatus] = useState(initialModerationStatus || 'not_submitted');
   const requestedVisibility = initialRequestedVisibility || (moderationStatus === 'pending_review' ? 'space_shared' : currentVisibility);
   const [currentGroupIds, setCurrentGroupIds] = useState<number[]>(initialGroupIds);
@@ -980,7 +983,7 @@ function ContributionSuccessModal({
       return;
     }
     if (editorVisibility === 'space_shared' && !consent) {
-      setError('Confirm that this material may be reviewed for the KSA archive.');
+      setError(`Confirm that this material may be reviewed for the ${archiveName} archive.`);
       return;
     }
     setSaving(true);
@@ -1017,12 +1020,12 @@ function ContributionSuccessModal({
         <h2>{moderationStatus === 'pending_review' ? 'Contribution submitted for review' : currentVisibility === 'private' ? 'Saved to your workspace' : 'Thank you for contributing'}</h2>
         <p>
           {moderationStatus === 'pending_review'
-            ? 'Your resource is currently private while a KSA moderator reviews it. We will keep your personal study data private.'
+            ? `Your resource is currently private while a ${archiveName} moderator reviews it. We will keep your personal study data private.`
             : requestedVisibility === 'space_shared'
-            ? 'Resource shared successfully. Students studying this course can now find it in the KSA archive.'
+            ? `Resource shared successfully. Members studying this course can now find it in the ${archiveName} archive.`
             : currentVisibility === 'group'
               ? `Resource shared with ${selectedGroups.map(group => group.name).join(', ')}. Only members of ${selectedGroups.length > 1 ? 'these groups' : 'this group'} can access it.`
-              : 'This resource is currently private. Would you like to help other students by sharing it with your study group or the CU archive?'}
+              : `This resource is currently private. Would you like to help other students by sharing it with your study group or the ${archiveName} archive?`}
         </p>
         <div className="success-modal-meta">
           <span>{metadata.course_code || 'Course pending'}</span>
@@ -1033,7 +1036,7 @@ function ContributionSuccessModal({
         </div>
         {(currentVisibility === 'private' || moderationStatus === 'pending_review') && !editorVisibility && (
           <div className="success-sharing-actions">
-            <button type="button" className="cta" onClick={() => startSharing('space_shared')}><Globe2 size={15} /> Share to KSA archive</button>
+            <button type="button" className="cta" onClick={() => startSharing('space_shared')}><Globe2 size={15} /> Share to {archiveName} archive</button>
             <button type="button" className="cta cta-ghost" onClick={() => startSharing('group')}><Users size={15} /> Share with a study group</button>
             <button type="button" className="success-keep-private" onClick={onDismiss}>Keep visible only to me</button>
           </div>
@@ -1066,9 +1069,12 @@ function ContributionSuccessModal({
   );
 }
 
-export default function Upload({ go, user }: { go: (s: ScreenType) => void; user: User | null }) {
+export default function Upload({ go, user, archiveName = 'your learning space', queuedUpload, onQueuedUploadStored }: { go: (s: ScreenType) => void; user: User | null; archiveName?: string; queuedUpload?: PendingUpload | null; onQueuedUploadStored?: () => void }) {
   const [state, setState] = useState<UploadState>('idle');
   const [file, setFile] = useState<File | null>(null);
+  const reviewedQueueFile = useRef<File | null>(null);
+  const analysisPending = useRef(false);
+  const confirmationPending = useRef(false);
   const [metadata, setMetadata] = useState<Metadata>(emptyMetadata);
   const [message, setMessage] = useState('');
   const [chunksIndexed, setChunksIndexed] = useState(0);
@@ -1156,6 +1162,8 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   );
 
   const analyzeFile = async (selected: File, notice = '') => {
+    if (analysisPending.current) return;
+    analysisPending.current = true;
     setFile(selected);
     setState('processing');
     setMessage(notice);
@@ -1179,16 +1187,22 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     setLastAction('analyze');
 
     if (!navigator.onLine) {
-      await queuePendingUpload({
-        id: `${selected.name}-${Date.now()}`,
-        fileName: selected.name,
-        fileSize: selected.size,
-        queuedAt: new Date().toISOString(),
-        status: 'waiting_to_sync',
-      }, selected);
-      window.dispatchEvent(new Event('exammind-offline-updated'));
-      setState('idle');
-      setMessage(`You are offline. "${selected.name}" was added to the sync queue.`);
+      try {
+        await queuePendingUpload({
+          id: `${selected.name}-${Date.now()}`,
+          fileName: selected.name,
+          fileSize: selected.size,
+          queuedAt: new Date().toISOString(),
+          status: 'waiting_to_sync',
+        }, selected);
+        window.dispatchEvent(new Event('exammind-offline-updated'));
+        setState('idle');
+        setMessage(`You are offline. "${selected.name}" was saved for review when you reconnect.`);
+      } catch {
+        setState('error');
+        setMessage('The file could not be queued on this device. Keep the original and try again when connected.');
+      }
+      analysisPending.current = false;
       return;
     }
 
@@ -1231,7 +1245,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       const fallback = 'Upload analysis failed.';
       const errorMessage = err instanceof Error ? err.message : fallback;
       setMessage(errorMessage.includes('scanned or image-based') ? 'ExamMind could not read this scan clearly. Try a clearer file.' : errorMessage);
-    }
+    } finally { analysisPending.current = false; }
   };
 
   const validateConfirmation = () => {
@@ -1261,7 +1275,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     if (sharingVisibility === 'group' && selectedShareGroupIds.length === 0) {
       errors.sharing = 'Choose at least one study group, or choose Only me.';
     } else if (sharingVisibility === 'space_shared' && !sharingConsent) {
-      errors.sharing = 'Confirm that this material may be reviewed for the KSA archive.';
+      errors.sharing = `Confirm that this material may be reviewed for the ${archiveName} archive.`;
     }
     setValidationErrors(errors);
     setSharingError(errors.sharing || '');
@@ -1275,13 +1289,15 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
 
   const confirmUpload = async (saveUnindexed = false, duplicateResolution?: 'continue' | 'newer_version') => {
     if (!file) return;
-    if (!validateConfirmation()) return;
+    if (confirmationPending.current || !validateConfirmation()) return;
+    confirmationPending.current = true;
     setState('processing');
     setMessage('');
     setProcessingSteps(mkSteps(0));
     setLastAction('index');
 
     const submissionMetadata = normalizeMetadata(metadata);
+    const submissionScope = getOfflineScope();
     const formData = new FormData();
     formData.append('file', file);
     formData.append('confirm', 'true');
@@ -1300,6 +1316,18 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
     try {
       const data = await apiFormPost('/ingest/upload', formData);
 
+      if (!submissionScope || getOfflineScope() !== submissionScope) return;
+      let queueCleanupWarning = '';
+      if (queuedUpload && file === reviewedQueueFile.current && typeof data.document_id === 'number' && data.document_id > 0 && ['success', 'audio_warning', 'audio_failed'].includes(data.status)) {
+        try {
+          await removePendingUpload(queuedUpload.id);
+          onQueuedUploadStored?.();
+          window.dispatchEvent(new Event('exammind-offline-updated'));
+        } catch {
+          queueCleanupWarning = 'The resource was stored, but the local queue entry could not be removed. Check your library before retrying.';
+        }
+      }
+
       if (data.status === 'duplicate') {
         setDuplicateDocument((data.existing_document || null) as DuplicateDocument | null);
         setProcessingSteps(failSteps(3));
@@ -1308,7 +1336,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       } else if (data.status === 'audio_failed') {
         setProcessingSteps(failSteps(4));
         setState('error');
-        setMessage(data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.');
+        setMessage([data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.', queueCleanupWarning].filter(Boolean).join(' '));
       } else {
         setDuplicateDocument(null);
         setProcessingSteps(doneSteps());
@@ -1321,13 +1349,13 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         if (data.sharing?.visibility) setSharingVisibility(data.sharing.visibility as ShareVisibility);
         setMetadata(normalizeMetadata({ ...submissionMetadata, ...(data.metadata || {}) }));
         setState('success');
-        setMessage(data.status === 'audio_warning' ? (data.message || 'The recording was saved and transcribed, but search indexing is still pending.') : '');
+        setMessage([data.status === 'audio_warning' ? (data.message || 'The recording was saved and transcribed, but search indexing is still pending.') : '', queueCleanupWarning].filter(Boolean).join(' '));
       }
     } catch (err) {
       setProcessingSteps(failSteps(4));
       setState('error');
       setMessage(err instanceof Error ? err.message : 'Indexing failed.');
-    }
+    } finally { confirmationPending.current = false; }
   };
 
   const startQueue = (files: File[], notice = '') => {
@@ -1363,7 +1391,7 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
       return;
     }
     if (recentVisibility === 'space_shared' && !recentConsent) {
-      setRecentShareError('Confirm that this material may be reviewed for the KSA archive.');
+      setRecentShareError(`Confirm that this material may be reviewed for the ${archiveName} archive.`);
       return;
     }
     setRecentShareBusy(true);
@@ -1472,12 +1500,13 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
   const rescueReason = rescueMessage(metadata.extraction_failure_reason);
 
   return (
-    <div className="page" id="s-upload">
+    <ArchiveNameContext.Provider value={archiveName}><div className="page" id="s-upload">
       <div className="pg-head">
         <div className="pg-title">Upload <em>Knowledge</em></div>
         <div className="pg-sub">Drop a PDF, Word document, PowerPoint, image, or audio recording. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
       </div>
 
+      {queuedUpload && state === 'idle' && <section className="upload-alert" role="status"><p>Queued file: {queuedUpload.fileName}. Review metadata and choose who can access it before confirming.</p><button type="button" className="cta" disabled={!navigator.onLine} onClick={() => { if (analysisPending.current) return; const queuedFile = new File([queuedUpload.fileData], queuedUpload.fileName, { type: queuedUpload.mimeType || '' }); reviewedQueueFile.current = queuedFile; void analyzeFile(queuedFile); }}>Review queued file</button></section>}
       {message && <div className={`upload-alert${reviewRequired ? ' review' : ''}`} style={{ marginBottom: 16 }}>{message}</div>}
 
       {state === 'idle' && (
@@ -1704,6 +1733,6 @@ export default function Upload({ go, user }: { go: (s: ScreenType) => void; user
         />
       )}
 
-    </div>
+    </div></ArchiveNameContext.Provider>
   );
 }

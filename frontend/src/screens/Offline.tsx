@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChatMessage, ScreenType } from '../types';
-import type { OfflineStudyPack, PendingUpload, SavedItem } from '../offline';
-import { listItems, listRecords, removeItem, removePendingUpload, removeStudyPack } from '../offline';
+import type { OfflineStudyPack, PendingUpload, SavedItem, PendingPracticeAttempt } from '../offline';
+import { hasLegacyOfflineData, listItems, listRecords, removeItem, removePendingUpload, removeStudyPack, removePracticeAttempt } from '../offline';
 import './Offline.css';
 import './WorkspacePage.css';
 
 type MaterialsProps = {
   go: (s: ScreenType, arg?: string | number | null) => void;
   onOpenConversation?: (messages: ChatMessage[]) => void;
+  onOpenResource: (kind: 'lecture_note' | 'past_question', id: number) => void;
+  onReviewUpload: (upload: PendingUpload) => void;
 };
 
 const DOCUMENT_TYPES: SavedItem['itemType'][] = ['lecture_note', 'past_question'];
@@ -26,11 +28,15 @@ function messagesOf(item: SavedItem): ChatMessage[] | null {
   return snapshot as ChatMessage[];
 }
 
-export default function Materials({ go, onOpenConversation }: MaterialsProps) {
+export default function Materials({ go, onOpenConversation, onOpenResource, onReviewUpload }: MaterialsProps) {
   const [saved, setSaved] = useState<SavedItem[]>([]);
   const [packs, setPacks] = useState<OfflineStudyPack[]>([]);
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
+  const [legacyData, setLegacyData] = useState(false);
+  const [oldAttempts, setOldAttempts] = useState<PendingPracticeAttempt[]>([]);
   const [openPack, setOpenPack] = useState<string | null>(null);
+  const [cachedDocument, setCachedDocument] = useState<SavedItem | null>(null);
+  const [libraryError, setLibraryError] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<MaterialFilter>('all');
   const [sort, setSort] = useState<MaterialSort>('recent');
@@ -39,6 +45,8 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
     listItems().then(setSaved).catch(() => setSaved([]));
     listRecords<OfflineStudyPack>('studyPacks').then(setPacks).catch(() => setPacks([]));
     listRecords<PendingUpload>('pendingUploads').then(setUploads).catch(() => setUploads([]));
+    hasLegacyOfflineData().then(setLegacyData).catch(() => undefined);
+    listRecords<PendingPracticeAttempt>('practiceAttempts').then(setOldAttempts).catch(() => setOldAttempts([]));
   }, []);
 
   useEffect(load, [load]);
@@ -76,23 +84,30 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
       : new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime()), [matchesQuery, sort, uploads]);
 
   const forget = useCallback(async (id: string) => {
-    await removeItem(id).catch(() => undefined);
-    load();
+    setLibraryError('');
+    try { await removeItem(id); load(); }
+    catch { setLibraryError('The saved item could not be removed. Try again.'); }
   }, [load]);
 
   const openDocument = useCallback((item: SavedItem) => {
-    // Past questions are read through the same desk as notes; the reader takes
-    // a numeric id, and a saved reference always carries one.
+    if (item.cachedOffline && item.snapshot && typeof item.snapshot === 'object' && !navigator.onLine) { setCachedDocument(item); return; }
+    // Keep kind and ID together: notes and past questions can have the same ID.
     const id = typeof item.refId === 'number' ? item.refId : Number(item.refId);
-    if (Number.isFinite(id)) go('reader', id);
-  }, [go]);
+    if (Number.isFinite(id) && (item.itemType === 'lecture_note' || item.itemType === 'past_question')) onOpenResource(item.itemType, id);
+  }, [onOpenResource]);
 
   return (
     <div className="page workspace-page" id="s-offline">
       <div className="pg-head">
-        <div className="pg-title">My <em>Materials</em></div>
+        <div className="pg-title">Saved <em>library</em></div>
         <div className="pg-sub">Everything you have saved, in one place. Anything marked offline opens with no connection.</div>
       </div>
+
+      <button type="button" className="shelf-action" onClick={() => go('workspace')}>Back to study materials</button>
+      {libraryError && <p role="alert">{libraryError}</p>}
+      {legacyData && <p role="status">Older offline data has no verified account owner. It remains stored on this device, but cannot be opened or synced safely. Contact support for recovery; it has not been deleted.</p>}
+      {cachedDocument && <section className="shelf" aria-label="Cached document"><h2>{cachedDocument.title}</h2><p>Offline snapshot saved {savedDate(cachedDocument.savedAt)}. Reconnect to check current access and updates.</p><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{String((cachedDocument.snapshot as Record<string, unknown>).content_text || (cachedDocument.snapshot as Record<string, unknown>).contentText || 'No reading text was cached for this item.')}</p><button type="button" onClick={() => setCachedDocument(null)}>Close cached document</button></section>}
+      {oldAttempts.length > 0 && <section className="shelf"><h2>Older quiz records need review</h2><p>Direct scores cannot be counted as readiness evidence. Reconnect and complete a new quiz; these records will not be submitted automatically.</p>{oldAttempts.map(attempt => <div key={attempt.id}><span>{attempt.topic || 'Older practice result'}</span><button type="button" onClick={() => void removePracticeAttempt(attempt.id).then(load).catch(() => setLibraryError('The older record could not be removed. Try again.'))}>Discard older record</button></div>)}</section>}
 
       <div className="materials-toolbar" role="search" aria-label="Material filters">
         <label className="materials-search">
@@ -249,7 +264,7 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
                       <button
                         type="button"
                         className="shelf-row-btn is-quiet"
-                        onClick={() => { void removeStudyPack(pack.id).then(load).catch(() => undefined); }}
+                        onClick={() => { void removeStudyPack(pack.id).then(load).catch(() => setLibraryError('The study pack could not be removed. Try again.')); }}
                       >
                         Remove
                       </button>
@@ -277,13 +292,13 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
 
         {visibleSections.offline && <section className="shelf" aria-labelledby="mat-queue-title">
           <div className="shelf-head">
-            <p className="shelf-label">Waiting to sync</p>
+            <p className="shelf-label">Waiting for your review</p>
             <span className="shelf-count">{visibleUploads.length}</span>
           </div>
           <h2 className="shelf-title" id="mat-queue-title">Upload queue</h2>
 
           {visibleUploads.length === 0 ? (
-            <p className="shelf-empty">Nothing queued. Files added without a connection wait here until sync is possible.</p>
+            <p className="shelf-empty">Nothing queued. Offline uploads wait here for metadata review and confirmation when you reconnect.</p>
           ) : (
             <ul className="shelf-list">
               {visibleUploads.map((upload) => (
@@ -293,11 +308,11 @@ export default function Materials({ go, onOpenConversation }: MaterialsProps) {
                     <p className="shelf-item-meta">{Math.round(upload.fileSize / 1024)} KB · {savedDate(upload.queuedAt)}</p>
                   </div>
                   <div className="shelf-row-actions">
-                    <span className="shelf-status is-queued">Queued</span>
+                    <button type="button" className="shelf-row-btn" onClick={() => onReviewUpload(upload)}>Review upload</button>
                     <button
                       type="button"
                       className="shelf-row-btn is-quiet"
-                      onClick={() => { void removePendingUpload(upload.id).then(load).catch(() => undefined); }}
+                      onClick={() => { void removePendingUpload(upload.id).then(load).catch(() => setLibraryError('The queued file could not be removed. Try again.')); }}
                     >
                       Discard
                     </button>

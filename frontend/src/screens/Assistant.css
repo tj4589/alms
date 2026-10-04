@@ -1,4 +1,14 @@
 /* Assistant is a working conversation, not a marketing panel. It shares the desk's paper palette. */
+:root[data-theme="dark"] #s-assistant.assistant-page{color:var(--text)}
+:root[data-theme="dark"] #s-assistant :is(.ai-hd-title,.assistant-title,.ai-context-strip strong){color:var(--text)}
+:root[data-theme="dark"] #s-assistant :is(.ai-hd-sub,.assistant-sub,.ai-context-strip small,.ai-mode-toggle button){color:var(--text2)}
+:root[data-theme="dark"] #s-assistant :is(.ai-context-strip,.ai-mode-toggle,.bubble.ai,.assistant-prompts .pill){background:var(--surface2);border-color:var(--border);color:var(--text)}
+:root[data-theme="dark"] #s-assistant :is(.ai-mode-toggle button.is-active,.ai-inp){background:var(--surface);color:var(--text);border-color:var(--border)}
+:root[data-theme="dark"] #s-assistant .ai-inp::placeholder{color:var(--text2)}
+:root[data-theme="dark"] #s-assistant .bubble.usr{background:var(--gold2);border-color:var(--border);color:var(--text)}
+:root[data-theme="dark"] #s-assistant .ai-inp:focus{box-shadow:0 0 0 3px var(--teal2)}
+:root[data-theme="dark"] #s-assistant .ai-mode-toggle button:hover{background:var(--teal2);color:var(--text)}
+#s-assistant .ai-mode-toggle button{min-height:32px}
 #s-assistant.assistant-page{width:100%;max-width:1320px;margin:0 auto;padding:34px 36px 64px;color:#252b24;font-family:'Outfit Variable',sans-serif}
 #s-assistant .assistant-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px}
 #s-assistant .assistant-title{font:400 clamp(32px,3vw,44px)/1.06 'Instrument Serif',Georgia,serif;letter-spacing:-1px;color:#252b24}

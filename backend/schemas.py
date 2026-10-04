@@ -82,6 +82,7 @@ class FirebaseIdentityRequest(BaseModel):
 FEEDBACK_CATEGORIES = (
     "I cannot sign in",
     "I am not a CU student",
+    "I need access to a learning space",
     "I have a suggestion",
     "Something is broken",
     "Something felt confusing",

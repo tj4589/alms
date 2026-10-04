@@ -1666,6 +1666,7 @@ export default function Assistant({
           <div className="ai-foot">
             <input
               className="ai-inp"
+              aria-label="Message Maxe"
               type="text"
               placeholder="Ask about a topic, past question, material, or anything you remember…"
               value={input}
@@ -1673,7 +1674,7 @@ export default function Assistant({
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleSend(); } }}
               disabled={loading}
             />
-            <button className="send" onClick={() => void handleSend()} disabled={loading || !input.trim()}>
+            <button className="send" aria-label={loading ? 'Sending message' : 'Send message to Maxe'} onClick={() => void handleSend()} disabled={loading || !input.trim()}>
               {loading ? '...' : '>'}
             </button>
           </div>
