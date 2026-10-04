@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
+os.environ.setdefault("ADMIN_PORTAL_EMAILS", "admin@example.com")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import auth  # noqa: E402
@@ -127,6 +128,30 @@ class KsaClaimAdminTests(unittest.TestCase):
 
     def test_global_admin_is_authorized_with_one_centralized_path(self):
         self.assertIs(auth.require_global_admin_user(self.admin), self.admin)
+
+    def test_global_admin_access_requires_a_registered_email(self):
+        with patch.dict(os.environ, {"ADMIN_PORTAL_EMAILS": " ADMIN@EXAMPLE.COM "}):
+            self.assertTrue(auth.has_admin_portal_access(self.admin))
+            self.assertTrue(self.admin.admin_portal_access)
+
+            unregistered_admin = models.User(
+                name="Unregistered Admin",
+                username="unregistered_admin",
+                email="other@example.com",
+                role="admin",
+            )
+            self.assertFalse(auth.has_admin_portal_access(unregistered_admin))
+            with self.assertRaises(HTTPException) as denied:
+                auth.require_global_admin_user(unregistered_admin)
+            self.assertEqual(denied.exception.status_code, 403)
+
+            allowlisted_student = models.User(
+                name="Allowlisted Student",
+                username="allowlisted_student",
+                email="admin@example.com",
+                role="student",
+            )
+            self.assertFalse(auth.has_admin_portal_access(allowlisted_student))
 
     def test_new_claim_records_claimed_audit_and_inspection_is_admin_safe(self):
         claim_ksa_member(self.db, self.student, "KSA-07")

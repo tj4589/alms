@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str = "student"
     account_status: str = "active"
+    admin_portal_access: bool = False
 
     model_config = {"from_attributes": True}
 

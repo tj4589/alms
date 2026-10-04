@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
+os.environ.setdefault("ADMIN_PORTAL_EMAILS", "admin@example.com")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import auth  # noqa: E402

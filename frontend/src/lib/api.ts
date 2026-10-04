@@ -10,6 +10,12 @@ export const BACKEND_CONNECTION_ERROR = isProductionRenderSite
 
 type RequestBody = Record<string, unknown> | unknown[];
 
+export type ApiRequestOptions = {
+  timeoutMs?: number;
+};
+
+export const API_REQUEST_TIMEOUT_ERROR = 'ExamMind is taking too long to respond. Please try again.';
+
 export function getAuthToken() {
   return getToken();
 }
@@ -47,15 +53,22 @@ function sanitizeErrorMessage(message: string) {
   return text;
 }
 
-async function request(path: string, init: RequestInit, fallbackError: string) {
+async function request(path: string, init: RequestInit, fallbackError: string, options: ApiRequestOptions = {}) {
+  const controller = options.timeoutMs ? new AbortController() : null;
+  const timeoutId = controller ? window.setTimeout(() => controller.abort(), options.timeoutMs) : null;
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, init);
+    response = await fetch(`${API_BASE_URL}${path}`, controller ? { ...init, signal: controller.signal } : init);
   } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new Error(API_REQUEST_TIMEOUT_ERROR);
+    }
     if (error instanceof TypeError) {
       throw new Error(BACKEND_CONNECTION_ERROR);
     }
     throw error;
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
@@ -77,11 +90,11 @@ function authHeaders(extraHeaders: HeadersInit = {}) {
   };
 }
 
-export function apiGet(path: string) {
-  return request(path, { method: 'GET', headers: authHeaders() }, 'Request failed.');
+export function apiGet(path: string, options?: ApiRequestOptions) {
+  return request(path, { method: 'GET', headers: authHeaders() }, 'Request failed.', options);
 }
 
-export function apiPost(path: string, body: RequestBody) {
+export function apiPost(path: string, body: RequestBody, options?: ApiRequestOptions) {
   return request(
     path,
     {
@@ -90,6 +103,7 @@ export function apiPost(path: string, body: RequestBody) {
       body: JSON.stringify(body),
     },
     'Request failed.',
+    options,
   );
 }
 

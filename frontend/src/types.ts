@@ -1,4 +1,4 @@
-export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'spaces' | 'workspace' | 'moderation';
+export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'spaces' | 'workspace' | 'moderation' | 'admin';
 
 export type Course = {
   id: number;
@@ -15,6 +15,7 @@ export type User = {
   username: string | null;
   email: string;
   role: string;
+  admin_portal_access?: boolean;
 };
 
 export type LearningSpaceMembership = {

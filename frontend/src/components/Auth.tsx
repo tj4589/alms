@@ -27,7 +27,7 @@ import {
   type User as FirebaseUser,
 } from 'firebase/auth';
 import Logo from './Logo';
-import { createFirebaseSession } from '../lib/firebaseAuth';
+import { AUTH_REQUEST_TIMEOUT_MS, createFirebaseSession } from '../lib/firebaseAuth';
 import { firebaseAuth, firebaseConfigError, googleProvider } from '../lib/firebase';
 import { forgotPasswordErrorMessage, PASSWORD_RESET_GENERIC_MESSAGE } from '../lib/authErrors';
 import { clearLocalAccountState } from '../lib/session';
@@ -100,6 +100,32 @@ function friendlyAuthError(error: unknown, fallback: string): string {
     default:
       return error instanceof Error && error.message ? error.message : fallback;
   }
+}
+
+function withAuthTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(message));
+    }, AUTH_REQUEST_TIMEOUT_MS);
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 function readPendingProfile(email: string): PendingProfile | null {
@@ -246,7 +272,10 @@ export const Auth = ({
     setLoading(true);
     setError('');
     try {
-      const firebaseIdToken = await user.getIdToken(true);
+      const firebaseIdToken = await withAuthTimeout(
+        user.getIdToken(true),
+        'Firebase is taking too long to respond. Please try again.',
+      );
       const pendingProfile = readPendingProfile(verifiedEmail);
       const response = await createFirebaseSession({
         firebase_id_token: firebaseIdToken,
@@ -399,7 +428,10 @@ export const Auth = ({
     setLoading(true);
     setError('');
     try {
-      const result = await signInWithPopup(firebaseAuth!, googleProvider);
+      const result = await withAuthTimeout(
+        signInWithPopup(firebaseAuth!, googleProvider),
+        'Google sign-in is taking too long to respond. Please try again.',
+      );
       const signedInUser = result.user;
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const googleIdToken = credential?.idToken;

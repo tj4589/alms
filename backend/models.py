@@ -65,6 +65,13 @@ class User(Base):
     onboarding_state = Column(String(20), nullable=False, default="pending", server_default="pending", index=True)
     profile_updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
+    @property
+    def admin_portal_access(self) -> bool:
+        # Import lazily to keep the ORM model independent from auth startup.
+        from admin_access import has_admin_portal_access
+
+        return has_admin_portal_access(self)
+
 
 class LearningSpaceMembership(Base):
     """The user's membership in a learning space, separate from identity."""

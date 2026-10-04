@@ -231,7 +231,7 @@ export default function Settings({ go, user, onEditProfile, onAccountDeactivated
         <div className="settings-feedback-panel"><FeedbackPanel mode="authenticated" /></div>
       </section>
 
-      {user?.role === 'admin' && <FeedbackInbox />}
+      {user?.admin_portal_access === true && <FeedbackInbox />}
 
       <section className="setting-block" aria-labelledby="settings-deactivate-title">
         <p className="notes-label">Account</p>

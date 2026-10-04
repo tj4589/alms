@@ -118,6 +118,12 @@ production database is reset or recreated by this process.
      Firebase project's Authentication/Google provider configuration. The API
      uses it as the expected audience for the Google provider ID token.
 
+   `ADMIN_PORTAL_EMAILS` must contain the comma-separated, verified ExamMind
+   account emails allowed into the global admin portal. Each account must
+   also retain the database `admin` role; the email list is an additional
+   server-side gate. Keep this value in Render configuration and never place
+   real addresses in this repository.
+
    Audio transcription uses the OpenAI Audio Transcriptions API when it is
    configured. The current implementation sends `verbose_json` and expects
    timestamped segments, so `whisper-1` remains the intended model:

@@ -54,6 +54,7 @@ const Workspace = lazy(() => import('./screens/Workspace'));
 const Onboarding = lazy(() => import('./screens/Onboarding'));
 const LearningSpaces = lazy(() => import('./screens/LearningSpaces'));
 const Moderation = lazy(() => import('./screens/Moderation'));
+const AdminDashboard = lazy(() => import('./screens/AdminDashboard'));
 import Logo from './components/Logo';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
@@ -66,6 +67,7 @@ const Privacy = lazy(() => import('./components/Privacy'));
 const FeedbackPage = lazy(() => import('./components/FeedbackPage'));
 const GroupInvite = lazy(() => import('./components/GroupInvite'));
 import { apiGet, apiPost } from './lib/api';
+import { AUTH_REQUEST_TIMEOUT_MS } from './lib/firebaseAuth';
 import { firebaseAuth } from './lib/firebase';
 import { signOut as signOutFirebase } from 'firebase/auth';
 
@@ -201,6 +203,7 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
   {
     label: 'Stewardship',
     items: [
+      { label: 'Admin desk', screen: 'admin', icon: GearSixIcon },
       { label: 'Review contributions', screen: 'moderation', icon: ListIcon },
     ],
   },
@@ -456,7 +459,7 @@ export default function App() {
     let cancelled = false;
     setUserHydrating(true);
 
-    apiGet('/auth/me')
+    apiGet('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
       .then((data) => {
         if (cancelled) return;
         setUser(data as User);
@@ -523,7 +526,7 @@ export default function App() {
     if (inviteTokenFromPath()) setPublicView('invite');
 
     try {
-      const data = await apiGet('/auth/me') as User;
+      const data = await apiGet('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS }) as User;
       setUser(data);
     } catch {
       // The session response already includes a verified user. Keep that
@@ -1099,9 +1102,10 @@ export default function App() {
       : null;
   const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
   const activeSpaceRole = learningSpaces?.active_space?.membership?.role;
-  const canModerate = user?.role === 'admin' || ['owner', 'admin', 'moderator'].includes(activeSpaceRole || '');
+  const hasAdminPortalAccess = user?.admin_portal_access === true;
+  const canModerate = hasAdminPortalAccess || ['owner', 'admin', 'moderator'].includes(activeSpaceRole || '');
   const visibleNavGroups = NAV_GROUPS
-    .map(group => ({ ...group, items: group.items.filter(item => item.screen !== 'moderation' || canModerate) }))
+    .map(group => ({ ...group, items: group.items.filter(item => (item.screen !== 'moderation' || canModerate) && (item.screen !== 'admin' || hasAdminPortalAccess)) }))
     .filter(group => group.items.length > 0);
 
   // Keep the authenticated rail compact so the active workspace owns the
@@ -1403,7 +1407,8 @@ export default function App() {
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'workspace' && <Workspace go={go} initialResource={workspaceTarget} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
-        {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={user?.role === 'admin'} />}
+        {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={hasAdminPortalAccess} />}
+        {activeScreen === 'admin' && hasAdminPortalAccess && <AdminDashboard go={go} user={user} />}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}

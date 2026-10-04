@@ -56,6 +56,10 @@ services:
         value: https://exammind-web.onrender.com
       - key: ALLOWED_SCHOOL_EMAIL_DOMAINS
         value: stu.cu.edu.ng,covenantuniversity.edu.ng
+      # Comma-separated verified ExamMind account emails allowed into the
+      # global admin portal. Set this in Render; do not commit real addresses.
+      - key: ADMIN_PORTAL_EMAILS
+        sync: false
       - key: FIREBASE_PROJECT_ID
         value: exammind-509123
       - key: GOOGLE_OAUTH_CLIENT_ID

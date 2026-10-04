@@ -17,6 +17,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
+from admin_access import has_admin_portal_access
 from database import get_db
 import models
 
@@ -581,7 +582,7 @@ def _partition_uploaded_materials(
 
 def require_global_admin_user(current_user: models.User) -> models.User:
     """Authorize operations reserved for global ExamMind administrators."""
-    if current_user is None or current_user.role != "admin":
+    if not has_admin_portal_access(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GLOBAL_ADMIN_REQUIRED_MESSAGE)
     return current_user
 
