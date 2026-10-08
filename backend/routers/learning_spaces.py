@@ -21,6 +21,7 @@ from learning_spaces import (
     list_spaces,
     mark_ksa_onboarding_complete,
     normalize_ksa_id,
+    update_ksa_preferences,
 )
 from rate_limiting import user_rate_limit
 
@@ -50,6 +51,22 @@ class KsaOnboardingRequest(BaseModel):
         if not 3 <= len(normalized) <= 24 or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789_" for character in normalized):
             raise ValueError("Choose a username with lowercase letters, numbers, or underscores.")
         return normalized
+
+    @field_validator("learning_goals", "help_topics")
+    @classmethod
+    def clean_preferences(cls, values: list[str]) -> list[str]:
+        return [item.strip()[:120] for item in values if item.strip()][:8]
+
+
+class KsaPreferencesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    learning_goals: list[str] = Field(default_factory=list, max_length=8)
+    help_topics: list[str] = Field(default_factory=list, max_length=8)
+    explanation_preference: Literal["concise", "step_by_step", "examples_first", "not_sure"] = "not_sure"
+    # Omitted preserves the existing reminder consent. Explicit false is the
+    # opt-out path used by the settings/onboarding editor.
+    notifications_enabled: bool | None = None
 
     @field_validator("learning_goals", "help_topics")
     @classmethod
@@ -153,6 +170,47 @@ def complete_ksa_onboarding(
             "notifications_enabled": payload.notifications_enabled,
         },
     )
+
+
+@router.put("/ksa/preferences")
+def update_ksa_learning_preferences(
+    payload: KsaPreferencesRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+):
+    return update_ksa_preferences(db, current_user, payload.model_dump(exclude_none=True))
+
+
+@router.post("/early-access-requests", status_code=201)
+def request_early_access(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role("student")),
+    _rate_limit: None = Depends(user_rate_limit("early_access", auth.require_role("student"))),
+):
+    existing = (
+        db.query(models.Feedback)
+        .filter(
+            models.Feedback.user_id == current_user.id,
+            models.Feedback.category == "I need access to a learning space",
+            models.Feedback.status.in_(["new", "open", "in_progress"]),
+        )
+        .order_by(models.Feedback.created_at.desc())
+        .first()
+    )
+    if existing is not None:
+        return {"status": "already_requested", "request_id": existing.id}
+    request = models.Feedback(
+        user_id=current_user.id,
+        source="authenticated",
+        category="I need access to a learning space",
+        message="This student requested access to an available learning space.",
+        page_path="/learning-spaces",
+        status="new",
+    )
+    db.add(request)
+    db.commit()
+    db.refresh(request)
+    return {"status": "requested", "request_id": request.id}
 
 
 @router.post("/ksa/admin/members/import")

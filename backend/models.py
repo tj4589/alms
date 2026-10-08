@@ -73,6 +73,61 @@ class User(Base):
         return has_admin_portal_access(self)
 
 
+class ReminderSubscription(Base):
+    """A consented, owner-scoped delivery destination for study reminders.
+
+    Push endpoint credentials are operational secrets for the browser endpoint
+    and are never included in public response payloads. Email subscriptions
+    deliberately use the verified account email rather than accepting an
+    arbitrary address from the client.
+    """
+
+    __tablename__ = "reminder_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    channel = Column(String(24), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="active", server_default="active", index=True)
+    endpoint = Column(Text, nullable=True)
+    endpoint_key = Column(String(64), nullable=False)
+    p256dh = Column(String(255), nullable=True)
+    auth_key = Column(String(255), nullable=True)
+    consented_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    unsubscribed_at = Column(DateTime(timezone=True), nullable=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "channel", "endpoint_key", name="uq_reminder_subscription_destination"),
+        UniqueConstraint("channel", "endpoint_key", name="uq_reminder_subscription_endpoint"),
+    )
+
+
+class ReminderDelivery(Base):
+    """Durable, non-content delivery audit rows with an idempotency key."""
+
+    __tablename__ = "reminder_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    subscription_id = Column(Integer, ForeignKey("reminder_subscriptions.id", ondelete="SET NULL"), nullable=True, index=True)
+    channel = Column(String(24), nullable=False, index=True)
+    dedupe_key = Column(String(255), nullable=False)
+    status = Column(String(24), nullable=False, default="queued", server_default="queued", index=True)
+    scheduled_for = Column(DateTime(timezone=True), nullable=False, index=True)
+    attempted_at = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    attempt_count = Column(Integer, nullable=False, default=0, server_default="0")
+    provider_reference = Column(String(255), nullable=True)
+    failure_code = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_reminder_delivery_dedupe_key"),
+    )
+
+
 class LearningSpaceMembership(Base):
     """The user's membership in a learning space, separate from identity."""
 

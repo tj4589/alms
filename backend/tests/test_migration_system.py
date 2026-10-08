@@ -58,7 +58,13 @@ class MigrationSystemTests(unittest.TestCase):
         models_by_name = {
             table.name: {column.name for column in table.columns}
             for table in Base.metadata.sorted_tables
-            if table.name not in {"ksa_claim_audits", "learning_space_role_audits", "rate_limit_buckets"}
+            if table.name not in {
+                "ksa_claim_audits",
+                "learning_space_role_audits",
+                "rate_limit_buckets",
+                "reminder_subscriptions",
+                "reminder_deliveries",
+            }
         }
         self.assertEqual(set(baseline), set(models_by_name))
         for table_name, columns in models_by_name.items():
@@ -176,6 +182,8 @@ class MigrationSystemTests(unittest.TestCase):
         self.assertGreaterEqual(len(REQUIRED_TABLES), 41)
         self.assertIn("firebase_uid", REQUIRED_COLUMNS["users"])
         self.assertIn("embedding", REQUIRED_COLUMNS["resource_chunks"])
+        self.assertIn("ksa_claim_audits", REQUIRED_TABLES)
+        self.assertIn("ix_ksa_claim_audits_ksa_id", REQUIRED_INDEXES)
         self.assertIn("ix_users_email_lower", REQUIRED_INDEXES)
         self.assertEqual(len(REQUIRED_FOREIGN_KEYS), 76)
         self.assertEqual(len(REQUIRED_UNIQUE_CONSTRAINTS), 11)
@@ -183,6 +191,48 @@ class MigrationSystemTests(unittest.TestCase):
         self.assertNotIn("INSERT ", source.upper())
         self.assertNotIn("UPDATE ", source.upper())
         self.assertNotIn("DELETE ", source.upper())
+
+    def test_revision_specific_requirements_include_each_additive_migration(self):
+        from migration_checks import revision_requirements
+
+        baseline = revision_requirements("0001_initial_schema")
+        claim_audit = revision_requirements("0002_ksa_claim_audit")
+        role_audit = revision_requirements("0003_learning_space_role_audit")
+        head = revision_requirements("0004_rate_limit_buckets")
+        reminder_head = revision_requirements("0005_reminder_delivery")
+
+        self.assertNotIn("ksa_claim_audits", baseline["tables"])
+        self.assertIn("ksa_claim_audits", claim_audit["tables"])
+        self.assertNotIn("learning_space_role_audits", claim_audit["tables"])
+        self.assertIn("learning_space_role_audits", role_audit["tables"])
+        self.assertIn("rate_limit_buckets", head["tables"])
+        self.assertIn("ix_ksa_claim_audits_ksa_id", claim_audit["indexes"])
+        self.assertIn("ix_learning_space_role_audits_membership_id", role_audit["indexes"])
+        self.assertIn("ix_rate_limit_buckets_window_expires_at", head["indexes"])
+        self.assertGreater(len(head["foreign_keys"]), len(baseline["foreign_keys"]))
+        self.assertIn("reminder_subscriptions", reminder_head["tables"])
+        self.assertIn("reminder_deliveries", reminder_head["tables"])
+        self.assertIn(("reminder_deliveries", ("dedupe_key",)), reminder_head["unique_constraints"])
+
+    def test_revision_inspection_reads_marker_and_flags_later_tables(self):
+        from sqlalchemy import create_engine, text
+
+        from migration_checks import inspect_revision_schema
+
+        engine = create_engine("sqlite:///:memory:")
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)"))
+            connection.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0004_rate_limit_buckets')"))
+            connection.execute(text("CREATE TABLE ksa_claim_audits (id INTEGER NOT NULL)"))
+            report = inspect_revision_schema(connection, "0001_initial_schema")
+
+        self.assertEqual(report["alembic_version"], {
+            "status": "single",
+            "versions": ["0004_rate_limit_buckets"],
+        })
+        self.assertIn("ksa_claim_audits", report["unexpected_tables"])
+        self.assertFalse(report["safe_to_stamp"])
+        self.assertTrue(any("unexpected tables" in problem for problem in report["problems"]))
 
     def test_initial_downgrade_is_explicitly_irreversible(self):
         source = MIGRATION_PATH.read_text(encoding="utf-8")

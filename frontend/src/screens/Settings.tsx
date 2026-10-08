@@ -11,6 +11,7 @@ import { apiDelete, apiGet, apiPost } from '../lib/api';
 import { firebaseAuth, googleProvider } from '../lib/firebase';
 import { clearLocalAccountState, clearToken } from '../lib/session';
 import { attemptDeviceCleanup } from '../lib/deviceCleanup';
+import ReminderSettings from '../components/ReminderSettings';
 import './Settings.css';
 
 
@@ -18,6 +19,7 @@ type SettingsProps = {
   go: (s: ScreenType) => void;
   user: User | null;
   onEditProfile?: () => void;
+  profileEditLabel?: string;
   onAccountDeleted?: (message: string) => void;
   onAccountDeletionPending?: (message: string, firebaseDeleted: boolean) => void;
   onAccountDeactivated?: (message: string) => void;
@@ -46,7 +48,7 @@ const DATA_NOTES = [
 
 const ACCOUNT_DELETION_UNAVAILABLE_MESSAGE = 'Account deletion is temporarily unavailable. Contact support for assistance.';
 
-export default function Settings({ go, user, onEditProfile, onAccountDeactivated, onAccountDeletionScheduled, onAccountLifecycleCleanupPending, onRestartOnboarding }: SettingsProps) {
+export default function Settings({ go, user, onEditProfile, profileEditLabel, onAccountDeactivated, onAccountDeletionScheduled, onAccountLifecycleCleanupPending, onRestartOnboarding }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
   const [sessionPref, setPref] = useState<SessionPreference>(() => getSessionPreference());
   const staySignedIn = sessionPref === 'stay';
@@ -211,7 +213,7 @@ export default function Settings({ go, user, onEditProfile, onAccountDeactivated
           <p className="notes-label">Academic profile</p>
           <h2 className="notes-title" id="settings-academic-profile">Keep your recommendations current</h2>
           <p className="setting-note">Update your department, level, courses, and interests whenever your semester changes.</p>
-          <button type="button" className="account-link" onClick={onEditProfile}>Edit academic profile &rarr;</button>
+          <button type="button" className="account-link" onClick={onEditProfile}>{profileEditLabel || 'Edit academic profile →'}</button>
         </section>
       )}
 
@@ -310,6 +312,8 @@ export default function Settings({ go, user, onEditProfile, onAccountDeactivated
           Applies to your study screens. The public landing page stays light.
         </p>
       </section>
+
+      <ReminderSettings />
 
       <section className="notes" aria-labelledby="settings-notes-title">
         <p className="notes-label">Session and data</p>

@@ -57,10 +57,11 @@ type KsaOnboardingProps = {
   userName: string;
   onComplete: () => void | Promise<void>;
   onLogout: () => void;
+  isEditing?: boolean;
 };
 
-function KsaOnboarding({ userName, onComplete, onLogout }: KsaOnboardingProps) {
-  const [step, setStep] = useState<1 | 2>(1);
+function KsaOnboarding({ userName, onComplete, onLogout, isEditing = false }: KsaOnboardingProps) {
+  const [step, setStep] = useState<1 | 2>(isEditing ? 2 : 1);
   const [name, setName] = useState(userName);
   const [username, setUsername] = useState('');
   const [goal, setGoal] = useState('');
@@ -90,7 +91,7 @@ function KsaOnboarding({ userName, onComplete, onLogout }: KsaOnboardingProps) {
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (name.trim().length < 2 || !/^[a-z0-9_]{3,24}$/.test(username.trim().toLowerCase())) {
+    if (!isEditing && (name.trim().length < 2 || !/^[a-z0-9_]{3,24}$/.test(username.trim().toLowerCase()))) {
       setError('Add your name and choose a username with 3-24 lowercase letters, numbers, or underscores.');
       setStep(1);
       return;
@@ -98,14 +99,21 @@ function KsaOnboarding({ userName, onComplete, onLogout }: KsaOnboardingProps) {
     setSaving(true);
     setError('');
     try {
-      await apiPost('/learning-spaces/ksa/onboarding', {
-        preferred_name: name.trim(),
-        username: username.trim().toLowerCase(),
+      const preferences = {
         learning_goals: goal ? [goal] : [],
         help_topics: helpTopics.split(',').map(item => item.trim()).filter(Boolean).slice(0, 8),
         explanation_preference: explanationPreference,
         notifications_enabled: notificationsEnabled,
-      });
+      };
+      if (isEditing) {
+        await apiPut('/learning-spaces/ksa/preferences', preferences);
+      } else {
+        await apiPost('/learning-spaces/ksa/onboarding', {
+          preferred_name: name.trim(),
+          username: username.trim().toLowerCase(),
+          ...preferences,
+        });
+      }
       await onComplete();
     } catch (saveError) {
       setError(errorText(saveError, 'Your KSA setup could not be saved.'));
@@ -123,8 +131,8 @@ function KsaOnboarding({ userName, onComplete, onLogout }: KsaOnboardingProps) {
           <aside className="onboarding-side" aria-label="Kora Sales Academy welcome"><div className="onboarding-side-visual"><img src="/images/onboarding/students-study.webp" alt="Students studying together with a laptop and notebooks" decoding="async" /><div className="onboarding-art-note" aria-hidden="true"><BookOpen size={18} /><span>your desk</span><strong>ready when you are</strong></div></div><div className="onboarding-side-copy"><p>Learn the work.</p><p><em>Practise what matters.</em></p><span>Tell ExamMind how you learn, then make the KSA space your own.</span></div><div className="onboarding-side-points"><span><ShieldCheck size={16} /> Verified KSA access</span><span><Compass size={16} /> Useful study context</span><span><Sparkles size={16} /> Clearer next steps</span></div></aside>
           <section className="onboarding-main" aria-labelledby="ksa-onboarding-title">
             {loading ? <div className="onboarding-status" role="status"><LoaderCircle size={20} className="onboarding-spin" /><h1 id="ksa-onboarding-title">Bringing your desk into focus.</h1><p>One moment while we load your setup.</p></div> : <form className="onboarding-step" onSubmit={(event) => { event.preventDefault(); if (step === 1) { setStep(2); return; } void save(event); }}>
-              <div className="onboarding-progress" aria-label={`KSA onboarding step ${step} of 2`}><div className="onboarding-progress-meta"><span>KSA space setup</span><strong>{step} of 2</strong></div><div className="onboarding-progress-track"><span style={{ width: `${step * 50}%` }} /></div></div>
-              {step === 1 ? <><span className="onboarding-step-label">Step one · identity</span><h1 id="ksa-onboarding-title">What should we call you?</h1><p className="onboarding-lede">Choose the name and handle you want to use in your KSA learning space.</p><label className="onboarding-field onboarding-field-large" htmlFor="ksa-onboarding-name"><span>Name you want to use</span><input id="ksa-onboarding-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required minLength={2} maxLength={120} /></label><label className="onboarding-field onboarding-handle-field" htmlFor="ksa-onboarding-username"><span>Username <em>Required</em></span><div className="onboarding-input-prefix"><b>@</b><input id="ksa-onboarding-username" value={username} onChange={(event) => setUsername(normaliseUsername(event.target.value))} autoComplete="username" required minLength={3} maxLength={24} placeholder="your_study_handle" /></div><small>3–24 lowercase letters, numbers, or underscores.</small></label></> : <><span className="onboarding-step-label">Step two · learning preferences</span><h1 id="ksa-onboarding-title">What would make KSA more useful?</h1><p className="onboarding-lede">These preferences help ExamMind explain and suggest practice in a way that suits you. You can change them later.</p><label className="onboarding-field" htmlFor="ksa-learning-goal"><span>Main goal <em>Optional</em></span><select id="ksa-learning-goal" value={goal} onChange={(event) => setGoal(event.target.value)}><option value="">Choose later</option><option value="product_knowledge">Build product knowledge</option><option value="prospecting">Get better at prospecting</option><option value="discovery">Practise discovery conversations</option><option value="negotiation">Improve negotiation</option></select></label><label className="onboarding-field" htmlFor="ksa-help-topics"><span>What do you want help with? <em>Optional</em></span><textarea id="ksa-help-topics" value={helpTopics} onChange={(event) => setHelpTopics(event.target.value)} rows={3} maxLength={600} placeholder="e.g. objection handling, follow-up, explaining products" /></label><label className="onboarding-field" htmlFor="ksa-explanation"><span>How should explanations start?</span><select id="ksa-explanation" value={explanationPreference} onChange={(event) => setExplanationPreference(event.target.value as typeof explanationPreference)}><option value="not_sure">I am not sure yet</option><option value="concise">Keep it concise</option><option value="step_by_step">Walk me through it step by step</option><option value="examples_first">Start with examples</option></select></label><label className="onboarding-check" htmlFor="ksa-notifications"><input id="ksa-notifications" type="checkbox" checked={notificationsEnabled} onChange={(event) => setNotificationsEnabled(event.target.checked)} /><span>Send optional reminders about study activity</span></label></>}
+              <div className="onboarding-progress" aria-label={`KSA ${isEditing ? 'preferences edit' : 'onboarding'} step ${step} of 2`}><div className="onboarding-progress-meta"><span>{isEditing ? 'KSA learning preferences' : 'KSA space setup'}</span><strong>{step} of 2</strong></div><div className="onboarding-progress-track"><span style={{ width: `${step * 50}%` }} /></div></div>
+              {step === 1 ? <><span className="onboarding-step-label">Step one · identity</span><h1 id="ksa-onboarding-title">What should we call you?</h1><p className="onboarding-lede">Choose the name and handle you want to use in your KSA learning space.</p><label className="onboarding-field onboarding-field-large" htmlFor="ksa-onboarding-name"><span>Name you want to use</span><input id="ksa-onboarding-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required minLength={2} maxLength={120} /></label><label className="onboarding-field onboarding-handle-field" htmlFor="ksa-onboarding-username"><span>Username <em>Required</em></span><div className="onboarding-input-prefix"><b>@</b><input id="ksa-onboarding-username" value={username} onChange={(event) => setUsername(normaliseUsername(event.target.value))} autoComplete="username" required minLength={3} maxLength={24} placeholder="your_study_handle" /></div><small>3–24 lowercase letters, numbers, or underscores.</small></label></> : <><span className="onboarding-step-label">Step two · learning preferences</span><h1 id="ksa-onboarding-title">What would make KSA more useful?</h1><p className="onboarding-lede">These preferences help ExamMind explain and suggest practice in a way that suits you. You can change them later.</p><label className="onboarding-field" htmlFor="ksa-learning-goal"><span>Main goal <em>Optional</em></span><select id="ksa-learning-goal" value={goal} onChange={(event) => setGoal(event.target.value)}><option value="">Choose later</option><option value="product_knowledge">Build product knowledge</option><option value="prospecting">Get better at prospecting</option><option value="discovery">Practise discovery conversations</option><option value="negotiation">Improve negotiation</option></select></label><label className="onboarding-field" htmlFor="ksa-help-topics"><span>What do you want help with? <em>Optional</em></span><textarea id="ksa-help-topics" value={helpTopics} onChange={(event) => setHelpTopics(event.target.value)} rows={3} maxLength={600} placeholder="e.g. objection handling, follow-up, explaining products" /></label><label className="onboarding-field" htmlFor="ksa-explanation"><span>How should explanations start?</span><select id="ksa-explanation" value={explanationPreference} onChange={(event) => setExplanationPreference(event.target.value as typeof explanationPreference)}><option value="not_sure">I am not sure yet</option><option value="concise">Keep it concise</option><option value="step_by_step">Walk me through it step by step</option><option value="examples_first">Start with examples</option></select></label><label className="onboarding-check" htmlFor="ksa-notifications"><input id="ksa-notifications" type="checkbox" checked={notificationsEnabled} onChange={(event) => setNotificationsEnabled(event.target.checked)} /><span>Send optional reminders about study activity</span></label><small className="onboarding-reminder-note">This opts you into reminders using your verified email. Add browser notifications or turn off either channel later in Settings.</small></>}
               {error && <p className="onboarding-error" role="alert">{error}</p>}<div className="onboarding-actions"><button type="button" className="onboarding-back" onClick={() => { setError(''); setStep(1); }} disabled={saving || step === 1}>{step === 1 ? 'Verified KSA member' : 'Back'}</button><button type="submit" className="onboarding-submit" disabled={saving}>{saving ? <><LoaderCircle size={17} className="onboarding-spin" /> Saving…</> : step === 1 ? <>Next <ArrowRight size={17} aria-hidden="true" /></> : <>Enter my KSA desk <ArrowRight size={17} aria-hidden="true" /></>}</button></div>
             </form>}
           </section>
@@ -136,7 +144,7 @@ function KsaOnboarding({ userName, onComplete, onLogout }: KsaOnboardingProps) {
 
 export default function Onboarding(props: Props) {
   if (props.learningSpace?.slug === 'ksa') {
-    return <KsaOnboarding userName={props.userName} onComplete={props.onComplete} onLogout={props.onLogout} />;
+    return <KsaOnboarding userName={props.userName} isEditing={props.isEditing} onComplete={props.onComplete} onLogout={props.onLogout} />;
   }
   return <AcademicOnboarding {...props} />;
 }

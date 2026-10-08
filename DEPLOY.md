@@ -91,9 +91,11 @@ service — the static site stays free regardless.
    [docs/database-migrations.md](docs/database-migrations.md).
 
 For an existing ExamMind database, do not run the clean-database command
-blindly. Run `verify_migration.py` first, resolve any reported drift, then
-stamp `0001_initial_schema` only after the schema has been confirmed. No
-production database is reset or recreated by this process.
+blindly. Run `verify_migration.py --revision <verified-revision>` first,
+resolve any reported drift, and stamp only the highest exact revision whose
+schema has been confirmed. Do not stamp `0001_initial_schema` when later
+revision tables are already present. No production database is reset or
+recreated by this process.
 
 ---
 
@@ -141,6 +143,58 @@ production database is reset or recreated by this process.
    marked as transcription failed and is not reported as searchable. The API
    returns a configuration-safe message without exposing credentials or
    provider response bodies.
+
+   Video uploads use the same OpenAI transcription contract after the API
+   extracts the first audio track with the system `ffmpeg` binary. The
+   original video remains in the authorized material record; the extracted
+   mono WAV is temporary and is not stored. Configure these bounded limits
+   only if the defaults need to be changed:
+
+   ```text
+   FFMPEG_BINARY=/usr/bin/ffmpeg
+   VIDEO_EXTRACTION_TIMEOUT_SECONDS=120
+   VIDEO_MAX_DURATION_SECONDS=3600
+   VIDEO_MAX_EXTRACTED_AUDIO_BYTES=52428800
+   ```
+
+   The API image installs `ffmpeg`, `tesseract-ocr` and the English Tesseract
+   model. A video without an audio track, a timed-out extraction, or a missing
+   runtime dependency is saved as an unavailable-transcription source rather
+   than reported as searchable. Video transcript chunks use the existing
+   timestamped audio citation contract, so Reader, search and Maxe remain
+   permission-aware and school-scoped.
+
+   Study reminders have explicit owner consent, email/browser-push
+   subscriptions, unsubscribe state and durable delivery tracking. Dispatch
+   remains disabled by default and is not run from API startup or request
+   handlers. Before enabling it, approve the cadence and trigger policy, then
+   configure a separately scheduled worker to call the bounded reminder
+   dispatch function. Email uses an SMTP provider; browser push uses VAPID
+   credentials and the `pywebpush` dependency. The API must never receive a
+   browser push private key in frontend variables.
+
+   ```text
+   REMINDER_DISPATCH_ENABLED=false
+   REMINDER_CADENCE=
+   REMINDER_PROVIDER_TIMEOUT_SECONDS=10
+   REMINDER_EMAIL_PROVIDER=none
+   REMINDER_EMAIL_SMTP_HOST=<provider host>
+   REMINDER_EMAIL_SMTP_PORT=587
+   REMINDER_EMAIL_SMTP_USERNAME=<provider username>
+   REMINDER_EMAIL_SMTP_PASSWORD=<provider password>
+   REMINDER_EMAIL_FROM=<verified sender address>
+   REMINDER_PUSH_VAPID_PUBLIC_KEY=<public key>
+   REMINDER_PUSH_VAPID_PRIVATE_KEY=<API secret>
+   REMINDER_PUSH_VAPID_SUBJECT=mailto:<operator address>
+   REMINDER_WORKER_ENABLED=false
+   ```
+
+   Set `VITE_VAPID_PUBLIC_KEY` on the frontend only after the matching VAPID
+   key pair is configured on the API. It is public browser configuration; the
+   private key remains server-side. Do not enable dispatch until the worker
+   has a stable period key, bounded retries, monitoring and a tested opt-out
+   path. Local and CI verification injects `MockReminderSender` and never
+   sends a real message.
 
    The API also needs these Firebase verification values (the Blueprint fills
    the fixed values automatically):
@@ -227,19 +281,24 @@ The API requires these deployment-time values:
 | Application | `SECRET_KEY`, `APP_ENV=production`, `ENV=production` | Keep the secret in Render's secret store. |
 | Identity | `FIREBASE_PROJECT_ID`, `GOOGLE_OAUTH_CLIENT_ID`, `FIREBASE_CERTS_URL`, `GOOGLE_CERTS_URL` | Certificate URLs must remain the configured HTTPS Google endpoints. No Firebase private key is required. |
 | Providers | `AI_PROVIDER`, `AI_MODEL`, `AI_PROVIDER_TIMEOUT_SECONDS`, `AI_FALLBACK_PROVIDER`, `COHERE_MODEL`, `DEEPSEEK_API_KEY`, `COHERE_API_KEY` | Provider keys are API-service secrets. Requests have bounded timeouts and no uncontrolled retries. |
-| Transcription | `TRANSCRIPTION_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `OPENAI_TRANSCRIPTION_BASE_URL`, `TRANSCRIPTION_TIMEOUT_SECONDS` | OpenAI transcription is optional; when unavailable, audio remains stored and is marked unavailable for transcription. |
+| Transcription | `TRANSCRIPTION_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `OPENAI_TRANSCRIPTION_BASE_URL`, `TRANSCRIPTION_TIMEOUT_SECONDS` | OpenAI transcription is optional; when unavailable, audio/video originals remain stored and are marked unavailable for transcription. |
+| Video processing | `FFMPEG_BINARY`, `VIDEO_EXTRACTION_TIMEOUT_SECONDS`, `VIDEO_MAX_DURATION_SECONDS`, `VIDEO_MAX_EXTRACTED_AUDIO_BYTES` | FFmpeg is installed in the Docker image; extraction is bounded and the derived WAV is temporary. |
+| Reminders | `REMINDER_DISPATCH_ENABLED`, `REMINDER_CADENCE`, SMTP values, VAPID values, `REMINDER_WORKER_ENABLED` | Disabled by default. Requires an approved cadence/trigger, external email/push providers and a separately scheduled worker. |
 | Safety limits | `MAX_UPLOAD_BYTES`, `UPLOAD_READ_CHUNK_BYTES`, `MAX_INDEX_CHUNKS`, `MAX_RAG_QUESTION_CHARS`, `MAX_OCR_PAGES` | Keep upload, extraction and provider work bounded. |
 | Rate limiting | `RATE_LIMIT_ENABLED=true`, `RATE_LIMIT_FAILURE_MODE=closed`, `RATE_LIMIT_*` values | PostgreSQL is the shared backing store. The service does not fall back to process-local counters. |
 | Browser/API boundary | `CORS_ORIGINS` | Set to the exact frontend origin(s), with scheme and no wildcard. |
 
-The frontend build requires `VITE_API_BASE_URL` plus all six
+The frontend build requires `VITE_API_BASE_URL`, all six
 `VITE_FIREBASE_*` values (`API_KEY`, `AUTH_DOMAIN`, `PROJECT_ID`,
 `STORAGE_BUCKET`, `MESSAGING_SENDER_ID`, and `APP_ID`). These are injected at
-build time, so changing them requires a new static-site build.
+build time, so changing them requires a new static-site build. Set
+`VITE_VAPID_PUBLIC_KEY` only when browser-push delivery is configured; it is
+safe public key material, unlike `REMINDER_PUSH_VAPID_PRIVATE_KEY`.
 
 Use this order for a new environment: provision Neon and confirm pgvector;
-for an existing database run `verify_migration.py` and resolve drift before
-stamping the reviewed baseline; run/allow the Alembic upgrade through `0004`;
+for an existing database run `verify_migration.py --revision <verified-revision>`
+and resolve drift before stamping the reviewed revision;
+run/allow the Alembic upgrade through `0005`;
 seed reference data; deploy the API; verify `/health` and `/health/ready`; set
 the frontend API/Firebase build values and deploy the frontend; then set the
 exact frontend origin in API `CORS_ORIGINS` and redeploy/restart the API.
@@ -278,7 +337,8 @@ photographed past paper lands there, which for Nigerian past questions is most
 of the real uploads.
 
 That is why `exammind-api` is `runtime: docker` and not `runtime: python`.
-`backend/Dockerfile` apt-installs `tesseract-ocr` and its English model, and
+`backend/Dockerfile` apt-installs `tesseract-ocr`, its English model and
+`ffmpeg`, and
 `render.yaml` points at it with `dockerfilePath` and `dockerContext`, relative
 to the API service root (`backend`) because `rootDir` is set. Nothing to
 configure in the dashboard; Render builds the image and runs it.

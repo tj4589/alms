@@ -26,6 +26,7 @@ from learning_spaces import (  # noqa: E402
     normalize_ksa_id,
     require_cu_membership,
     seed_learning_spaces,
+    update_ksa_preferences,
 )
 
 
@@ -38,6 +39,8 @@ class LearningSpaceTests(unittest.TestCase):
             models.LearningSpaceMembership.__table__,
             models.KsaMember.__table__,
             models.KsaClaimAudit.__table__,
+            models.ReminderSubscription.__table__,
+            models.ReminderDelivery.__table__,
         ):
             table.create(self.engine)
         self.session = sessionmaker(bind=self.engine)()
@@ -179,6 +182,19 @@ class LearningSpaceTests(unittest.TestCase):
         repeat = claim_ksa_member(self.session, self.user, "KSA-36")
         self.assertFalse(repeat["onboarding_required"])
 
+    def test_ksa_preferences_can_be_updated_without_changing_membership_state(self) -> None:
+        claim_ksa_member(self.session, self.user, "KSA-36")
+        membership = self.session.query(models.LearningSpaceMembership).filter_by(user_id=self.user.id).filter_by(external_member_id="KSA-36").one()
+        membership.onboarding_state = "completed"
+        self.user.onboarding_preferences = {"preferred_name": "Student", "help_topics": ["old topic"]}
+        self.session.commit()
+
+        result = update_ksa_preferences(self.session, self.user, {"help_topics": ["objection handling"], "notifications_enabled": False})
+
+        self.assertEqual(result["preferences"]["preferred_name"], "Student")
+        self.assertEqual(result["preferences"]["help_topics"], ["objection handling"])
+        self.assertEqual(self.session.get(models.LearningSpaceMembership, membership.id).onboarding_state, "completed")
+
     def test_claimed_id_does_not_disclose_the_other_account(self) -> None:
         import_ksa_members(self.session, [{"ksa_id": "KSA-36"}])
         first = self.user
@@ -249,6 +265,36 @@ class LearningSpaceTests(unittest.TestCase):
             1,
         )
 
+    def test_single_membership_restores_unambiguous_active_context(self) -> None:
+        self.user.active_learning_space_id = None
+        self.session.commit()
+
+        payload = list_spaces(self.session, self.user)
+
+        self.assertEqual(payload["active_space"]["slug"], "cu")
+        self.assertEqual(self.user.active_learning_space_id, payload["active_space"]["id"])
+
+    def test_single_ksa_membership_restores_ksa_context_without_selecting_cu(self) -> None:
+        ksa_user = models.User(
+            id=15,
+            name="KSA Student",
+            username="ksa_returning",
+            email="ksa.returning@gmail.com",
+            firebase_uid="firebase-15",
+            role="student",
+        )
+        self.session.add(ksa_user)
+        self.session.commit()
+        claim_ksa_member(self.session, ksa_user, "KSA-15")
+        ksa_user.active_learning_space_id = None
+        self.session.commit()
+
+        payload = list_spaces(self.session, ksa_user)
+
+        self.assertEqual(payload["active_space"]["slug"], KSA_SLUG)
+        self.assertEqual(ksa_user.active_learning_space_id, payload["active_space"]["id"])
+        self.assertEqual({entry["space"]["slug"] for entry in payload["memberships"]}, {KSA_SLUG})
+
     def test_non_cu_identity_cannot_activate_cu(self) -> None:
         non_cu = models.User(
             id=11,
@@ -313,6 +359,23 @@ class LearningSpaceTests(unittest.TestCase):
             .count(),
             1,
         )
+
+    def test_multiple_memberships_without_active_context_fail_closed(self) -> None:
+        ksa = self.session.query(models.LearningSpace).filter_by(slug=KSA_SLUG).one()
+        self.session.add(models.LearningSpaceMembership(
+            user_id=self.user.id,
+            learning_space_id=ksa.id,
+            status="active",
+            onboarding_state="completed",
+        ))
+        self.user.active_learning_space_id = None
+        self.session.commit()
+
+        payload = list_spaces(self.session, self.user)
+
+        self.assertIsNone(payload["active_space"])
+        self.assertIsNone(self.user.active_learning_space_id)
+        self.assertEqual({entry["space"]["slug"] for entry in payload["memberships"]}, {"cu", KSA_SLUG})
 
     def test_stale_pointer_clears_without_selecting_another_membership(self) -> None:
         ksa = self.session.query(models.LearningSpace).filter_by(slug=KSA_SLUG).one()

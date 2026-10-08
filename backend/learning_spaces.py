@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 import models
 from ksa_claim_admin import CLAIMED_ACTION, claim_membership_ids_match, record_claim_audit
+from reminders import sync_legacy_notification_consent
 
 CU_SLUG = "cu"
 KSA_SLUG = "ksa"
@@ -105,7 +106,16 @@ def seed_learning_spaces(db: Session, *, backfill_users: bool = False) -> None:
             if membership is None:
                 db.add(models.LearningSpaceMembership(user_id=user.id, learning_space_id=cu_space.id, onboarding_state="completed"))
                 changed = True
-            if user.active_learning_space_id is None:
+            other_active_membership = (
+                db.query(models.LearningSpaceMembership)
+                .filter(
+                    models.LearningSpaceMembership.user_id == user.id,
+                    models.LearningSpaceMembership.learning_space_id != cu_space.id,
+                    models.LearningSpaceMembership.status == "active",
+                )
+                .first()
+            )
+            if user.active_learning_space_id is None and other_active_membership is None:
                 user.active_learning_space_id = cu_space.id
                 changed = True
     if changed:
@@ -152,7 +162,16 @@ def ensure_cu_membership(db: Session, user: models.User) -> models.LearningSpace
         )
         db.add(membership)
         changed = True
-    if user.active_learning_space_id is None:
+    other_active_membership = (
+        db.query(models.LearningSpaceMembership)
+        .filter(
+            models.LearningSpaceMembership.user_id == user.id,
+            models.LearningSpaceMembership.learning_space_id != space.id,
+            models.LearningSpaceMembership.status == "active",
+        )
+        .first()
+    )
+    if user.active_learning_space_id is None and other_active_membership is None:
         user.active_learning_space_id = space.id
         changed = True
     if changed:
@@ -248,12 +267,25 @@ def list_spaces(db: Session, user: models.User) -> dict:
     )
     by_space = {membership.learning_space_id: membership for membership in memberships}
     active_space = next((space for space in spaces if space.id == user.active_learning_space_id and space.id in by_space), None)
+    context_changed = False
     if active_space is None and user.active_learning_space_id is not None:
         # Treat a manually supplied or stale pointer as unauthorised. This
         # clears only the pointer; it never removes a membership or resource.
         # Do not silently choose another membership: a multi-space account
-        # must explicitly select the context it wants to enter.
+        # must use its school-specific entry/support recovery path.
         user.active_learning_space_id = None
+        context_changed = True
+    if active_space is None and len(memberships) == 1:
+        # A single active membership is an unambiguous context. Restore it on
+        # return so ordinary CU/KSA users do not have to pass through a
+        # cross-space chooser. Multi-space accounts remain explicit: they
+        # never get an arbitrary context selected for them.
+        sole_membership = memberships[0]
+        active_space = next((space for space in spaces if space.id == sole_membership.learning_space_id), None)
+        if active_space is not None:
+            user.active_learning_space_id = active_space.id
+            context_changed = True
+    if context_changed:
         db.commit()
     return {
         "active_space": space_payload(active_space, by_space.get(active_space.id) if active_space else None) if active_space else None,
@@ -436,6 +468,7 @@ def mark_ksa_onboarding_complete(db: Session, user: models.User, payload: dict) 
     user.onboarding_completed = True
     user.onboarding_state = "completed"
     user.profile_updated_at = now_utc()
+    sync_legacy_notification_consent(db, user, bool(payload.get("notifications_enabled", False)))
     try:
         db.commit()
     except IntegrityError as exc:
@@ -443,6 +476,40 @@ def mark_ksa_onboarding_complete(db: Session, user: models.User, payload: dict) 
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Your KSA setup could not be saved safely.") from exc
     space = db.query(models.LearningSpace).filter(models.LearningSpace.id == membership.learning_space_id).first()
     return {"space": space_payload(space, membership) if space else {"slug": KSA_SLUG}, "onboarding_required": False}
+
+
+def update_ksa_preferences(db: Session, user: models.User, payload: dict) -> dict:
+    """Update KSA preferences without changing identity or membership state."""
+    membership = (
+        db.query(models.LearningSpaceMembership)
+        .join(models.LearningSpace, models.LearningSpace.id == models.LearningSpaceMembership.learning_space_id)
+        .filter(
+            models.LearningSpaceMembership.user_id == user.id,
+            models.LearningSpace.slug == KSA_SLUG,
+            models.LearningSpaceMembership.status == "active",
+        )
+        .first()
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=KSA_INACTIVE_MEMBERSHIP_MESSAGE)
+    preferences = dict(user.onboarding_preferences or {})
+    preferences.update(payload)
+    user.onboarding_preferences = preferences
+    user.profile_updated_at = now_utc()
+    if "notifications_enabled" in payload:
+        sync_legacy_notification_consent(db, user, bool(payload["notifications_enabled"]))
+    try:
+        db.commit()
+        db.refresh(user)
+        db.refresh(membership)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Your KSA preferences could not be saved safely.") from exc
+    space = db.query(models.LearningSpace).filter(models.LearningSpace.id == membership.learning_space_id).first()
+    return {
+        "space": space_payload(space, membership) if space else {"slug": KSA_SLUG},
+        "preferences": user.onboarding_preferences or {},
+    }
 
 
 def import_ksa_members(db: Session, rows: Iterable[dict]) -> int:

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from routers import auth, collaboration, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, search, sessions, understand
+from routers import auth, collaboration, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, reminders, search, sessions, understand
 from database import engine
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
@@ -65,6 +65,7 @@ app.include_router(learning.router)
 app.include_router(learning_spaces.router)
 app.include_router(rag.router)
 app.include_router(maxe.router)
+app.include_router(reminders.router)
 app.include_router(mvp.router)
 app.include_router(search.router)
 app.include_router(sessions.router)

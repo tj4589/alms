@@ -104,6 +104,34 @@ services:
         value: https://api.openai.com/v1
       - key: TRANSCRIPTION_TIMEOUT_SECONDS
         value: "90"
+      # Reminder delivery remains disabled until cadence, provider and a
+      # separately scheduled worker are approved and configured.
+      - key: REMINDER_DISPATCH_ENABLED
+        value: "false"
+      - key: REMINDER_CADENCE
+        value: ""
+      - key: REMINDER_PROVIDER_TIMEOUT_SECONDS
+        value: "10"
+      - key: REMINDER_EMAIL_PROVIDER
+        value: none
+      - key: REMINDER_EMAIL_SMTP_HOST
+        sync: false
+      - key: REMINDER_EMAIL_SMTP_PORT
+        value: "587"
+      - key: REMINDER_EMAIL_SMTP_USERNAME
+        sync: false
+      - key: REMINDER_EMAIL_SMTP_PASSWORD
+        sync: false
+      - key: REMINDER_EMAIL_FROM
+        sync: false
+      - key: REMINDER_PUSH_VAPID_PUBLIC_KEY
+        sync: false
+      - key: REMINDER_PUSH_VAPID_PRIVATE_KEY
+        sync: false
+      - key: REMINDER_PUSH_VAPID_SUBJECT
+        sync: false
+      - key: REMINDER_WORKER_ENABLED
+        value: "false"
       - key: MAX_UPLOAD_BYTES
         value: "10485760"
       - key: UPLOAD_READ_CHUNK_BYTES
@@ -182,6 +210,16 @@ services:
         value: "4"
       - key: OCR_FALLBACK_RENDER_SCALE
         value: "3"
+      # Video uploads keep the original container and use FFmpeg only to
+      # create a bounded temporary WAV for the existing transcription path.
+      - key: FFMPEG_BINARY
+        value: /usr/bin/ffmpeg
+      - key: VIDEO_EXTRACTION_TIMEOUT_SECONDS
+        value: "120"
+      - key: VIDEO_MAX_DURATION_SECONDS
+        value: "3600"
+      - key: VIDEO_MAX_EXTRACTED_AUDIO_BYTES
+        value: "52428800"
       - key: EXAMMIND_DEBUG_METADATA
         value: "false"
       - key: APP_ENV
@@ -223,6 +261,8 @@ services:
         value: "290862287209"
       - key: VITE_FIREBASE_APP_ID
         value: 1:290862287209:web:850bada52a1fc81ed495f8
+      - key: VITE_VAPID_PUBLIC_KEY
+        sync: false
     routes:
       # The app has no client-side router -- screens are component state --
       # so there are no deep links today. This is a no-cost safety net if

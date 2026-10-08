@@ -43,3 +43,4 @@
   .onboarding-side-visual .onboarding-art-note{right:12px;bottom:12px;left:auto;width:auto;padding:10px 12px}
   .onboarding-side-visual .onboarding-art-note strong{font-size:11px}
 }
+.onboarding-reminder-note{display:block;margin:7px 0 0 24px;color:var(--text3);font-size:11px;line-height:1.5}
