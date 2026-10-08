@@ -26,22 +26,45 @@ Never run `upgrade head` against an existing deployment before checking its
 schema, and never stamp a database that has not been inspected.
 
 1. Take a verified database backup and use a maintenance window.
-2. Run the read-only check:
+2. Run the read-only full-head check:
 
    ```powershell
    .\.venv\Scripts\python.exe verify_migration.py
    ```
 
-3. Compare the report with the expected schema and resolve every missing table,
-   column, index, or pgvector prerequisite with a separately reviewed
-   reconciliation revision. The verifier fails rather than silently accepting
-   an incomplete database.
-4. Only after that report is clean, establish the baseline without recreating
+   The checker defaults to `0004_rate_limit_buckets` and reports the current
+   `alembic_version` marker, missing objects, unexpected later-revision
+   objects, and pgvector status. It is read-only and fails rather than
+   silently accepting an incomplete or mismatched schema.
+
+3. If the database may be at an earlier revision, inspect that exact revision
+   explicitly. This is required before choosing a stamp target:
+
+   ```powershell
+   .\.venv\Scripts\python.exe verify_migration.py --revision 0001_initial_schema
+   .\.venv\Scripts\python.exe verify_migration.py --revision 0002_ksa_claim_audit
+   .\.venv\Scripts\python.exe verify_migration.py --revision 0003_learning_space_role_audit
+   .\.venv\Scripts\python.exe verify_migration.py --revision 0004_rate_limit_buckets
+   ```
+
+   A report for an earlier revision intentionally marks later migration
+   tables as unexpected. Do not stamp that earlier revision when later tables
+   are already present; inspect and select the highest complete revision
+   instead. The `ksa_claim_audits` table from `0002` is checked explicitly.
+
+4. Compare the report with the expected schema and resolve every missing or
+   unexpected table, column, index, constraint, or pgvector prerequisite with
+   a separately reviewed reconciliation revision. Only after the selected
+   revision report is clean, establish that exact baseline without recreating
    tables or touching rows:
 
    ```powershell
    .\.venv\Scripts\python.exe -m alembic -c alembic.ini stamp 0001_initial_schema
    ```
+
+   Replace `0001_initial_schema` with the highest exact revision proven by the
+   corresponding report. Stamping records a known state; it does not validate
+   or change the schema.
 
 5. Run future revisions normally:
 
@@ -49,10 +72,59 @@ schema, and never stamp a database that has not been inspected.
    .\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
    ```
 
+## Legacy baseline reconciliation
+
+When the exact-revision checker reports that all baseline tables exist but
+baseline indexes, foreign keys, or unique constraints are missing, use the
+explicit reconciliation utility. It is check-only unless `--apply` is
+provided, never writes `alembic_version`, and never modifies application rows.
+
+Run the preflight against a disposable clone with a read-only transaction:
+
+```powershell
+$env:PGOPTIONS = "-c default_transaction_read_only=on"
+.\.venv\Scripts\python.exe reconcile_baseline_schema.py
+```
+
+The preflight stops on duplicate membership keys, duplicate case-insensitive
+user emails, orphan foreign-key values, missing required columns/tables,
+existing migration history, or incompatible object definitions. Do not delete,
+merge, rewrite, or manually choose records to make the report pass.
+
+After a verified backup, maintenance window, clean preflight, and successful
+clone rehearsal, clear read-only mode and run the same explicit DDL plan:
+
+```powershell
+Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
+.\.venv\Scripts\python.exe reconcile_baseline_schema.py --apply --lock-timeout-ms 5000
+```
+
+The apply operation is one transaction. It adds only the eight named indexes,
+the two named unique constraints, and the four named foreign keys. A lock
+timeout or DDL failure rolls the transaction back. Normal `CREATE INDEX` and
+constraint validation can briefly block writes and scan affected tables, so
+use a maintenance window and monitor lock waits. It does not use concurrent
+index creation because the all-or-nothing transaction is the safer recovery
+boundary; schedule the operation away from upload, indexing, and migration
+activity.
+
+The utility does not stamp or migrate. Only after it commits and the exact
+`0001_initial_schema` report is clean may the operator run, separately:
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini stamp 0001_initial_schema
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade 0004_rate_limit_buckets
+```
+
+If any preflight conflict or data violation is reported, stop, preserve the
+database, and prepare a reviewed reconciliation or recovery from backup. The
+original database must not be repaired by trial and error.
+
 The baseline revision is not a data migration and is intentionally not run on
 an already populated database. Stamping records the known revision only; it
-does not validate or change schema, which is why the read-only verifier is a
-required prior step. No production database was stamped as part of this work.
+does not validate or change schema, which is why the exact-revision read-only
+verifier is a required prior step. No production database was stamped as part
+of this work.
 
 ## Reconciled schema drift
 
