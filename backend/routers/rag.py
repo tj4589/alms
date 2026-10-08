@@ -2,7 +2,7 @@ import os
 import re
 from typing import Any, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy import Text, and_, false, func, or_
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ from query_understanding import expanded_search_terms, public_understanding, und
 from material_access import accessible_material_filter
 from learning_spaces import authorized_active_space
 from resource_index import citation_payload
-from learning_intelligence import learning_suggestion
+from learning_intelligence import ksa_learning_preferences, learning_suggestion
 from public_schemas import (
     PublicLearningSuggestion,
     PublicMaxeContext,
@@ -254,7 +254,7 @@ def _active_resource_context(
             return None, ""
         metadata = row.metadata_json or {}
         is_audio = resource_type == "audio"
-        if is_audio and metadata.get("document_type") != "audio" and not str(row.file_mime or "").startswith("audio/"):
+        if is_audio and metadata.get("document_type") not in {"audio", "video"} and not str(row.file_mime or "").startswith(("audio/", "video/")):
             return None, ""
         title = str(resource_title or row.title or metadata.get("document_title") or row.file_name or "Uploaded source")
         text = str(row.content_text or metadata.get("cleaned_text") or metadata.get("cleaned_text_sample") or "").strip()
@@ -341,6 +341,7 @@ def run_rag_query(
         selected_text=selected_text,
         selected_text_source=selected_text_source,
         recent_context=room_context,
+        learner_preferences=ksa_learning_preferences(current_user),
     )
     mode = maxe_context.mode
     if understanding.get("needs_clarification"):
@@ -630,3 +631,33 @@ def _lecture_chunk_filter(terms: list[str]):
 
 def _resource_chunk_filter(terms: list[str]):
     return or_(*_term_conditions(terms, models.ResourceChunk.chunk_text, models.ResourceChunk.topic, models.ResourceChunk.metadata_json.cast(Text)))
+
+
+@router.get("/related-questions")
+def related_questions(
+    q: str = Query(min_length=2, max_length=240),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+    _rate_limit: None = Depends(user_rate_limit("related_questions", auth.get_current_user)),
+):
+    """Return only authorized past questions related to the supplied topic."""
+    terms = [term for term in re.findall(r"[a-z0-9]+", q.lower()) if len(term) >= 3][:8]
+    rows = (
+        defer_binary_column(db.query(models.PastQuestion), models.PastQuestion)
+        .filter(accessible_material_filter(db, models.PastQuestion, current_user))
+        .filter(_past_question_filter(terms))
+        .order_by(models.PastQuestion.created_at.desc(), models.PastQuestion.id.desc())
+        .limit(6)
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "title": source_from_metadata("Past question", row.year, row.metadata_json),
+            "course_id": row.course_id,
+            "topic": row.topic_id,
+            "preview": re.sub(r"\s+", " ", str(row.content_text or "")).strip()[:280],
+            "citation": _source_citation(db, row, source_from_metadata("Past question", row.year, row.metadata_json), "past_question"),
+        }
+        for row in rows
+    ]

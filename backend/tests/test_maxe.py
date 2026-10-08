@@ -7,6 +7,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from learning_intelligence import ksa_learning_preferences  # noqa: E402
 from maxe_context import assemble_maxe_context, normalize_maxe_mode  # noqa: E402
 from maxe_provider import MaxeProvider  # noqa: E402
 from resource_index import citation_payload  # noqa: E402
@@ -36,6 +37,21 @@ class MaxeTests(unittest.TestCase):
         self.assertTrue(context.public_payload()["selected_text_used"])
         self.assertNotIn("selected text", str(context.public_payload()))
         self.assertIn("Kora Sales Academy", context.prompt_block())
+
+    def test_ksa_preferences_are_available_to_the_internal_prompt_context(self):
+        class User:
+            onboarding_preferences = {
+                "learning_goals": ["prospecting"],
+                "help_topics": ["objection handling"],
+                "explanation_preference": "examples_first",
+            }
+
+        preferences = ksa_learning_preferences(User())
+        context = assemble_maxe_context(learner_preferences=preferences)
+
+        self.assertIn("goal=prospecting", context.prompt_block())
+        self.assertIn("help_topics=objection handling", context.prompt_block())
+        self.assertIn("explanation_style=examples_first", context.prompt_block())
 
     def test_provider_adapter_delegates_to_existing_fallback_chain(self):
         with patch("ai_clients.generate_ai_response", return_value="grounded answer") as generate:

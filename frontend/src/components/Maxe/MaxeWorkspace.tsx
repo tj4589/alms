@@ -9,7 +9,6 @@ import SaveButton from '../SaveButton';
 type MaxeWorkspaceProps = {
   go: (screen: ScreenType) => void;
   selectedQuestion?: string;
-  notifyUnavailable: (feature: string) => void;
   messages: ChatMessage[];
   onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void;
   onNewThread: () => void;
@@ -87,7 +86,6 @@ function latestExportableAnswer(messages: ChatMessage[]) {
 export default function MaxeWorkspace({
   go,
   selectedQuestion,
-  notifyUnavailable,
   messages,
   onMessagesChange,
   onNewThread,
@@ -230,7 +228,6 @@ export default function MaxeWorkspace({
             <Assistant
               go={navigate}
               selectedQuestion={selectedQuestion}
-              notifyUnavailable={notifyUnavailable}
               messages={messages}
               onMessagesChange={onMessagesChange}
               user={user}

@@ -56,6 +56,8 @@ window.fetch = async (...args) => {
   const url = String(args[0]);
   if (!url.includes(':8001')) return originalFetch(...args);
   window.__fixtureRequests.push({url, method: args[1]?.method || 'GET', body: args[1]?.body || null});
+  if (url.endsWith('/health')) return new Response(JSON.stringify({status:'ok',application:'ok'}), {status:200,headers:{'Content-Type':'application/json'}});
+  if (url.endsWith('/health/ready')) return new Response(JSON.stringify({status:'ready',application:'ok',database:'ok'}), {status:200,headers:{'Content-Type':'application/json'}});
   if (url.endsWith('/auth/me')) return new Response(JSON.stringify({id:2,name:'Global Admin',username:'admin',email:'admin@example.com',role:'admin',admin_portal_access:true,account_status:'active'}), {status:200,headers:{'Content-Type':'application/json'}});
   if (url.endsWith('/learning-spaces')) {
     const ksa = {id:1,slug:'ksa',name:'Kora Sales Academy',type:'academy',status:'active',membership:{id:1,role:'admin',status:'active',onboarding_required:false}};

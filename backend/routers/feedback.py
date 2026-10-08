@@ -84,9 +84,7 @@ def create_authenticated_feedback(
 
 
 def _require_admin(current_user: models.User = Depends(auth.get_current_user)) -> models.User:
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access is required.")
-    return current_user
+    return auth.require_global_admin_user(current_user)
 
 
 @router.get("/inbox", response_model=list[schemas.FeedbackInboxItem])

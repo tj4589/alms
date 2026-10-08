@@ -36,6 +36,7 @@ class MaxeContext:
     selected_text: str
     selected_text_source: str | None
     recent_context: str
+    learner_preferences: dict[str, str]
 
     @property
     def has_source_context(self) -> bool:
@@ -77,6 +78,9 @@ class MaxeContext:
                 f"Active resource context:\n{self.active_resource_text or '(none)'}",
                 f"Student-selected text (focus only; not a citation):\n{self.selected_text or '(none)'}",
                 f"Selected text label: {self.selected_text_source or '(none)'}",
+                "Student learning preferences: " + ", ".join(
+                    f"{key}={value}" for key, value in sorted(self.learner_preferences.items())
+                ) if self.learner_preferences else "Student learning preferences: (none)",
                 f"Recent conversation:\n{self.recent_context or '(none)'}",
             ]
         )
@@ -91,6 +95,7 @@ def assemble_maxe_context(
     selected_text: Any = None,
     selected_text_source: Any = None,
     recent_context: Any = None,
+    learner_preferences: dict[str, Any] | None = None,
 ) -> MaxeContext:
     """Build a bounded context envelope after resource permission checks."""
     return MaxeContext(
@@ -101,4 +106,9 @@ def assemble_maxe_context(
         selected_text=bounded_text(selected_text, MAX_SELECTED_TEXT_CHARS),
         selected_text_source=bounded_text(selected_text_source, 240) or None,
         recent_context=bounded_text(recent_context, MAX_RECENT_CONTEXT_CHARS),
+        learner_preferences={
+            str(key): bounded_text(value, 120)
+            for key, value in (learner_preferences or {}).items()
+            if bounded_text(value, 120)
+        },
     )

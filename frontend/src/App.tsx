@@ -137,7 +137,7 @@ type AccountLifecycleRecovery = {
 type LearningSpaceRoute =
   | 'loading'
   | 'first_access'
-  | 'space_selection'
+  | 'space_recovery'
   | 'ksa_onboarding'
   | 'profile_onboarding'
   | 'ready';
@@ -149,7 +149,9 @@ function resolveLearningSpaceRoute(
 ): LearningSpaceRoute {
   if (!spaces) return 'loading';
   if (spaces.memberships.length === 0) return 'first_access';
-  if (!spaces.active_space) return 'space_selection';
+  // Keep school context server-selected. If it is absent, fail closed rather
+  // than exposing a generic picker or choosing from client-visible memberships.
+  if (!spaces.active_space) return 'space_recovery';
   if (spaces.active_space.slug === 'ksa' && spaces.active_space.membership?.onboarding_required) {
     return 'ksa_onboarding';
   }
@@ -709,6 +711,7 @@ export default function App() {
 
   const handleOnboardingComplete = async () => {
     const wasEditing = editingProfile;
+    const wasEditingKsaPreferences = wasEditing && onboardingSpace?.slug === 'ksa';
     const refreshed = await refreshLearningSpaces();
     if (!refreshed) return;
     const active = refreshed.active_space;
@@ -723,7 +726,7 @@ export default function App() {
     setActiveScreen(onboardingReturnScreen);
     setProfileNudgeVisible(false);
     if (wasEditing) {
-      setToast('Academic profile saved.');
+      setToast(wasEditingKsaPreferences ? 'KSA learning preferences saved.' : 'Academic profile saved.');
       window.setTimeout(() => setToast(''), 3600);
     }
   };
@@ -1007,7 +1010,6 @@ export default function App() {
   }
 
   const learningSpaceRoute = resolveLearningSpaceRoute(learningSpaces, needsOnboarding, editingProfile);
-
   if (learningSpacesError) {
     return (
       <div className="account-bootstrap" role="alert">
@@ -1058,21 +1060,25 @@ export default function App() {
     );
   }
 
-  if (learningSpaceRoute === 'space_selection') {
+  if (learningSpaceRoute === 'space_recovery') {
+    const hasMultipleMemberships = (learningSpaces?.memberships.length || 0) > 1;
     return (
-      <LazyRoute>
-        <LearningSpaces
-          spaces={learningSpaces}
-          entryMode="selection"
-          onOpenFeedback={openFeedback}
-          onRefresh={refreshLearningSpaces}
-          onLogout={handleLogout}
-          onKsaVerified={(onboardingRequired, space) => {
-            setOnboardingSpace(space);
-            setNeedsOnboarding(onboardingRequired);
-          }}
-        />
-      </LazyRoute>
+      <div className="account-bootstrap" role="alert">
+        <div className="account-bootstrap-card">
+          <div className="account-bootstrap-mark"><Logo size={30} /></div>
+          <p className="account-bootstrap-kicker">EXAMMIND / LEARNING SPACE</p>
+          <h1>We couldn’t reopen your study space.</h1>
+          <p>{hasMultipleMemberships
+            ? 'Your account has multiple verified school memberships, but no authorized active context is available. We will not show a school picker or choose a school for you.'
+            : 'Your account has one verified learning-space membership, but its active context is unavailable. We will not choose another school for you.'}</p>
+          {hasMultipleMemberships && <p>Re-enter through your school-specific ExamMind entry link, or contact support to restore the authorized context. Your memberships and materials remain intact.</p>}
+          <div className="account-bootstrap-actions">
+            <button type="button" className="account-bootstrap-action account-bootstrap-action-primary" onClick={() => void refreshLearningSpaces()}>Try again</button>
+            {hasMultipleMemberships && <button type="button" className="account-bootstrap-action" onClick={openFeedback}>Contact support</button>}
+            <button type="button" className="account-bootstrap-action" onClick={handleLogout}>Sign out</button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1366,28 +1372,12 @@ export default function App() {
             go={go}
             user={user}
             learningSpace={learningSpaces?.active_space || null}
-            onOpenSpaces={() => go('spaces')}
             onOpenWorkspace={() => go('workspace')}
             onOpenSearch={(query) => { void openSearchResults(query); }}
           />
         )}
-        {activeScreen === 'spaces' && <LearningSpaces
-          spaces={learningSpaces}
-          onBack={() => go('dashboard')}
-          onOpenFeedback={openFeedback}
-          onRefresh={refreshLearningSpaces}
-          onKsaVerified={(onboardingRequired, space) => {
-            setOnboardingSpace(space);
-            if (onboardingRequired) {
-              setNeedsOnboarding(true);
-              setActiveScreen('onboarding');
-            } else {
-              setActiveScreen('dashboard');
-            }
-          }}
-        />}
         {activeScreen === 'questions' && <Questions go={go} onAskQuestion={askQuestion} user={user} onGoToPractice={handleGoToPractice} />}
-        {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} user={user} />}
+        {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} messages={chatMessages} onMessagesChange={updatePrivateMessages} user={user} />}
         {activeScreen === 'upload' && <Upload go={go} user={user} archiveName={verifiedSpace?.slug === 'ksa' ? 'KSA' : verifiedSpace?.slug === 'cu' ? 'CU' : verifiedSpace?.name || 'your learning space'} queuedUpload={queuedUpload} onQueuedUploadStored={() => setQueuedUpload(null)} />}
         {activeScreen === 'offline' && (
           <Offline
@@ -1403,7 +1393,7 @@ export default function App() {
         {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
         {profileNudgeVisible && <div className="profile-nudge" role="status"><span><strong>Your desk can know you better.</strong><small>Add your department, level or courses for more useful recommendations.</small></span><button type="button" onClick={() => { setOnboardingReturnScreen('dashboard'); setEditingProfile(true); setProfileNudgeVisible(false); setActiveScreen('onboarding'); }}>Finish profile</button><button type="button" className="profile-nudge-dismiss" aria-label="Dismiss profile reminder" onClick={() => { localStorage.setItem('exammind-profile-nudge-dismissed', 'true'); setProfileNudgeVisible(false); }}>×</button></div>}
-        {activeScreen === 'settings' && <Settings go={go} user={user} onEditProfile={() => { setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
+        {activeScreen === 'settings' && <Settings go={go} user={user} profileEditLabel={verifiedSpace?.slug === 'ksa' ? 'Edit KSA learning preferences →' : undefined} onEditProfile={() => { setOnboardingSpace(verifiedSpace?.slug === 'ksa' ? verifiedSpace : null); setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'workspace' && <Workspace go={go} initialResource={workspaceTarget} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
@@ -1431,7 +1421,6 @@ export default function App() {
           <MaxeWorkspace
             go={go}
             selectedQuestion={selectedQuestion}
-            notifyUnavailable={notifyUnavailable}
             messages={chatMessages}
             onMessagesChange={updatePrivateMessages}
             onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }}

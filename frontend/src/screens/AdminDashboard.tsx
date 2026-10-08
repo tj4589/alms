@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, CheckCircle2, Inbox, ListChecks, RefreshCw, ShieldCheck } from 'lucide-react';
 import type { ScreenType, User } from '../types';
-import { apiGet } from '../lib/api';
+import { ApiHttpError, apiGet, apiPublicGet } from '../lib/api';
 import './AdminDashboard.css';
 
 type Contribution = {
@@ -34,6 +34,26 @@ type PanelError = {
   feedback: string;
 };
 
+type HealthState = 'loading' | 'healthy' | 'unavailable' | 'error';
+
+type HealthCheck = {
+  state: HealthState;
+  label: string;
+  detail: string;
+};
+
+type ServiceHealth = {
+  process: HealthCheck;
+  database: HealthCheck;
+};
+
+function initialHealth(): ServiceHealth {
+  return {
+    process: { state: 'loading', label: 'Checking', detail: 'Checking the API process.' },
+    database: { state: 'loading', label: 'Checking', detail: 'Checking database readiness.' },
+  };
+}
+
 function formatDate(value?: string | null) {
   if (!value) return 'Not recorded';
   const date = new Date(value);
@@ -52,22 +72,74 @@ function loadError(value: unknown, fallback: string) {
   return value instanceof Error && value.message ? value.message : fallback;
 }
 
+function healthFailure(reason: unknown, kind: 'process' | 'database'): HealthCheck {
+  if (reason instanceof ApiHttpError && reason.status === 503) {
+    return kind === 'database'
+      ? { state: 'unavailable', label: 'Unavailable', detail: 'The database is not ready.' }
+      : { state: 'unavailable', label: 'Unavailable', detail: 'The API process is not responding normally.' };
+  }
+  return kind === 'database'
+    ? { state: 'error', label: 'Check failed', detail: 'Database readiness could not be verified.' }
+    : { state: 'error', label: 'Check failed', detail: 'API process health could not be verified.' };
+}
+
+function healthSuccess(value: unknown, kind: 'process' | 'database'): HealthCheck {
+  if (!value || typeof value !== 'object') {
+    return healthFailure(new Error('Unexpected health response.'), kind);
+  }
+  const response = value as { status?: unknown; application?: unknown; database?: unknown };
+  const valid = kind === 'process'
+    ? response.status === 'ok' && response.application === 'ok'
+    : response.status === 'ready' && response.application === 'ok' && response.database === 'ok';
+  if (!valid) {
+    return healthFailure(new Error('Unexpected health response.'), kind);
+  }
+  return kind === 'database'
+    ? { state: 'healthy', label: 'Ready', detail: 'Database connection is ready.' }
+    : { state: 'healthy', label: 'Healthy', detail: 'API process is responding normally.' };
+}
+
+function healthSummary(health: ServiceHealth) {
+  const states = [health.process.state, health.database.state];
+  if (states.includes('loading')) return 'Checking';
+  if (states.includes('unavailable')) return 'Degraded';
+  if (states.includes('error')) return 'Check failed';
+  return 'Operational';
+}
+
+function formatCheckedTime(value?: string | null) {
+  if (!value) return 'Not checked yet';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not checked yet' : date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
 export default function AdminDashboard({ go, user }: AdminDashboardProps) {
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errors, setErrors] = useState<PanelError>({ contributions: '', feedback: '' });
+  const [health, setHealth] = useState<ServiceHealth>(initialHealth);
+  const [lastChecked, setLastChecked] = useState<string | null>(null);
 
   const loadSignals = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setErrors({ contributions: '', feedback: '' });
+    if (!isRefresh) setHealth(initialHealth());
 
-    const [contributionResult, feedbackResult] = await Promise.allSettled([
+    const [processHealthResult, databaseHealthResult, contributionResult, feedbackResult] = await Promise.allSettled([
+      apiPublicGet('/health', { timeoutMs: 10_000 }),
+      apiPublicGet('/health/ready', { timeoutMs: 10_000 }),
       apiGet('/collaboration/moderation/contributions?status=pending_review'),
       apiGet('/feedback/inbox'),
     ]);
+
+    setHealth({
+      process: processHealthResult.status === 'fulfilled' ? healthSuccess(processHealthResult.value, 'process') : healthFailure(processHealthResult.reason, 'process'),
+      database: databaseHealthResult.status === 'fulfilled' ? healthSuccess(databaseHealthResult.value, 'database') : healthFailure(databaseHealthResult.reason, 'database'),
+    });
+    setLastChecked(new Date().toISOString());
 
     if (contributionResult.status === 'fulfilled') {
       setContributions(Array.isArray(contributionResult.value) ? contributionResult.value as Contribution[] : []);
@@ -115,6 +187,37 @@ export default function AdminDashboard({ go, user }: AdminDashboardProps) {
         <ShieldCheck size={18} aria-hidden="true" />
         <p><strong>Global admin view.</strong> These signals come from the existing moderation and feedback endpoints. This is not a complete analytics rollup, and private learning activity is not shown here.</p>
       </div>
+
+      <section className="admin-dashboard-health" aria-labelledby="admin-health-title">
+        <div className="admin-dashboard-health-heading">
+          <div>
+            <p className="admin-dashboard-label">Service monitor</p>
+            <h2 id="admin-health-title">API and database health</h2>
+          </div>
+          <span className={`admin-dashboard-health-summary is-${healthSummary(health).toLowerCase().replace(' ', '-')}`} role="status" aria-live="polite">
+            {healthSummary(health)}
+          </span>
+        </div>
+        <div className="admin-dashboard-health-grid">
+          {([
+            ['process', 'API process', health.process],
+            ['database', 'Database readiness', health.database],
+          ] as const).map(([key, title, check]) => (
+            <article className="admin-dashboard-health-check" key={key} data-testid={`admin-health-${key}`}>
+              <span className={`admin-dashboard-health-dot is-${check.state}`} aria-hidden="true" />
+              <div>
+                <span>{title}</span>
+                <strong>{check.label}</strong>
+                <small>{check.detail}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="admin-dashboard-health-meta">
+          <span>Last checked <time dateTime={lastChecked || undefined}>{formatCheckedTime(lastChecked)}</time></span>
+          <span>Monitoring returns redacted status only. Migration details and credentials are not shown.</span>
+        </div>
+      </section>
 
       {hasError && (
         <div className="admin-dashboard-alert" role="alert">

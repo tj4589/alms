@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from pydantic import ValidationError
 from fastapi import HTTPException
@@ -117,6 +118,12 @@ class FeedbackTests(unittest.TestCase):
         source = Path(__file__).parents[2].joinpath("frontend", "src", "components", "FeedbackInbox.tsx").read_text(encoding="utf-8")
         self.assertNotIn("dangerouslySetInnerHTML", source)
         self.assertNotIn("innerHTML", source)
+
+    def test_inbox_requires_central_global_admin_authorization(self):
+        caller = SimpleNamespace(id=7, role="admin", email="registered@example.com")
+        with patch.object(feedback.auth, "require_global_admin_user", return_value=caller) as require_global_admin:
+            self.assertIs(feedback._require_admin(caller), caller)
+        require_global_admin.assert_called_once_with(caller)
 
 
 if __name__ == "__main__":

@@ -162,12 +162,11 @@ await navigate('cu');
 assert.equal(await evaluate(`Boolean(document.querySelector('.workspace-shell'))`), true, 'Returning CU user did not preserve the CU path');
 
 await navigate('multi_no_active');
-await waitFor(`document.querySelector('#spaces-title')`);
-assert.ok(await evaluate(`document.querySelector('#spaces-title').textContent.includes('Choose where to continue')`), 'Multi-space selector did not render');
+await waitFor(`document.querySelector('.account-bootstrap')`);
+assert.ok(await evaluate(`document.querySelector('.account-bootstrap').textContent.includes('multiple verified school memberships')`), 'Multi-space context recovery did not render');
 assert.equal(await evaluate(`Boolean(document.querySelector('.workspace-shell'))`), false, 'Multi-space user entered workspace without an active selection');
-assert.equal(await evaluate(`document.querySelectorAll('.space-card').length`), 2, 'Multi-space selector did not show both memberships');
-await evaluate(`document.querySelector('.space-card-action').click()`);
-await waitFor(`document.querySelector('.workspace-shell')`);
+assert.equal(await evaluate(`Boolean(document.querySelector('#spaces-title'))`), false, 'Multi-space school picker was exposed');
+assert.equal(await evaluate(`document.body.textContent.includes('Switch learning space')`), false, 'Multi-space switch control was exposed');
 
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
 assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), 'Access flow overflows on mobile');
@@ -178,7 +177,7 @@ await writeFile('.impeccable/review/access-flow-mobile.png', Buffer.from(screens
 assert.equal(errors.length, 0, `Browser runtime errors: ${errors.join(' | ')}`);
 console.log(JSON.stringify({
   ok: true,
-  checked: ['first-access decision', 'KSA claim validation', 'KSA onboarding', 'returning KSA', 'pending KSA resume', 'returning CU', 'multi-space selection', 'mobile overflow'],
+  checked: ['first-access decision', 'KSA claim validation', 'KSA onboarding', 'returning KSA', 'pending KSA resume', 'returning CU', 'multi-space fail-closed recovery', 'mobile overflow'],
   requests: await evaluate('window.__accessRequests.length'),
 }, null, 2));
 ws.close();

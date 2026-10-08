@@ -16,6 +16,16 @@ export type ApiRequestOptions = {
 
 export const API_REQUEST_TIMEOUT_ERROR = 'ExamMind is taking too long to respond. Please try again.';
 
+export class ApiHttpError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiHttpError';
+    this.status = status;
+  }
+}
+
 export function getAuthToken() {
   return getToken();
 }
@@ -72,7 +82,7 @@ async function request(path: string, init: RequestInit, fallbackError: string, o
   }
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, fallbackError));
+    throw new ApiHttpError(await readErrorMessage(response, fallbackError), response.status);
   }
 
   if (response.status === 204) {
@@ -92,6 +102,10 @@ function authHeaders(extraHeaders: HeadersInit = {}) {
 
 export function apiGet(path: string, options?: ApiRequestOptions) {
   return request(path, { method: 'GET', headers: authHeaders() }, 'Request failed.', options);
+}
+
+export function apiPublicGet(path: string, options?: ApiRequestOptions) {
+  return request(path, { method: 'GET' }, 'Request failed.', options);
 }
 
 export function apiPost(path: string, body: RequestBody, options?: ApiRequestOptions) {

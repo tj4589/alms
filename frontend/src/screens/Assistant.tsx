@@ -72,6 +72,15 @@ type LastRagContext = {
   lastQuestion: string;
 };
 
+type RelatedQuestion = {
+  id: number;
+  title: string;
+  course_id?: number | null;
+  topic?: number | null;
+  preview: string;
+  citation?: MaxeCitation;
+};
+
 export type MaxeResourceContext = {
   id: number;
   kind: 'lecture_note' | 'past_question';
@@ -1155,7 +1164,6 @@ function formatCitationTime(seconds: number): string {
 export default function Assistant({
   go,
   selectedQuestion,
-  notifyUnavailable,
   messages,
   onMessagesChange,
   user,
@@ -1166,7 +1174,6 @@ export default function Assistant({
 }: {
   go: (s: ScreenType) => void;
   selectedQuestion?: string;
-  notifyUnavailable: (feature: string) => void;
   messages: ChatMessage[];
   onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void;
   user: User | null;
@@ -1181,6 +1188,9 @@ export default function Assistant({
   const [knowledgeMode, setKnowledgeMode] = useState<'source' | 'beyond_materials'>('source');
   const [courses, setCourses] = useState<{ id: number; code: string; name: string }[]>([]);
   const [lastRagContext, setLastRagContext] = useState<LastRagContext | null>(null);
+  const [relatedQuestions, setRelatedQuestions] = useState<RelatedQuestion[]>([]);
+  const [relatedQuestionsLoading, setRelatedQuestionsLoading] = useState(false);
+  const [relatedQuestionsError, setRelatedQuestionsError] = useState('');
   const msgsEndRef = useRef<HTMLDivElement>(null);
   const lastAutoSubmittedRef = useRef('');
   const conversationStateRef = useRef<ConversationState>({
@@ -1193,6 +1203,24 @@ export default function Assistant({
     () => [...messages].reverse().find(m => m.role === 'assistant' && m.wasStudyQuery),
     [messages],
   );
+
+  const loadRelatedQuestions = useCallback(async () => {
+    const question = lastRagContext?.lastQuestion || latestStudyAssistant?.understanding?.interpreted_topic || '';
+    if (!question.trim()) {
+      setRelatedQuestionsError('Ask a study question first so ExamMind can find related past questions.');
+      return;
+    }
+    setRelatedQuestionsLoading(true);
+    setRelatedQuestionsError('');
+    try {
+      const result = await apiGet(`/rag/related-questions?q=${encodeURIComponent(question)}`);
+      setRelatedQuestions(Array.isArray(result) ? result as RelatedQuestion[] : []);
+    } catch (error) {
+      setRelatedQuestionsError(error instanceof Error ? error.message : 'Related questions could not be loaded.');
+    } finally {
+      setRelatedQuestionsLoading(false);
+    }
+  }, [lastRagContext?.lastQuestion, latestStudyAssistant?.understanding?.interpreted_topic]);
 
   const promptChips = useMemo(() => {
     if (courses.length === 0) return GENERIC_PROMPTS;
@@ -1745,13 +1773,15 @@ export default function Assistant({
               </div>
             )}
             <div className="assistant-source-action">
-              <button
-                className="cta cta-ghost"
-                onClick={() => notifyUnavailable('Related questions view')}
-              >
-                View related questions
+              <button className="cta cta-ghost" onClick={() => void loadRelatedQuestions()} disabled={relatedQuestionsLoading}>
+                {relatedQuestionsLoading ? 'Finding related questions…' : 'View related questions'}
               </button>
             </div>
+            {relatedQuestionsError && <p className="assistant-related-error" role="alert">{relatedQuestionsError}</p>}
+            {relatedQuestions.length > 0 && <div className="assistant-related-list" aria-label="Related past questions">
+              {relatedQuestions.map(item => <article className="assistant-related-item" key={item.id}><strong>{item.title}</strong><p>{item.preview || 'Authorized past-question source'}</p><small>{item.citation?.label || item.citation?.source || 'Verified source'}</small></article>)}
+            </div>}
+            {!relatedQuestionsLoading && !relatedQuestionsError && relatedQuestions.length === 0 && lastRagContext && <p className="assistant-related-empty">No related past questions were found in your authorized workspace.</p>}
           </div>
         </div>
       </div>

@@ -130,6 +130,26 @@ class LearningIntelligenceTests(unittest.TestCase):
         self.assertTrue(all(row.citation_json["page_from"] == 2 for row in rows))
         self.assertTrue(all(row.options and row.correct_answer == "0" for row in rows))
 
+    def test_ksa_help_topics_focus_an_unscoped_quiz_when_authorized_material_matches(self):
+        self.owner.onboarding_preferences = {"help_topics": ["Geometry"]}
+        self.db.commit()
+
+        quiz = create_grounded_quiz(
+            self.db,
+            self.owner,
+            source_scope="workspace",
+            resource_type=None,
+            resource_id=None,
+            course_id=1,
+            topic=None,
+            count=1,
+            difficulty="mixed",
+            question_type="multiple_choice",
+        )
+
+        self.assertEqual(quiz.topic, "Geometry")
+        self.assertEqual(self.questions(quiz)[0].citation_json["resource_id"], 2)
+
     def test_short_answer_uses_reliable_concepts_and_preserves_review_model_answer(self):
         quiz = self.make_quiz(question_type="short_answer", count=1)
         question = self.questions(quiz)[0]
