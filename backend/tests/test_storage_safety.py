@@ -90,6 +90,14 @@ class UploadValidationTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 400)
 
+    def test_video_webm_enters_the_video_pipeline(self):
+        with patch.object(ingest, "extract_audio_for_transcription", side_effect=ingest.VideoProcessingError("ffmpeg unavailable")):
+            result = ingest.extract_pdf_text(upload("recording.webm", b"\x1a\x45\xdf\xa3" + b"x" * 32, "video/webm"))
+
+        self.assertEqual(result["resource_type"], "video")
+        self.assertEqual(result["audio_extraction_status"], "failed")
+        self.assertEqual(result["failure_reason"], "video_audio_extraction_failed")
+
 
 class StorageCleanupTests(unittest.TestCase):
     def setUp(self):

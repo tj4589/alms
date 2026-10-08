@@ -115,7 +115,7 @@ export default function Practice({
         const nextCourses = courseData as Course[];
         setCourses(nextCourses);
         setSelectedCourseId(initialContext?.course_id || nextCourses[0]?.id || '');
-        const notes = (noteData as Array<{ id: number; title?: string; metadata_json?: { document_title?: string; document_type?: string }; course_id?: number }>).map(item => ({ id: item.id, resource_type: item.metadata_json?.document_type === 'audio' ? 'audio' as const : 'lecture_note' as const, title: item.title || item.metadata_json?.document_title || 'Lecture note', course_id: item.course_id }));
+        const notes = (noteData as Array<{ id: number; title?: string; metadata_json?: { document_title?: string; document_type?: string }; course_id?: number }>).map(item => ({ id: item.id, resource_type: ['audio', 'video'].includes(item.metadata_json?.document_type || '') ? 'audio' as const : 'lecture_note' as const, title: item.title || item.metadata_json?.document_title || 'Lecture note', course_id: item.course_id }));
         const past = (pastData as Array<{ id: number; title?: string; metadata_json?: { document_title?: string }; course_id?: number }>).map(item => ({ id: item.id, resource_type: 'past_question' as const, title: item.title || item.metadata_json?.document_title || 'Past question', course_id: item.course_id }));
         setResources([...notes, ...past]);
       })

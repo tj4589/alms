@@ -684,10 +684,10 @@ def _audio_note_or_404(
         query = defer_binary_column(query, models.LectureNote)
     note = query.filter(models.LectureNote.id == audio_id).first()
     if not note or not can_view_material(db, note, current_user):
-        raise HTTPException(status_code=404, detail="That audio resource does not exist.")
+        raise HTTPException(status_code=404, detail="That timed media resource does not exist.")
     metadata = note.metadata_json or {}
-    if metadata.get("document_type") != "audio" and not str(note.file_mime or "").startswith("audio/"):
-        raise HTTPException(status_code=404, detail="That audio resource does not exist.")
+    if metadata.get("document_type") not in {"audio", "video"} and not str(note.file_mime or "").startswith(("audio/", "video/")):
+        raise HTTPException(status_code=404, detail="That timed media resource does not exist.")
     return note
 
 

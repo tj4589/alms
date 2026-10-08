@@ -44,7 +44,7 @@ type Resource = {
   fileSize: number | null; hasFile: boolean; isOwner: boolean; contentText: string; courseCode: string | null;
   courseTitle: string | null; year: number | null; semester: string | null;
   visibility: 'space_shared' | 'official' | 'public' | 'group' | 'private'; metadata: Record<string, unknown>;
-  status: ResourceStatus; statusLabel: string; createdAt: string | null; isAudio: boolean;
+  status: ResourceStatus; statusLabel: string; createdAt: string | null; isAudio: boolean; isVideo: boolean;
 };
 type SharePolicy = 'owner' | 'space' | 'group' | 'anyone';
 type ShareGroup = { id: number; name: string; is_member?: boolean; status?: string };
@@ -71,6 +71,7 @@ function metadataValue(metadata: Record<string, unknown>, key: string): string |
 function extensionOf(fileName: string | null): string { return fileName?.split('.').pop()?.toLowerCase() || ''; }
 function typeLabel(resource: Pick<Resource, 'fileName' | 'kind' | 'metadata'>): string {
   if (metadataValue(resource.metadata, 'document_type') === 'audio') return 'Audio recording';
+  if (metadataValue(resource.metadata, 'document_type') === 'video') return 'Video recording';
   const extension = extensionOf(resource.fileName);
   if (['ppt', 'pptx'].includes(extension)) return 'PowerPoint';
   if (['doc', 'docx'].includes(extension)) return 'Word document';
@@ -84,7 +85,7 @@ function statusFor(raw: RawResource): Pick<Resource, 'status' | 'statusLabel'> {
   const metadata = raw.metadata_json || {};
   const processingStatus = metadataValue(metadata, 'processing_status');
   const transcriptionStatus = metadataValue(metadata, 'transcription_status');
-  if (processingStatus === 'processing' || processingStatus === 'awaiting_confirmation' || transcriptionStatus === 'processing') return { status: 'processing', statusLabel: 'Processing audio' };
+  if (processingStatus === 'processing' || processingStatus === 'awaiting_confirmation' || transcriptionStatus === 'processing') return { status: 'processing', statusLabel: metadataValue(metadata, 'document_type') === 'video' ? 'Processing video audio' : 'Processing audio' };
   if (processingStatus === 'failed' || transcriptionStatus === 'failed') return { status: 'failed', statusLabel: 'Transcript unavailable' };
   if (processingStatus === 'warning') return { status: 'warning', statusLabel: 'Ready with warning' };
   const indexedStatus = metadataValue(metadata, 'indexed_status');
@@ -103,10 +104,12 @@ function normalizeResource(raw: RawResource, kind: ResourceKind): Resource {
     courseCode: metadataValue(metadata, 'course_code'), courseTitle: metadataValue(metadata, 'course_title'),
     year: raw.year || null, semester: raw.semester || null, visibility: raw.visibility || 'private', metadata,
     status: status.status, statusLabel: status.statusLabel, createdAt: raw.created_at || null,
-    isAudio: metadataValue(metadata, 'document_type') === 'audio' || ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'webm'].includes(extensionOf(raw.file_name || null)),
+    isAudio: ['audio', 'video'].includes(metadataValue(metadata, 'document_type') || '') || ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'webm', 'mp4', 'mov'].includes(extensionOf(raw.file_name || null)),
+    isVideo: metadataValue(metadata, 'document_type') === 'video' || ['mp4', 'mov'].includes(extensionOf(raw.file_name || null)) || (extensionOf(raw.file_name || null) === 'webm' && String(raw.metadata_json?.document_type || '') === 'video'),
   };
 }
 function iconFor(resource: Resource) {
+  if (resource.isVideo) return Video;
   const extension = extensionOf(resource.fileName);
   if (resource.kind === 'past_question') return FileQuestion;
   if (['ppt', 'pptx'].includes(extension)) return Presentation;
@@ -158,6 +161,7 @@ function ResourceSidebar({ resources, activeKey, search, onSearch, onSelect, onU
 
 function AudioTranscriptReader({ resource, sourceUrl, seekTo }: { resource: Resource; sourceUrl: string | null; seekTo?: number }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const segmentRefs = useRef<Record<number, HTMLButtonElement | null>>({});
   const autoScrolling = useRef(false);
@@ -199,20 +203,30 @@ function AudioTranscriptReader({ resource, sourceUrl, seekTo }: { resource: Reso
   }, [activeSegment, following]);
 
   const seek = (seconds: number) => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = seconds;
+    const media = resource.isVideo ? videoRef.current : audioRef.current;
+    if (!media) return;
+    media.currentTime = seconds;
     setCurrentTime(seconds);
-    void audioRef.current.play().catch(() => undefined);
+    void media.play().catch(() => undefined);
   };
 
   useEffect(() => {
-    if (seekTo == null || !audioRef.current) return;
-    audioRef.current.currentTime = seekTo;
-  }, [seekTo]);
+    const media = resource.isVideo ? videoRef.current : audioRef.current;
+    if (seekTo == null || !media) return;
+    media.currentTime = seekTo;
+  }, [resource.isVideo, seekTo]);
+
+  useEffect(() => () => {
+    const media = videoRef.current || audioRef.current;
+    if (!media) return;
+    media.pause();
+    media.removeAttribute('src');
+    media.load();
+  }, []);
 
   return <section className="ws-audio-reader" aria-labelledby="audio-transcript-heading">
     <div className="ws-audio-player-shell">
-      <audio ref={audioRef} className="ws-audio-player" controls preload="metadata" src={sourceUrl || undefined} onLoadedMetadata={event => setDuration(event.currentTarget.duration)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} aria-label={`Play ${resource.title}`} />
+      {resource.isVideo ? <video ref={videoRef} className="ws-media-preview ws-timed-media-player" controls preload="metadata" src={sourceUrl || undefined} onLoadedMetadata={event => setDuration(event.currentTarget.duration)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} aria-label={`Play ${resource.title}`} /> : <audio ref={audioRef} className="ws-audio-player" controls preload="metadata" src={sourceUrl || undefined} onLoadedMetadata={event => setDuration(event.currentTarget.duration)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} aria-label={`Play ${resource.title}`} />}
       <div className="ws-audio-player-meta"><span>{formatTimestamp(currentTime)}{duration && Number.isFinite(duration) ? ` / ${formatTimestamp(duration)}` : ''}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div>
     </div>
     <div className="ws-transcript-heading"><div><p className="ws-eyebrow">Timestamped source</p><h2 id="audio-transcript-heading">Transcript</h2></div>{!following && <button type="button" className="ws-follow-button" onClick={() => setFollowing(true)}>Resume following</button>}</div>
@@ -446,7 +460,13 @@ function ResourceReader({ resource, go, onSelection, citationTarget, user }: { r
   useEffect(() => {
     let cancelled = false; if (!canNativePreview) return () => { cancelled = true; };
     apiBlob(resourceDownloadPath(resource)).then(blob => { if (!cancelled) setSourceUrl(URL.createObjectURL(blob)); }).catch(() => { if (!cancelled) setPreviewError(true); });
-    return () => { cancelled = true; setSourceUrl(current => { if (current) URL.revokeObjectURL(current); return null; }); };
+    return () => {
+      cancelled = true;
+      setSourceUrl(current => {
+        if (current) window.setTimeout(() => URL.revokeObjectURL(current), 250);
+        return null;
+      });
+    };
   }, [canNativePreview, resource]);
   useEffect(() => { setShareOpen(false); }, [resource.key]);
   const download = async () => { setDownloading(true); setDownloadError(''); try { await apiDownload(resourceDownloadPath(resource), resource.fileName || `${resource.title}.${extension || 'pdf'}`); } catch (failure) { setDownloadError(failure instanceof Error ? failure.message : 'That file could not be downloaded.'); } finally { setDownloading(false); } };
@@ -473,7 +493,8 @@ function ResourceReader({ resource, go, onSelection, citationTarget, user }: { r
 
 function MaxePanel({ activeResource, selectedText, go, notifyUnavailable, messages, onMessagesChange, onNewThread, onCitationClick, user }: { activeResource: Resource | null; selectedText: string; go: (screen: ScreenType) => void; notifyUnavailable: (feature: string) => void; messages: ChatMessage[]; onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void; onNewThread: () => void; onCitationClick: (citation: MaxeCitation) => void; user: User | null }) {
   const maxeResource: MaxeResourceContext | null = activeResource ? { id: activeResource.id, kind: activeResource.kind, title: activeResource.title, courseCode: activeResource.courseCode, isAudio: activeResource.isAudio } : null;
-  return <div className="ws-maxe-content"><header className="ws-maxe-header"><div className="ws-maxe-brand"><span className="ws-maxe-mark">M</span><div><strong>Maxe</strong><small>Study beside your source</small></div></div><button type="button" className="ws-text-action" onClick={onNewThread}>New thread</button></header><div className="ws-maxe-context" aria-live="polite"><span className="ws-eyebrow">Active source</span><strong>{activeResource?.title || 'No source selected'}</strong><small>{activeResource ? `${typeLabel(activeResource)} · ${activeResource.courseCode || 'Archive'}` : 'Choose a source so the context stays visible while you study.'}</small>{selectedText && <small className="ws-selection-note">Selected text is ready for Maxe</small>}</div><div className="ws-maxe-assistant"><Assistant go={go} selectedQuestion="" notifyUnavailable={notifyUnavailable} messages={messages} onMessagesChange={onMessagesChange} user={user} activeResource={maxeResource} selectedText={selectedText} selectedTextSource={selectedText ? activeResource?.title : null} onCitationClick={onCitationClick} /></div></div>;
+  void notifyUnavailable;
+  return <div className="ws-maxe-content"><header className="ws-maxe-header"><div className="ws-maxe-brand"><span className="ws-maxe-mark">M</span><div><strong>Maxe</strong><small>Study beside your source</small></div></div><button type="button" className="ws-text-action" onClick={onNewThread}>New thread</button></header><div className="ws-maxe-context" aria-live="polite"><span className="ws-eyebrow">Active source</span><strong>{activeResource?.title || 'No source selected'}</strong><small>{activeResource ? `${typeLabel(activeResource)} · ${activeResource.courseCode || 'Archive'}` : 'Choose a source so the context stays visible while you study.'}</small>{selectedText && <small className="ws-selection-note">Selected text is ready for Maxe</small>}</div><div className="ws-maxe-assistant"><Assistant go={go} selectedQuestion="" messages={messages} onMessagesChange={onMessagesChange} user={user} activeResource={maxeResource} selectedText={selectedText} selectedTextSource={selectedText ? activeResource?.title : null} onCitationClick={onCitationClick} /></div></div>;
 }
 
 export default function Workspace({ go, notifyUnavailable, messages, onMessagesChange, onNewThread, user, initialResource }: WorkspaceProps) {

@@ -58,6 +58,24 @@ def _normalise_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def ksa_learning_preferences(user: models.User | None) -> dict[str, str]:
+    """Return bounded KSA choices for internal prompt/personalization use."""
+    if user is None or not isinstance(user.onboarding_preferences, dict):
+        return {}
+    preferences = user.onboarding_preferences
+    goals = [str(value).strip() for value in preferences.get("learning_goals", []) if str(value).strip()]
+    topics = [str(value).strip() for value in preferences.get("help_topics", []) if str(value).strip()]
+    result: dict[str, str] = {}
+    if goals:
+        result["goal"] = ", ".join(goals[:3])
+    if topics:
+        result["help_topics"] = ", ".join(topics[:5])
+    explanation = str(preferences.get("explanation_preference") or "").strip()
+    if explanation in {"concise", "step_by_step", "examples_first", "not_sure"}:
+        result["explanation_style"] = explanation
+    return result
+
+
 def _metadata(row: Any) -> dict[str, Any]:
     value = getattr(row, "metadata_json", None)
     return value if isinstance(value, dict) else {}
@@ -67,7 +85,7 @@ def _resource_type(row: Any) -> str:
     metadata = _metadata(row)
     file_name = str(getattr(row, "file_name", "") or "").lower()
     mime = str(getattr(row, "file_mime", "") or "").lower()
-    if metadata.get("document_type") == "audio" or mime.startswith("audio/") or file_name.endswith((".mp3", ".wav", ".m4a", ".mp4")):
+    if metadata.get("document_type") in {"audio", "video"} or mime.startswith(("audio/", "video/")) or file_name.endswith((".mp3", ".wav", ".m4a", ".mp4", ".mov", ".webm")):
         return "audio"
     if isinstance(row, models.PastQuestion):
         return "past_question"
@@ -290,6 +308,23 @@ def create_grounded_quiz(
         raise ValueError("difficulty must be mixed, easy, medium, or hard")
     if question_type not in {"multiple_choice", "short_answer"}:
         raise ValueError("question_type must be multiple_choice or short_answer")
+    effective_topic = _normalise_text(topic) or None
+    if effective_topic is None and source_scope != "resource":
+        preferences = user.onboarding_preferences if isinstance(user.onboarding_preferences, dict) else {}
+        candidates = [str(value).strip() for value in preferences.get("help_topics", []) if str(value).strip()]
+        for candidate in candidates:
+            preferred_sources = authorized_sources(
+                db,
+                user,
+                source_scope="topic",
+                resource_type=resource_type,
+                resource_id=resource_id,
+                course_id=course_id,
+                topic=candidate,
+            )
+            if preferred_sources:
+                effective_topic = candidate[:160]
+                break
     sources = authorized_sources(
         db,
         user,
@@ -297,7 +332,7 @@ def create_grounded_quiz(
         resource_type=resource_type,
         resource_id=resource_id,
         course_id=course_id,
-        topic=topic,
+        topic=effective_topic,
     )
     if not sources:
         raise LookupError("No authorized source material matched this quiz setup.")
@@ -305,7 +340,7 @@ def create_grounded_quiz(
     quiz = models.LearningQuiz(
         user_id=user.id,
         course_id=course_id or sources[0].course_id,
-        topic=_normalise_text(topic)[:160] if topic else None,
+        topic=effective_topic[:160] if effective_topic else None,
         source_scope=source_scope,
         resource_type=resource_type,
         resource_id=resource_id,

@@ -1,4 +1,4 @@
-export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'spaces' | 'workspace' | 'moderation' | 'admin';
+export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'workspace' | 'moderation' | 'admin';
 
 export type Course = {
   id: number;
@@ -49,7 +49,7 @@ export type LearningSpacesResponse = {
 };
 
 export type AcademicMetadata = {
-  document_type: 'past_question' | 'lecture_note' | 'course_outline' | 'tutorial' | 'assignment' | 'revision_slide' | 'exam_prep' | 'unknown';
+  document_type: 'past_question' | 'lecture_note' | 'course_outline' | 'tutorial' | 'assignment' | 'revision_slide' | 'exam_prep' | 'audio' | 'video' | 'unknown';
   document_title?: string;
   course_code?: string;
   course_title?: string;

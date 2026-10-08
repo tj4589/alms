@@ -39,6 +39,7 @@ from material_access import (
 from resource_index import chunk_provenance_fields, classify_workspace_relevance
 from rate_limiting import user_rate_limit
 from storage_safety import UPLOAD_READ_CHUNK_BYTES, defer_binary_column
+from video_processing import VideoProcessingError, extract_audio_for_transcription
 
 from ai_clients import AIProviderError, embeddings_model, generate_ai_response, normalize_transcript_segments, transcribe_audio
 
@@ -98,6 +99,12 @@ AUDIO_MIME_TYPES = {
     ".flac": "audio/flac",
     ".webm": "audio/webm",
 }
+VIDEO_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".webm"}
+VIDEO_MIME_TYPES = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+}
 UPLOAD_MIME_TYPES = {
     ".pdf": {"application/pdf"},
     ".docx": {
@@ -116,10 +123,14 @@ UPLOAD_MIME_TYPES = {
     ".m4a": {"audio/mp4", "audio/x-m4a", "video/mp4"},
     ".ogg": {"audio/ogg", "application/ogg"},
     ".flac": {"audio/flac", "audio/x-flac"},
+    # WebM may be an audio recording or a video container; the content type
+    # selects the pipeline after the EBML signature has been checked.
     ".webm": {"audio/webm", "video/webm"},
+    ".mp4": {"video/mp4", "application/mp4"},
+    ".mov": {"video/quicktime", "video/mov"},
 }
 GENERIC_UPLOAD_MIME_TYPES = {"", "application/octet-stream", "binary/octet-stream"}
-SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg", *AUDIO_UPLOAD_EXTENSIONS}
+SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg", *AUDIO_UPLOAD_EXTENSIONS, *VIDEO_UPLOAD_EXTENSIONS}
 IMAGE_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 OCR_CONFIGS = [
     "--oem 3 --psm 6 -c preserve_interword_spaces=1",
@@ -175,6 +186,7 @@ DOCUMENT_TYPES = {
     "revision_slide",
     "exam_prep",
     "audio",
+    "video",
     "unknown",
 }
 EXAM_TYPES = {"quiz", "test", "midterm", "continuous_assessment", "final", "unknown"}
@@ -275,6 +287,7 @@ class StructuredMetadataResponse(BaseModel):
         "revision_slide",
         "exam_prep",
         "audio",
+        "video",
         "unknown",
     ] | None = None
     course_code: str | None = None
@@ -1071,6 +1084,8 @@ def _content_signature_matches(content: bytes, extension: str) -> bool:
         return content.startswith(b"\x89PNG\r\n\x1a\n")
     if extension in {".jpg", ".jpeg"}:
         return content.startswith(b"\xff\xd8\xff")
+    if extension in VIDEO_UPLOAD_EXTENSIONS:
+        return _video_signature_matches(content, extension)
     if extension in AUDIO_UPLOAD_EXTENSIONS:
         return _audio_signature_matches(content, extension)
     return False
@@ -1103,6 +1118,23 @@ def _audio_signature_matches(content: bytes, extension: str) -> bool:
     if extension == ".mp3":
         return content.startswith(b"ID3") or (len(content) >= 2 and content[0] == 0xFF and content[1] & 0xE0 == 0xE0)
     return False
+
+
+def _video_signature_matches(content: bytes, extension: str) -> bool:
+    """Accept known video containers only after checking their magic bytes."""
+    if not content:
+        return False
+    if extension == ".webm":
+        return content.startswith(b"\x1a\x45\xdf\xa3")
+    # MP4/MOV/QuickTime files carry an ftyp box at byte offset four.  The
+    # compatible-brand list is deliberately narrow enough to reject renamed
+    # ZIPs and unrelated binary uploads.
+    if len(content) < 12 or content[4:8] != b"ftyp":
+        return False
+    return content[8:12] in {
+        b"isom", b"iso2", b"iso5", b"iso6", b"mp41", b"mp42",
+        b"avc1", b"M4V ", b"M4VH", b"M4VP", b"qt  ",
+    }
 
 
 def _audio_mime_type(file: UploadFile, extension: str) -> str:
@@ -1139,6 +1171,63 @@ def _audio_extraction(file: UploadFile, content: bytes, extension: str) -> Dict[
     }
 
 
+def _video_extraction(file: UploadFile, content: bytes, extension: str) -> Dict[str, Any]:
+    """Prepare a video for the existing transcript/index pipeline.
+
+    The original bytes stay in ``file_bytes`` for confirmation.  Only the
+    temporary WAV derivative is handed to the transcription provider.
+    """
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded video file is empty.")
+    supplied_mime = (file.content_type or "").strip().lower()
+    expected_mimes = UPLOAD_MIME_TYPES[extension]
+    if supplied_mime not in GENERIC_UPLOAD_MIME_TYPES and supplied_mime not in expected_mimes:
+        raise HTTPException(status_code=400, detail="The uploaded video MIME type does not match its filename or supported format.")
+    if not _video_signature_matches(content, extension):
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid supported video container.")
+
+    result: Dict[str, Any] = {
+        "text": "",
+        "raw_extracted_text": "",
+        "cleaned_text": "",
+        "method": "video_audio_pending",
+        "page_count": 0,
+        "text_char_count": 0,
+        "cleaned_text_char_count": 0,
+        "ocr_used": False,
+        "extraction_confidence": 0.0,
+        "failure_reason": None,
+        "indexed_status": "processing",
+        "processing_status": "uploaded",
+        "searchable": False,
+        "needs_review": False,
+        "warnings": ["Audio will be extracted and transcribed after you confirm the material details."],
+        "resource_type": "video",
+        "file_mime": VIDEO_MIME_TYPES[extension],
+    }
+    try:
+        result["transcription_bytes"] = extract_audio_for_transcription(
+            content,
+            filename=file.filename or f"upload{extension}",
+            mime_type=VIDEO_MIME_TYPES[extension],
+        )
+        result["transcription_file_name"] = "extracted-audio.wav"
+        result["transcription_file_mime"] = "audio/wav"
+        result["audio_extraction_status"] = "ready"
+    except VideoProcessingError:
+        # Keep the original upload confirmable, but make the missing derived
+        # audio explicit.  Confirmation will persist the source and return a
+        # safe failed-processing response rather than claiming success.
+        result["audio_extraction_status"] = "failed"
+        result["failure_reason"] = "video_audio_extraction_failed"
+        result["processing_status"] = "awaiting_confirmation"
+        result["needs_review"] = True
+        result["warnings"] = [
+            "ExamMind could not prepare an audio track from this video. The original will be retained, but transcription is unavailable until it is retried on a server with FFmpeg.",
+        ]
+    return result
+
+
 def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     filename = file.filename or ""
     extension = os.path.splitext(filename.lower())[1]
@@ -1149,7 +1238,7 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
             pass
         raise HTTPException(
             status_code=400,
-            detail="Only PDF, Word, PowerPoint, image, and supported audio files are supported.",
+            detail="Only PDF, Word, PowerPoint, image, audio, and supported video files are supported.",
         )
 
     content = _read_bounded_upload(file)
@@ -1162,7 +1251,9 @@ def extract_pdf_text(file: UploadFile) -> Dict[str, Any]:
     canonical_mime = _validate_upload_content(file, content, extension)
 
     warnings: list[str] = []
-    if extension in AUDIO_UPLOAD_EXTENSIONS:
+    if extension in VIDEO_UPLOAD_EXTENSIONS and (file.content_type or "").strip().lower().startswith("video/"):
+        result = _video_extraction(file, content, extension)
+    elif extension in AUDIO_UPLOAD_EXTENSIONS:
         result = _audio_extraction(file, content, extension)
     elif extension == ".pdf":
         result = _extract_pdf_content(content, warnings)
@@ -1541,7 +1632,7 @@ def _metadata_field_value(metadata: Dict[str, Any], strict_field: str) -> Any:
 
 def _required_metadata_fields(metadata: Dict[str, Any]) -> set[str]:
     required = {"title", "document_type", "course_code"}
-    if metadata.get("document_type") == "audio":
+    if metadata.get("document_type") in {"audio", "video"}:
         required.discard("course_code")
     if not _metadata_value_is_good(metadata.get("course_code")) and _metadata_value_is_good(metadata.get("course_title")):
         required.remove("course_code")
@@ -1938,6 +2029,7 @@ DOC_TYPE_TITLE = {
     "revision_slide": "Revision Slide",
     "exam_prep": "Exam Prep",
     "audio": "Audio Recording",
+    "video": "Video Recording",
     "unknown": "Academic Document",
 }
 
@@ -2359,7 +2451,7 @@ def metadata_required_errors(metadata: Dict[str, Any]) -> list[str]:
         errors.append("title")
     if metadata.get("document_type") in {None, "", "unknown"}:
         errors.append("document_type")
-    if metadata.get("document_type") != "audio" and not _metadata_value_is_good(metadata.get("course_code")) and not _metadata_value_is_good(metadata.get("course_title")):
+    if metadata.get("document_type") not in {"audio", "video"} and not _metadata_value_is_good(metadata.get("course_code")) and not _metadata_value_is_good(metadata.get("course_title")):
         errors.append("course")
     if metadata.get("document_type") == "past_question":
         if not _metadata_value_is_good(metadata.get("academic_year")) and not metadata.get("year"):
@@ -2470,7 +2562,7 @@ def find_duplicate(
 
     document_type = metadata.get("document_type")
     model = models.PastQuestion if document_type == "past_question" else models.LectureNote
-    material_type = "past_question" if document_type == "past_question" else "audio" if document_type == "audio" else "lecture_note"
+    material_type = "past_question" if document_type == "past_question" else "audio" if document_type in {"audio", "video"} else "lecture_note"
     query = defer_binary_column(db.query(model), model).filter(accessible_material_filter(db, model, current_user))
     candidates = query.limit(200).all()
     if not candidates:
@@ -2661,11 +2753,17 @@ def _audio_response(
     message: str,
     chunks: int = 0,
     sharing: dict | None = None,
+    source_document_type: str = "audio",
 ) -> dict:
+    source_document_type = str(metadata.get("document_type") or "audio")
+    if source_document_type not in {"audio", "video"}:
+        source_document_type = "audio"
+    if source_document_type == "video" and message == "Audio recording transcribed and added to your workspace.":
+        message = "Video audio was transcribed and added to your workspace."
     return {
         "status": status,
         "document_id": note.id,
-        "document_type": "audio",
+        "document_type": source_document_type,
         "chunks_indexed": chunks,
         "indexed": bool(chunks),
         "searchable": bool(chunks),
@@ -2714,10 +2812,12 @@ def _persist_audio_upload(
     requested_group_ids: list[int],
     version_parent_id: int | None,
     version_number: int,
+    source_document_type: str = "audio",
 ) -> dict:
-    """Store an audio source, then add transcript/index data only when valid."""
+    """Store a timed source, then add transcript/index data only when valid."""
     note_metadata = dict(metadata)
     note_metadata.update({
+        "document_type": source_document_type,
         "processing_status": "processing",
         "transcription_status": "processing",
         "searchable": False,
@@ -2737,7 +2837,7 @@ def _persist_audio_upload(
         version_of_id=version_parent_id,
         version_number=version_number,
         topic=", ".join(metadata.get("topics_covered", [])[:3]) or None,
-        title=metadata.get("document_title") or metadata.get("source_file") or "Audio recording",
+        title=metadata.get("document_title") or metadata.get("source_file") or ("Video recording" if source_document_type == "video" else "Audio recording"),
         year=metadata.get("year"),
         semester=metadata.get("semester"),
         file_url=file.filename,
@@ -2749,12 +2849,28 @@ def _persist_audio_upload(
     sharing = _apply_upload_sharing(db, [note], requested_visibility, requested_group_ids, current_user)
 
     try:
+        transcription_bytes = extraction.get("transcription_bytes") or extraction.get("file_bytes") or b""
+        if source_document_type == "video" and not extraction.get("transcription_bytes"):
+            raise VideoProcessingError("Video audio extraction was unavailable.")
         transcription = transcribe_audio(
-            extraction.get("file_name") or file.filename or "recording",
-            extraction.get("file_mime") or "audio/mpeg",
-            extraction.get("file_bytes") or b"",
+            extraction.get("transcription_file_name") or extraction.get("file_name") or file.filename or "recording",
+            extraction.get("transcription_file_mime") or extraction.get("file_mime") or "audio/mpeg",
+            transcription_bytes,
         )
         provider, model, segments = _normalise_audio_transcription(transcription)
+    except VideoProcessingError:
+        note_metadata.update({
+            "processing_status": "failed",
+            "transcription_status": "failed",
+            "transcription_provider": "openai",
+            "indexed_status": "unindexed",
+            "searchable": False,
+            "needs_review": True,
+            "transcription_error": "Video audio extraction is unavailable. The original video was retained safely.",
+        })
+        note.metadata_json = note_metadata
+        db.commit()
+        return _audio_response(note, note_metadata, "audio_failed", "The original video was saved, but its audio could not be prepared for transcription.", sharing=sharing)
     except AIProviderError:
         note_metadata.update({
             "processing_status": "failed",
@@ -3036,6 +3152,10 @@ def embed_or_fail(text: str):
 def extraction_message(extraction: Dict[str, Any]) -> str:
     if extraction.get("resource_type") == "audio":
         return "Audio is ready for confirmation. ExamMind will transcribe it after you confirm the material details."
+    if extraction.get("resource_type") == "video":
+        if extraction.get("audio_extraction_status") == "failed":
+            return "The video was received, but its audio track could not be prepared for transcription. The original will be retained safely; try again on a server with FFmpeg enabled."
+        return "Video is ready for confirmation. ExamMind will extract its audio and transcribe it after you confirm the material details."
     if extraction.get("indexed_status") == "indexed_review_required":
         return "OCR extracted text, but review is recommended."
     if extraction.get("method") in {"ocr", "mixed"}:
@@ -3075,19 +3195,21 @@ def upload_document(
     _rate_limit: None = Depends(user_rate_limit("upload", auth.require_role("student"))),
 ):
     extraction = extract_pdf_text(file)
-    is_audio = extraction.get("resource_type") == "audio"
+    is_timed_media = extraction.get("resource_type") in {"audio", "video"}
     raw_extracted_text = extraction.get("raw_extracted_text") or extraction.get("text") or ""
     cleaned_text = extraction.get("cleaned_text") or _clean_ocr_text(raw_extracted_text)
     operational_text = cleaned_text if len(cleaned_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS else raw_extracted_text
-    extraction_succeeded = extraction["method"] != "failed" and (
+    extraction_succeeded = is_timed_media or (extraction["method"] != "failed" and (
         len(operational_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS or bool(extraction.get("searchable"))
-    )
+    ))
 
-    if is_audio:
-        audio_title = re.sub(r"[_-]+", " ", os.path.splitext(file.filename or "Audio recording")[0]).strip().title()
+    if is_timed_media:
+        media_label = "Video recording" if extraction.get("resource_type") == "video" else "Audio recording"
+        media_document_type = extraction.get("resource_type") or "audio"
+        audio_title = re.sub(r"[_-]+", " ", os.path.splitext(file.filename or media_label)[0]).strip().title()
         heuristic = normalize_metadata_fields({
-            "document_type": "audio",
-            "document_title": audio_title or "Audio recording",
+            "document_type": media_document_type,
+            "document_title": audio_title or media_label,
             "course_code": "",
             "course_title": "",
             "topics_covered": [],
@@ -3100,7 +3222,7 @@ def upload_document(
             filename=file.filename or "recording",
             text="",
             page_texts=None,
-            extraction_method="audio_pending",
+            extraction_method=extraction.get("method") or "audio_pending",
         )
         extraction_succeeded = True
     elif extraction_succeeded:
@@ -3135,8 +3257,8 @@ def upload_document(
         }
     )
     metadata = normalized_metadata(confirmed_metadata, ai_metadata)
-    if is_audio:
-        metadata["document_type"] = "audio"
+    if is_timed_media:
+        metadata["document_type"] = extraction.get("resource_type") or "audio"
     metadata["source_file"] = file.filename
     metadata["source_checksum"] = extraction.get("source_checksum") or metadata.get("source_checksum") or ""
     metadata["extraction_method"] = metadata.get("extraction_method") or extraction["method"]
@@ -3146,7 +3268,7 @@ def upload_document(
     metadata["indexed_status"] = extraction.get("indexed_status") or metadata.get("indexed_status") or "indexed"
     metadata["searchable"] = bool(extraction.get("searchable", metadata.get("searchable", extraction_succeeded)))
     metadata["needs_review"] = bool(extraction.get("needs_review", False) or metadata.get("needs_review", False))
-    if is_audio:
+    if is_timed_media:
         metadata["processing_status"] = "awaiting_confirmation"
         metadata["transcription_status"] = "pending"
         metadata["transcript_available"] = False
@@ -3286,7 +3408,7 @@ def upload_document(
             detail="Complete the required metadata before indexing: " + ", ".join(readable.get(item, item) for item in required_errors) + ".",
         )
 
-    if is_audio:
+    if is_timed_media:
         return _persist_audio_upload(
             db,
             file=file,
@@ -3297,6 +3419,7 @@ def upload_document(
             requested_group_ids=requested_group_ids,
             version_parent_id=version_parent_id,
             version_number=version_number,
+            source_document_type=extraction.get("resource_type") or "audio",
         )
 
     course = match_course(db, metadata)

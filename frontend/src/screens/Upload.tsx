@@ -162,6 +162,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   revision_slide: 'Revision Slide',
   exam_prep: 'Exam Prep',
   audio: 'Audio recording',
+  video: 'Video recording',
   unknown: 'Academic Document',
 };
 
@@ -430,6 +431,7 @@ function methodLabel(method: string) {
   if (method === 'mixed') return 'Mixed extraction';
   if (method === 'manual') return 'Manual details';
   if (method === 'audio_pending') return 'Transcription after confirmation';
+  if (method === 'video_audio_pending') return 'Extracting audio after confirmation';
   if (method === 'failed') return 'Could not read';
   return 'Embedded text';
 }
@@ -689,10 +691,10 @@ function EssentialMetadataEditor({
         {errors.document_type && <small className="field-error">{errors.document_type}</small>}
       </label>
 
-      {metadata.document_type === 'audio' ? (
+      {metadata.document_type === 'audio' || metadata.document_type === 'video' ? (
         <div className="course-field-group course-audio-note">
           <div className="field-label-line"><span className="field-label">Course</span><FieldStatusBadge status="optional" /></div>
-          <p>Optional for audio recordings. Add a course later if you want this recording to appear in course-specific search.</p>
+          <p>Optional for recordings. Add a course later if you want this source to appear in course-specific search.</p>
         </div>
       ) : <div className="course-field-group">
         <div className="field-label-line"><span className="field-label">Course</span><FieldStatusBadge status={metadataFieldStatus(metadata, 'course_code', metadata.course_code || metadata.course_title, editedFields.has('course_code') || editedFields.has('course_title'), review)} /></div>
@@ -1257,7 +1259,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
       errors.document_type = 'Choose the document type.';
     }
     const courseValues = [metadata.course_code, metadata.course_title].map(value => value.trim().toLowerCase());
-    if (metadata.document_type !== 'audio' && !courseValues.some(value => value && !UNKNOWN_VALUES.has(value))) {
+    if (!['audio', 'video'].includes(metadata.document_type) && !courseValues.some(value => value && !UNKNOWN_VALUES.has(value))) {
       errors.course = 'Choose a course from the catalogue or enter a course code or title.';
     }
     if (metadata.document_type === 'past_question' && !metadata.academic_year.trim() && metadata.year === '') {
@@ -1415,7 +1417,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.webm'];
+    const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.webm', '.mp4', '.mov'];
     const supportedMimeTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -1430,6 +1432,8 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
       'audio/flac',
       'audio/webm',
       'video/webm',
+      'video/mp4',
+      'video/quicktime',
     ];
     const selectedFiles = Array.from(files);
     const supportedFiles = selectedFiles.filter((f) => {
@@ -1444,7 +1448,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
       oversizedFiles.length > 0 ? `${oversizedFiles.map(item => item.name).join(', ')} exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} limit` : '',
     ].filter(Boolean).join('. ');
     if (acceptedFiles.length === 0) {
-      setMessage(rejectionMessage || 'Supported files include PDF, Word, PowerPoint, images, and MP3, WAV, M4A, OGG, FLAC, or WEBM audio.');
+      setMessage(rejectionMessage || 'Supported files include PDF, Word, PowerPoint, images, audio, and MP4, MOV, or WEBM video.');
       return;
     }
     if (acceptedFiles.length === 1) {
@@ -1503,7 +1507,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
     <ArchiveNameContext.Provider value={archiveName}><div className="page" id="s-upload">
       <div className="pg-head">
         <div className="pg-title">Upload <em>Knowledge</em></div>
-        <div className="pg-sub">Drop a PDF, Word document, PowerPoint, image, or audio recording. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
+        <div className="pg-sub">Drop a PDF, Word document, PowerPoint, image, audio recording, or video. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
       </div>
 
       {queuedUpload && state === 'idle' && <section className="upload-alert" role="status"><p>Queued file: {queuedUpload.fileName}. Review metadata and choose who can access it before confirming.</p><button type="button" className="cta" disabled={!navigator.onLine} onClick={() => { if (analysisPending.current) return; const queuedFile = new File([queuedUpload.fileData], queuedUpload.fileName, { type: queuedUpload.mimeType || '' }); reviewedQueueFile.current = queuedFile; void analyzeFile(queuedFile); }}>Review queued file</button></section>}
@@ -1528,7 +1532,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
             tabIndex={0}
             aria-label="Choose academic files to upload"
           >
-            <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.mp3,.wav,.m4a,.ogg,.flac,.webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm" multiple onChange={e => handleFiles(e.target.files)} />
+            <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.mp3,.wav,.m4a,.ogg,.flac,.webm,.mp4,.mov,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm,video/mp4,video/quicktime" multiple onChange={e => handleFiles(e.target.files)} />
             <span className="sheet-margin" aria-hidden="true"><i /><i /><i /></span>
             <span className="sheet-frame" aria-hidden="true"><i /><i /><i /><i /></span>
             <span className="sheet-body">
