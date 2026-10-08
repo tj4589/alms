@@ -573,6 +573,8 @@ function AdvancedMetadataEditor({
   editedFields,
   showHeading = false,
   includeEssentials = false,
+  periodLabel = 'Semester',
+  periodPlaceholder = 'e.g. First',
 }: {
   metadata: Metadata;
   updateField: (key: keyof Metadata, value: string) => void;
@@ -580,6 +582,8 @@ function AdvancedMetadataEditor({
   editedFields: Set<string>;
   showHeading?: boolean;
   includeEssentials?: boolean;
+  periodLabel?: string;
+  periodPlaceholder?: string;
 }) {
   const fields = [
     ['instructor_names', 'Instructor/Author'],
@@ -624,8 +628,8 @@ function AdvancedMetadataEditor({
               <input id="upload-academic-year" value={metadata.academic_year} onChange={e => updateField('academic_year', e.target.value)} placeholder="e.g. 2024/2025" />
             </label>
             <label className="meta-field" htmlFor="upload-semester">
-              <span>Semester <FieldStatusBadge status={metadataFieldStatus(metadata, 'semester', metadata.semester, editedFields.has('semester'), Boolean(metadata.needs_review))} /></span>
-              <input id="upload-semester" value={metadata.semester} onChange={e => updateField('semester', e.target.value)} placeholder="e.g. First" />
+              <span>{periodLabel} <FieldStatusBadge status={metadataFieldStatus(metadata, 'semester', metadata.semester, editedFields.has('semester'), Boolean(metadata.needs_review))} /></span>
+              <input id="upload-semester" value={metadata.semester} onChange={e => updateField('semester', e.target.value)} placeholder={periodPlaceholder} />
             </label>
           </>
         )}
@@ -662,6 +666,8 @@ function EssentialMetadataEditor({
   errors,
   updateField,
   onCourseSelect,
+  periodLabel = 'Semester',
+  periodPlaceholder = 'e.g. First',
 }: {
   metadata: Metadata;
   courses: Course[];
@@ -670,6 +676,8 @@ function EssentialMetadataEditor({
   errors: ValidationErrors;
   updateField: (key: keyof Metadata, value: string) => void;
   onCourseSelect: (courseId: string) => void;
+  periodLabel?: string;
+  periodPlaceholder?: string;
 }) {
   const matchingCourse = courses.find(course => course.code?.toLowerCase() === metadata.course_code.toLowerCase());
   const courseNeedsManualEntry = courseState !== 'ready' || !metadata.course_code || !matchingCourse;
@@ -728,8 +736,8 @@ function EssentialMetadataEditor({
       </label>
 
       <label className="meta-field" htmlFor="review-semester">
-        <span>Semester <FieldStatusBadge status={metadataFieldStatus(metadata, 'semester', metadata.semester, editedFields.has('semester'), review)} /></span>
-        <input id="review-semester" value={metadata.semester} onChange={e => updateField('semester', e.target.value)} placeholder="e.g. First" aria-invalid={Boolean(errors.semester)} />
+        <span>{periodLabel} <FieldStatusBadge status={metadataFieldStatus(metadata, 'semester', metadata.semester, editedFields.has('semester'), review)} /></span>
+        <input id="review-semester" value={metadata.semester} onChange={e => updateField('semester', e.target.value)} placeholder={periodPlaceholder} aria-invalid={Boolean(errors.semester)} />
         {errors.semester && <small className="field-error">{errors.semester}</small>}
       </label>
     </div>
@@ -809,6 +817,8 @@ function UploadConfirmationCard({
   onCancel,
   onConfirm,
   hasQueue,
+  periodLabel,
+  periodPlaceholder,
 }: {
   file: File | null;
   metadata: Metadata;
@@ -841,12 +851,14 @@ function UploadConfirmationCard({
   onCancel: () => void;
   onConfirm: () => void;
   hasQueue: boolean;
+  periodLabel: string;
+  periodPlaceholder: string;
 }) {
   const confidence = confidenceLabel(metadata);
   const attentionEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'missing_required' || item.status === 'conflict' || item.status === 'suggested');
   const completedEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'catalogue_confirmed' || item.status === 'strong_evidence');
   const optionalEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'optional' && displayValue(item.value as string | number | null, ''));
-  const evidenceLabel: Record<string, string> = { title: 'Title', document_type: 'Document type', course_code: 'Course', course_title: 'Course title', academic_session: 'Academic session', semester: 'Semester', instructor_or_author: 'Instructor or author', year: 'Year', department: 'Department', exam_type: 'Exam type', topics: 'Topics' };
+  const evidenceLabel: Record<string, string> = { title: 'Title', document_type: 'Document type', course_code: 'Course', course_title: 'Course title', academic_session: 'Academic session', semester: periodLabel, instructor_or_author: 'Instructor or author', year: 'Year', department: 'Department', exam_type: 'Exam type', topics: 'Topics' };
   const review = confidence === 'Review Recommended' || attentionEntries.length > 0 || Boolean(metadata.needs_review);
   const hasMissingEssentials = !metadata.document_title || metadata.document_type === 'unknown' || (!metadata.course_code && !metadata.course_title);
   const validationSummary = Object.values(errors).filter(Boolean);
@@ -903,7 +915,7 @@ function UploadConfirmationCard({
               <p>{optionalEntries.map(([key]) => evidenceLabel[key] || key).join(' · ')}</p>
             </section>
           )}
-          <EssentialMetadataEditor metadata={metadata} courses={courses} courseState={courseState} editedFields={editedFields} errors={errors} updateField={updateField} onCourseSelect={onCourseSelect} />
+          <EssentialMetadataEditor metadata={metadata} courses={courses} courseState={courseState} editedFields={editedFields} errors={errors} updateField={updateField} onCourseSelect={onCourseSelect} periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />
           {(review || hasMissingEssentials) && (
             <div className="review-warning"><AlertCircle size={16} /><span>ExamMind may misread some details. Review anything marked “Needs review” before adding this material.</span></div>
           )}
@@ -923,7 +935,7 @@ function UploadConfirmationCard({
           <button type="button" className="details-disclosure" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}>
             <span>Additional details</span><ChevronDown size={17} aria-hidden="true" />
           </button>
-          {advancedOpen && <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} showHeading={false} />}
+          {advancedOpen && <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} showHeading={false} periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />}
           <div className="review-panel-actions">
             {hasQueue && <p className="queue-note">You can skip this file and continue with the next queued upload.</p>}
             <div className="confirm-actions">
@@ -1072,6 +1084,9 @@ function ContributionSuccessModal({
 }
 
 export default function Upload({ go, user, archiveName = 'your learning space', queuedUpload, onQueuedUploadStored }: { go: (s: ScreenType) => void; user: User | null; archiveName?: string; queuedUpload?: PendingUpload | null; onQueuedUploadStored?: () => void }) {
+  const isKsaProgram = archiveName === 'KSA';
+  const periodLabel = isKsaProgram ? 'Cohort' : 'Semester';
+  const periodPlaceholder = isKsaProgram ? 'e.g. 2026 cohort' : 'e.g. First';
   const [state, setState] = useState<UploadState>('idle');
   const [file, setFile] = useState<File | null>(null);
   const reviewedQueueFile = useRef<File | null>(null);
@@ -1266,7 +1281,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
       errors.academic_year = 'Select the academic session for this past question.';
     }
     if (metadata.document_type === 'past_question' && (!metadata.semester.trim() || UNKNOWN_VALUES.has(metadata.semester.trim().toLowerCase()))) {
-      errors.semester = 'Select the semester for this past question.';
+      errors.semester = `Add the ${periodLabel.toLowerCase()} for this past question.`;
     }
     if (metadata.year !== '' && (!Number.isInteger(metadata.year) || metadata.year < 1900 || metadata.year > 2100)) {
       errors.year = 'Enter a year between 1900 and 2100.';
@@ -1658,6 +1673,8 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
           onCancel={() => hasQueue ? nextInQueue() : setState('idle')}
           onConfirm={() => void confirmUpload(false)}
           hasQueue={hasQueue}
+          periodLabel={periodLabel}
+          periodPlaceholder={periodPlaceholder}
         />
       )}
 
@@ -1670,7 +1687,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
             <span className="upload-badge warn">{extractionConfidence}% extraction confidence</span>
           </div>
           <div className="upload-rescue-note">Manual metadata rescue is available here because the file could not produce useful searchable text.</div>
-          <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} includeEssentials />
+          <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} includeEssentials periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />
           <SharingChoice
             visibility={sharingVisibility}
             onVisibilityChange={value => { setSharingVisibility(value); setSharingError(''); }}

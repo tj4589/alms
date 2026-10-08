@@ -128,13 +128,13 @@ function materialTitle(material: MaterialEntry, kind: ArchiveItem['kind']): stri
   );
 }
 
-function materialMeta(material: MaterialEntry): string {
+function materialMeta(material: MaterialEntry, isKsaProgram: boolean): string {
   const metadata = material.metadata_json;
   const parts = [
     metadataString(metadata, 'academic_year') || (material.year ? String(material.year) : ''),
-    material.semester || metadataString(metadata, 'semester'),
+    `${isKsaProgram ? 'Cohort' : 'Semester'}: ${material.semester || metadataString(metadata, 'semester')}`,
     metadataString(metadata, 'document_type').replaceAll('_', ' '),
-  ].filter(Boolean);
+  ].filter((value) => value && !value.endsWith(': '));
   return parts.join(' / ') || 'Indexed academic source';
 }
 
@@ -183,6 +183,7 @@ export default function Dashboard({
   const [retryKey, setRetryKey] = useState(0);
 
   const firstName = user?.name?.split(' ')[0] || 'student';
+  const isKsaProgram = learningSpace?.slug === 'ksa';
 
   useEffect(() => {
     if (!user?.id) return;
@@ -243,7 +244,7 @@ export default function Dashboard({
         kind,
         title: materialTitle(material, kind),
         courseCode,
-        meta: materialMeta(material),
+        meta: materialMeta(material, isKsaProgram),
         courseId: material.course_id || null,
         createdAt: material.created_at || null,
       };
@@ -257,7 +258,7 @@ export default function Dashboard({
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bTime - aTime;
     });
-  }, [courseById, lectureNotes, pastQuestions]);
+  }, [courseById, isKsaProgram, lectureNotes, pastQuestions]);
 
   const courseWorkspaces = useMemo<CourseWorkspace[]>(() => {
     const workspaceMap = new Map<string, CourseWorkspace>();
@@ -400,8 +401,8 @@ export default function Dashboard({
         <div className="desk-main">
           <section className="desk-next" aria-labelledby="desk-next-title" aria-busy={loading}>
             <div className="desk-next-copy">
-              <h2 id="desk-next-title">{loading ? 'Getting your desk ready…' : weakestTopic ? <>A little more practice<br />with {weakestTopic.topic}.</> : hasUploads ? 'Pick up where you left off.' : loadError ? 'Your study space is right here.' : <>Big semester.<br />One small start.</>}</h2>
-              <p>{loading ? 'Gathering your courses, notes and recent practice.' : weakestTopic ? `Your latest readiness for this topic is ${weakestTopic.score}%. Make room for a quick practice session.` : hasUploads ? 'Your notes are here. Turn what you’ve learned into something that sticks.' : loadError ? 'You can still add material or find your study group while we reconnect.' : 'Bring a lecture note or a past paper. We’ll help you find answers, make connections and get ready for what’s next.'}</p>
+            <h2 id="desk-next-title">{loading ? 'Getting your desk ready…' : weakestTopic ? <>A little more practice<br />with {weakestTopic.topic}.</> : hasUploads ? 'Pick up where you left off.' : loadError ? 'Your study space is right here.' : <>{isKsaProgram ? 'New cohort.' : 'Big semester.'}<br />One small start.</>}</h2>
+            <p>{loading ? 'Gathering your courses, notes and recent practice.' : weakestTopic ? `Your latest readiness for this topic is ${weakestTopic.score}%. Make room for a quick practice session.` : hasUploads ? 'Your notes are here. Turn what you’ve learned into something that sticks.' : loadError ? 'You can still add material or find your study group while we reconnect.' : isKsaProgram ? 'Bring a training note or practice resource. We’ll help you make sense of the work and get ready for what’s next.' : 'Bring a lecture note or a past paper. We’ll help you find answers, make connections and get ready for what’s next.'}</p>
               {!loading && <button type="button" className="desk-primary" onClick={() => go(hasUploads ? 'practice' : 'upload')}>{hasUploads ? 'Let’s practise' : 'Add your first material'}<ArrowRight size={18} aria-hidden="true" /></button>}
             </div>
             <div className="desk-next-side">

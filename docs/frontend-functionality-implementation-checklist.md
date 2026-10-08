@@ -12,7 +12,7 @@ and the UI displays the actual result. Local navigation/display controls may
 remain local when they make no server-side claim. Mocks and optimistic success
 messages are not completion evidence.
 
-## Batch 1 — school-specific routing and access
+## Batch 1 — learning-space-specific routing and access
 
 - [x] Restore a single active CU/KSA membership as the authenticated context.
 - [x] Preserve multiple memberships without exposing a general school picker;

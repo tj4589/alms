@@ -1069,9 +1069,9 @@ export default function App() {
           <p className="account-bootstrap-kicker">EXAMMIND / LEARNING SPACE</p>
           <h1>We couldn’t reopen your study space.</h1>
           <p>{hasMultipleMemberships
-            ? 'Your account has multiple verified school memberships, but no authorized active context is available. We will not show a school picker or choose a school for you.'
-            : 'Your account has one verified learning-space membership, but its active context is unavailable. We will not choose another school for you.'}</p>
-          {hasMultipleMemberships && <p>Re-enter through your school-specific ExamMind entry link, or contact support to restore the authorized context. Your memberships and materials remain intact.</p>}
+            ? 'Your account has multiple verified learning-space memberships, but no authorized active context is available. We will not show a space picker or choose a space for you.'
+            : 'Your account has one verified learning-space membership, but its active context is unavailable. We will not choose another space for you.'}</p>
+          {hasMultipleMemberships && <p>Re-enter through your learning-space-specific ExamMind entry link, or contact support to restore the authorized context. Your memberships and materials remain intact.</p>}
           <div className="account-bootstrap-actions">
             <button type="button" className="account-bootstrap-action account-bootstrap-action-primary" onClick={() => void refreshLearningSpaces()}>Try again</button>
             {hasMultipleMemberships && <button type="button" className="account-bootstrap-action" onClick={openFeedback}>Contact support</button>}

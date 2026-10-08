@@ -16,7 +16,8 @@ The product supports:
 
 - authenticated student identities;
 - separate learning-space access for Covenant University (CU) and Kora Sales
-  Academy (KSA);
+  Academy (KSA), where KSA is a professional training program/cohort rather
+  than a school or university;
 - student-uploaded past questions, lecture notes, images and audio;
 - extraction, OCR, metadata review, duplicate checks, cleaned previews and
   indexed retrieval;
@@ -170,18 +171,20 @@ authorization, validation, persistence, processing or delivery where
 applicable, and a displayed result. Local navigation and display controls may
 remain local when they do not claim server-side work.
 
-For the school-specific experience:
+For the learning-space-specific experience:
 
-- Ordinary CU and KSA users must enter the school space established by their
-  authenticated identity and active membership. They must not see a generic
-  school chooser, a “Switch learning space” control, or another school’s
-  enrollment controls inside their school experience.
+- Ordinary CU users must enter the university learning space established by
+  their authenticated identity and active membership. KSA users must enter
+  the Kora Sales Academy program space established by their KSA membership.
+  Neither group may see a generic learning-space chooser, a “Switch learning
+  space” control, or another space’s enrollment controls inside their active
+  experience.
 - A single active membership is safe to restore automatically because it is
   unambiguous. For multiple active memberships, reuse only a valid server-
   selected active context. If that context is absent or stale, fail closed and
-  require a school-specific entry/support recovery path; never show a general
-  school picker, choose arbitrarily, delete a membership or grant access based
-  on a client-supplied space ID.
+  require a learning-space-specific entry/support recovery path; never show a
+  general learning-space picker, choose arbitrarily, delete a membership or
+  grant access based on a client-supplied space ID.
 - Backend active-space and membership authorization remain authoritative.
   Global-admin functions are separate and remain global-admin authorized.
 
@@ -192,8 +195,8 @@ IMPLEMENTED AND VERIFIED, IMPLEMENTED BUT UNVERIFIED, BLOCKED, or NOT
 IMPLEMENTED. Tests verify functionality but are not a substitute for the
 functionality itself.
 
-The work is organized into bounded batches. Batch 1 is school-specific entry,
-return-login routing and cross-space access. Batch 2 is KSA preference
+The work is organized into bounded batches. Batch 1 is learning-space-specific
+entry, return-login routing and cross-space access. Batch 2 is KSA preference
 consumers/editing, related-question retrieval and persisted early-access
 requests. Batch 3 is the representative material-processing matrix,
 including only formats that are actually supported and evidenced. Batch 4 is
@@ -606,7 +609,7 @@ browser flow and integration evidence are completed. Reminder delivery,
 
 The current product-direction request authorizes the bounded batches in
 `docs/frontend-functionality-implementation-checklist.md`, beginning with
-school-specific routing and access. Batch 1 and the non-reminder portions of
+learning-space-specific routing and access. Batch 1 and the non-reminder portions of
 Batch 2 have been implemented locally; they still require the evidence listed
 in the checklist. Each later batch requires its own implementation and
 validation report; approval of one batch does not silently authorize unrelated

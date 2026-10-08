@@ -50,6 +50,7 @@ const ACCOUNT_DELETION_UNAVAILABLE_MESSAGE = 'Account deletion is temporarily un
 
 export default function Settings({ go, user, onEditProfile, profileEditLabel, onAccountDeactivated, onAccountDeletionScheduled, onAccountLifecycleCleanupPending, onRestartOnboarding }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
+  const isKsaProfile = profileEditLabel?.toLowerCase().includes('ksa') === true;
   const [sessionPref, setPref] = useState<SessionPreference>(() => getSessionPreference());
   const staySignedIn = sessionPref === 'stay';
   const [theme, setThemeState] = useState<Theme>(() => getTheme());
@@ -212,7 +213,7 @@ export default function Settings({ go, user, onEditProfile, profileEditLabel, on
         <section className="setting-block" aria-labelledby="settings-academic-profile">
           <p className="notes-label">Academic profile</p>
           <h2 className="notes-title" id="settings-academic-profile">Keep your recommendations current</h2>
-          <p className="setting-note">Update your department, level, courses, and interests whenever your semester changes.</p>
+          <p className="setting-note">{isKsaProfile ? 'Update your goals, help topics and explanation style whenever your cohort changes.' : 'Update your department, level, courses, and interests whenever your semester changes.'}</p>
           <button type="button" className="account-link" onClick={onEditProfile}>{profileEditLabel || 'Edit academic profile →'}</button>
         </section>
       )}

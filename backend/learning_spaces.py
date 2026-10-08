@@ -272,7 +272,7 @@ def list_spaces(db: Session, user: models.User) -> dict:
         # Treat a manually supplied or stale pointer as unauthorised. This
         # clears only the pointer; it never removes a membership or resource.
         # Do not silently choose another membership: a multi-space account
-        # must use its school-specific entry/support recovery path.
+        # must use its learning-space-specific entry/support recovery path.
         user.active_learning_space_id = None
         context_changed = True
     if active_space is None and len(memberships) == 1:
