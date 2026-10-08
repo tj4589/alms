@@ -161,10 +161,15 @@ function resolveLearningSpaceRoute(
 
 function publicViewFromPath(): PublicView {
   const path = window.location.pathname.replace(/\/+$/, '');
+  if (path === '/admin') return 'auth';
   if (path === '/privacy') return 'privacy';
   if (path === '/feedback') return 'feedback';
   if (/^\/groups\/invite\/[A-Za-z0-9_-]+$/.test(path)) return 'invite';
   return 'landing';
+}
+
+function adminPathRequested(): boolean {
+  return window.location.pathname.replace(/\/+$/, '') === '/admin';
 }
 
 function inviteTokenFromPath(): string | null {
@@ -285,7 +290,7 @@ export default function App() {
   const [deletionRecoveryPending, setDeletionRecoveryPending] = useState(false);
   const [deletionFirebaseDeleted, setDeletionFirebaseDeleted] = useState(false);
   const [accountLifecycleRecovery, setAccountLifecycleRecovery] = useState<AccountLifecycleRecovery | null>(null);
-  const [activeScreen, setActiveScreen] = useState<ScreenType>(() => sharedThreadIdFromPath() ? 'collab' : 'dashboard');
+  const [activeScreen, setActiveScreen] = useState<ScreenType>(() => adminPathRequested() ? 'admin' : sharedThreadIdFromPath() ? 'collab' : 'dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
   const [workspaceTarget, setWorkspaceTarget] = useState<{ kind: 'lecture_note' | 'past_question'; id: number } | null>(null);
@@ -524,7 +529,7 @@ export default function App() {
     setLearningSpacesLoading(true);
     setLearningSpacesError('');
     if (authenticatedUser) setUser(authenticatedUser);
-    setActiveScreen(sharedThreadIdFromPath() ? 'collab' : 'dashboard');
+    setActiveScreen(adminPathRequested() ? 'admin' : sharedThreadIdFromPath() ? 'collab' : 'dashboard');
     if (inviteTokenFromPath()) setPublicView('invite');
 
     try {
@@ -770,6 +775,8 @@ export default function App() {
     setSidebarOpen(false);
     setSearchOpen(false);
     setToast('');
+    if (screen === 'admin') window.history.pushState({}, '', '/admin');
+    else if (window.location.pathname.replace(/\/+$/, '') === '/admin') window.history.pushState({}, '', '/');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -1394,11 +1401,24 @@ export default function App() {
         {activeScreen === 'empty' && <Empty go={go} />}
         {profileNudgeVisible && <div className="profile-nudge" role="status"><span><strong>Your desk can know you better.</strong><small>Add your department, level or courses for more useful recommendations.</small></span><button type="button" onClick={() => { setOnboardingReturnScreen('dashboard'); setEditingProfile(true); setProfileNudgeVisible(false); setActiveScreen('onboarding'); }}>Finish profile</button><button type="button" className="profile-nudge-dismiss" aria-label="Dismiss profile reminder" onClick={() => { localStorage.setItem('exammind-profile-nudge-dismissed', 'true'); setProfileNudgeVisible(false); }}>×</button></div>}
         {activeScreen === 'settings' && <Settings go={go} user={user} profileEditLabel={verifiedSpace?.slug === 'ksa' ? 'Edit KSA learning preferences →' : undefined} onEditProfile={() => { setOnboardingSpace(verifiedSpace?.slug === 'ksa' ? verifiedSpace : null); setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
-        {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} />}
+        {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} learningSpaceSlug={verifiedSpace?.slug} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'workspace' && <Workspace go={go} initialResource={workspaceTarget} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
         {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={hasAdminPortalAccess} />}
         {activeScreen === 'admin' && hasAdminPortalAccess && <AdminDashboard go={go} user={user} />}
+        {activeScreen === 'admin' && !hasAdminPortalAccess && (
+          <div className="account-bootstrap" role="alert">
+            <div className="account-bootstrap-card">
+              <div className="account-bootstrap-mark"><Logo size={30} /></div>
+              <p className="account-bootstrap-kicker">EXAMMIND / ADMIN DESK</p>
+              <h1>Admin access is not available.</h1>
+              <p>This account is signed in, but it is not registered for the global admin portal. KSA membership does not grant global admin access.</p>
+              <div className="account-bootstrap-actions">
+                <button type="button" className="account-bootstrap-action account-bootstrap-action-primary" onClick={() => go('dashboard')}>Return to my desk</button>
+              </div>
+            </div>
+          </div>
+        )}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}

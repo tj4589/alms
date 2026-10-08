@@ -7,6 +7,7 @@ type ProfileProps = {
   go: (s: ScreenType) => void;
   user: User | null;
   username?: string | null;
+  learningSpaceSlug?: string | null;
 };
 
 type PublicProfile = {
@@ -79,8 +80,9 @@ function badgesFor(profile: PublicProfile): Badge[] {
   ];
 }
 
-export default function Profile({ go, user, username }: ProfileProps) {
+export default function Profile({ go, user, username, learningSpaceSlug }: ProfileProps) {
   const handle = username || user?.username || null;
+  const isKsaProgram = learningSpaceSlug === 'ksa';
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [failed, setFailed] = useState(false);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
@@ -176,7 +178,7 @@ export default function Profile({ go, user, username }: ProfileProps) {
       {state === 'ready' && profile && (
         <>
           <section className="pf-section" aria-labelledby="pf-contrib">
-            <p className="pf-label">Contributions</p>
+            <p className="pf-label">{isKsaProgram ? 'Program contributions' : 'Contributions'}</p>
             <h2 className="pf-section-title" id="pf-contrib">What {isSelf ? 'you have' : `@${displayHandle} has`} added</h2>
             <dl className="pf-breakdown">
               <div><dt>Past questions</dt><dd>{profile.past_questions_uploaded}</dd></div>
@@ -187,7 +189,7 @@ export default function Profile({ go, user, username }: ProfileProps) {
             {profile.materials_uploaded === 0 && (
               <p className="pf-note">
                 {isSelf
-                  ? 'Nothing filed yet. Anything you add is available to everyone on the course.'
+                  ? 'Nothing filed yet. Shared materials appear only to the audience you choose when you upload.'
                   : 'No materials filed yet.'}
               </p>
             )}
@@ -195,9 +197,11 @@ export default function Profile({ go, user, username }: ProfileProps) {
 
           {(profile.courses ?? []).length > 0 && (
             <section className="pf-section" aria-labelledby="pf-courses">
-              <p className="pf-label">Courses</p>
+              <p className="pf-label">{isKsaProgram ? 'Program focus' : 'Courses'}</p>
               <h2 className="pf-section-title" id="pf-courses">
-                {isSelf ? 'Where you work' : `Where @${displayHandle} works`}
+                {isSelf
+                  ? (isKsaProgram ? 'Where you learn' : 'Where you work')
+                  : (isKsaProgram ? `Where @${displayHandle} learns` : `Where @${displayHandle} works`)}
               </h2>
               <ul className="pf-courses">
                 {(profile.courses ?? []).map((course) => {
@@ -205,7 +209,7 @@ export default function Profile({ go, user, username }: ProfileProps) {
                   return (
                     <li className="pf-course" key={course.course_id}>
                       <div className="pf-course-id">
-                        <span className="pf-course-code">{course.code || 'Course'}</span>
+                        <span className="pf-course-code">{course.code || (isKsaProgram ? 'Program area' : 'Course')}</span>
                         {course.name && <span className="pf-course-name">{course.name}</span>}
                       </div>
                       <div className="pf-course-right">
@@ -226,8 +230,9 @@ export default function Profile({ go, user, username }: ProfileProps) {
                 })}
               </ul>
               <p className="pf-note">
-                A course mark is earned at a fixed number, so it is never taken away by
-                what anyone else files.
+                {isKsaProgram
+                  ? 'Contribution badges are based on your own verified activity and are never taken away by what anyone else files.'
+                  : 'A course mark is earned at a fixed number, so it is never taken away by what anyone else files.'}
               </p>
             </section>
           )}
