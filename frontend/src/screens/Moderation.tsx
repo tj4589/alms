@@ -42,7 +42,7 @@ type KsaClaimInspection = {
 
 type ModeratorRoleAction = 'promote' | 'demote';
 
-type ModerationProps = { go: (screen: ScreenType) => void; isGlobalAdmin: boolean };
+type ModerationProps = { go: (screen: ScreenType) => void; isGlobalAdmin: boolean; portal?: boolean };
 
 function formatDate(value?: string | null) {
   if (!value) return 'Not recorded';
@@ -66,7 +66,7 @@ function supportError(error: unknown, action: 'search' | 'release' | 'role') {
   return action === 'search' ? 'The KSA access record could not be loaded.' : 'Something went wrong. No changes were confirmed.';
 }
 
-export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
+export default function Moderation({ go, isGlobalAdmin, portal = false }: ModerationProps) {
   const [view, setView] = useState<'contributions' | 'ksa'>('contributions');
   const [queue, setQueue] = useState<Contribution[]>([]);
   const [selected, setSelected] = useState<Contribution | null>(null);
@@ -263,7 +263,7 @@ export default function Moderation({ go, isGlobalAdmin }: ModerationProps) {
           <h1>Review and support access</h1>
           <p>Approve useful resources for the academy archive and resolve academy-ID access issues without changing student ownership directly.</p>
         </div>
-        <button type="button" className="text-button" onClick={() => go('upload')}>Back to uploads</button>
+        {!portal && <button type="button" className="text-button" onClick={() => go('upload')}>Back to uploads</button>}
       </div>
 
       <div className="moderation-tabs" role="tablist" aria-label="Stewardship tools">

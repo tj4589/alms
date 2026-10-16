@@ -19,6 +19,7 @@ import './App.css';
 import './Navigation.css';
 import type {
   ChatMessage,
+  MaxeCitation,
   GlobalSearchResult,
   SearchActionContext,
   ScreenType,
@@ -55,7 +56,10 @@ const Onboarding = lazy(() => import('./screens/Onboarding'));
 const LearningSpaces = lazy(() => import('./screens/LearningSpaces'));
 const Moderation = lazy(() => import('./screens/Moderation'));
 const AdminDashboard = lazy(() => import('./screens/AdminDashboard'));
+const CollaborationReview = lazy(() => import('./screens/CollaborationReview'));
+const AdminFeedbackInbox = lazy(() => import('./components/FeedbackInbox'));
 import Logo from './components/Logo';
+import AdminAccessGate from './components/AdminAccessGate';
 import NotificationPanel from './components/NotificationPanel';
 import { getToken as readStoredToken, setToken as storeToken, clearToken as clearStoredToken } from './lib/session';
 import OfflineStatus from './components/OfflineStatus';
@@ -66,7 +70,7 @@ const Landing = lazy(() => import('./components/Landing'));
 const Privacy = lazy(() => import('./components/Privacy'));
 const FeedbackPage = lazy(() => import('./components/FeedbackPage'));
 const GroupInvite = lazy(() => import('./components/GroupInvite'));
-import { apiGet, apiPost } from './lib/api';
+import { ApiHttpError, apiGet, apiPost } from './lib/api';
 import { AUTH_REQUEST_TIMEOUT_MS } from './lib/firebaseAuth';
 import { firebaseAuth } from './lib/firebase';
 import { signOut as signOutFirebase } from 'firebase/auth';
@@ -161,7 +165,7 @@ function resolveLearningSpaceRoute(
 
 function publicViewFromPath(): PublicView {
   const path = window.location.pathname.replace(/\/+$/, '');
-  if (path === '/admin') return 'auth';
+  if (path === '/admin' || path === '/ksa' || path === '/cu') return 'auth';
   if (path === '/privacy') return 'privacy';
   if (path === '/feedback') return 'feedback';
   if (/^\/groups\/invite\/[A-Za-z0-9_-]+$/.test(path)) return 'invite';
@@ -170,6 +174,18 @@ function publicViewFromPath(): PublicView {
 
 function adminPathRequested(): boolean {
   return window.location.pathname.replace(/\/+$/, '') === '/admin';
+}
+
+function learningSpaceEntryFromPath(): 'cu' | 'ksa' | null {
+  const path = window.location.pathname.replace(/\/+$/, '');
+  return path === '/cu' ? 'cu' : path === '/ksa' ? 'ksa' : null;
+}
+
+type AdminView = 'overview' | 'moderation' | 'feedback' | 'collaboration';
+
+function adminViewFromPath(): AdminView {
+  const view = new URLSearchParams(window.location.search).get('view');
+  return view === 'moderation' || view === 'feedback' || view === 'collaboration' ? view : 'overview';
 }
 
 function inviteTokenFromPath(): string | null {
@@ -275,8 +291,11 @@ export default function App() {
     return readStoredToken();
   });
   const [publicView, setPublicView] = useState<PublicView>(publicViewFromPath);
-  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>(() => adminPathRequested() ? 'login' : 'register');
   const [user, setUser] = useState<User | null>(null);
+  const [userLoadError, setUserLoadError] = useState('');
+  const [userRefresh, setUserRefresh] = useState(0);
+  const [adminView, setAdminView] = useState<AdminView>(adminViewFromPath);
   const [learningSpaces, setLearningSpaces] = useState<LearningSpacesResponse | null>(null);
   const [learningSpacesLoading, setLearningSpacesLoading] = useState(() => Boolean(readStoredToken()));
   const [learningSpacesError, setLearningSpacesError] = useState('');
@@ -293,7 +312,7 @@ export default function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenType>(() => adminPathRequested() ? 'admin' : sharedThreadIdFromPath() ? 'collab' : 'dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
-  const [workspaceTarget, setWorkspaceTarget] = useState<{ kind: 'lecture_note' | 'past_question'; id: number } | null>(null);
+  const [workspaceTarget, setWorkspaceTarget] = useState<{ kind: 'lecture_note' | 'past_question'; id: number; citation?: MaxeCitation } | null>(null);
   const [queuedUpload, setQueuedUpload] = useState<PendingUpload | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -324,6 +343,13 @@ export default function App() {
     setCommunityContext(null);
     setSearchResult(null);
     setSubmittedResult(null);
+    ++searchSeq.current;
+    ++submittedSearchSeq.current;
+    setSearchQuery('');
+    setSearchOpen(false);
+    setSearchLoading(false);
+    setSubmittedLoading(false);
+    setSubmittedError('');
     setMaxeOpen(false);
     setNotificationsOpen(false);
   }, [privateScope, user?.id, verifiedSpaceId]);
@@ -333,23 +359,45 @@ export default function App() {
   };
 
   const refreshLearningSpaces = useCallback(async (): Promise<LearningSpacesResponse | null> => {
+    const sessionToken = readStoredToken();
     setLearningSpacesLoading(true);
     setLearningSpacesError('');
     try {
-      const data = await apiGet('/learning-spaces') as LearningSpacesResponse;
+      let data = await apiGet('/learning-spaces') as LearningSpacesResponse;
+      if (readStoredToken() !== sessionToken) return null;
+      const entry = learningSpaceEntryFromPath();
+      if (entry && data.active_space?.slug !== entry) {
+        const membership = data.memberships.find(({ space }) => space.slug === entry)?.space.membership;
+        if (membership?.status === 'active') {
+          // Explicit program/university entry, never an arbitrary membership
+          // choice. The existing backend activation route rechecks access.
+          await apiPost(`/learning-spaces/${entry}/activate`, {});
+          data = await apiGet('/learning-spaces') as LearningSpacesResponse;
+          if (data.active_space?.slug !== entry) throw new Error('The requested learning space could not be restored.');
+        } else if (entry === 'cu' || data.memberships.length > 0) {
+          throw new Error('This account does not have authorized access to the requested learning space. Use your existing program entry or contact support.');
+        }
+      }
+      if (readStoredToken() !== sessionToken) return null;
       setLearningSpaces(data);
       return data;
-    } catch {
+    } catch (failure) {
+      if (readStoredToken() !== sessionToken) return null;
       setLearningSpaces(null);
-      setLearningSpacesError('We could not load your learning spaces. Try again to continue.');
+      setLearningSpacesError(failure instanceof Error ? failure.message : 'We could not load your learning spaces. Try again to continue.');
       return null;
     } finally {
-      setLearningSpacesLoading(false);
+      if (readStoredToken() === sessionToken) setLearningSpacesLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const syncPublicPath = () => setPublicView(publicViewFromPath());
+    const syncPublicPath = () => {
+      setPublicView(publicViewFromPath());
+      setAdminView(adminViewFromPath());
+      if (adminPathRequested()) setActiveScreen('admin');
+      else setActiveScreen(current => current === 'admin' ? 'dashboard' : current);
+    };
     window.addEventListener('popstate', syncPublicPath);
     return () => window.removeEventListener('popstate', syncPublicPath);
   }, []);
@@ -366,8 +414,10 @@ export default function App() {
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [submittedResult, setSubmittedResult] = useState<GlobalSearchResult | null>(null);
   const [submittedLoading, setSubmittedLoading] = useState(false);
+  const [submittedError, setSubmittedError] = useState('');
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
+  const submittedSearchSeq = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const navCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navPointerInside = useRef(false);
@@ -465,6 +515,7 @@ export default function App() {
 
     let cancelled = false;
     setUserHydrating(true);
+    setUserLoadError('');
 
     apiGet('/auth/me', { timeoutMs: AUTH_REQUEST_TIMEOUT_MS })
       .then((data) => {
@@ -472,17 +523,21 @@ export default function App() {
         setUser(data as User);
         setUserHydrating(false);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
-        // Token is expired or invalid — force back to login
-        clearStoredToken();
         setUser(null);
-        setToken(null);
+        if (error instanceof ApiHttpError && [401, 403].includes(error.status)) {
+          clearStoredToken();
+          setToken(null);
+          setPublicView(adminPathRequested() ? 'auth' : publicViewFromPath());
+        } else {
+          setUserLoadError(error instanceof Error ? error.message : 'Your account could not be loaded. Try again.');
+        }
         setUserHydrating(false);
       });
 
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, userRefresh]);
 
   useEffect(() => {
     if (!token) return;
@@ -775,9 +830,19 @@ export default function App() {
     setSidebarOpen(false);
     setSearchOpen(false);
     setToast('');
-    if (screen === 'admin') window.history.pushState({}, '', '/admin');
+    if (screen === 'admin') {
+      setAdminView('overview');
+      window.history.pushState({}, '', '/admin');
+    }
     else if (window.location.pathname.replace(/\/+$/, '') === '/admin') window.history.pushState({}, '', '/');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const navigateAdmin = (view: AdminView) => {
+    window.history.pushState({}, '', view === 'overview' ? '/admin' : `/admin?view=${view}`);
+    setAdminView(view);
+    setActiveScreen('admin');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   const closeMaxe = useCallback(() => {
@@ -824,10 +889,10 @@ export default function App() {
       setSearchResult(data);
       setSearchOpen(true);
       return data;
-    } catch {
+    } catch (failure) {
       if (seq !== searchSeq.current) return null;
       setSearchResult(null);
-      setSearchError('Cannot reach ExamMind search. Check that the backend is running and VITE_API_BASE_URL matches the backend port.');
+      setSearchError(failure instanceof Error ? failure.message : 'Search is unavailable. Please try again.');
       setSearchOpen(true);
       return null;
     } finally {
@@ -899,12 +964,21 @@ export default function App() {
   const openSearchResults = async (rawQuery: string) => {
     const query = rawQuery.trim();
     if (!query) return;
+    const seq = ++submittedSearchSeq.current;
+    // Enter moves to full results. An earlier dropdown request/debounce must
+    // not reopen its overlay over the results and retry controls.
+    ++searchSeq.current;
+    if (searchDebounce.current) {
+      clearTimeout(searchDebounce.current);
+      searchDebounce.current = null;
+    }
 
     go('search');
     setSearchOpen(false);
     setSearchQuery(query);
     setSubmittedQuery(query);
     setSubmittedResult(null);
+    setSubmittedError('');
     setSubmittedLoading(true);
 
     try {
@@ -914,11 +988,14 @@ export default function App() {
       const data: GlobalSearchResult | null = liveMatchesQuery
         ? searchResult
         : await apiGet(`/search?q=${encodeURIComponent(query)}`) as GlobalSearchResult;
+      if (seq !== submittedSearchSeq.current) return;
       setSubmittedResult(data);
-    } catch {
+    } catch (failure) {
+      if (seq !== submittedSearchSeq.current) return;
       setSubmittedResult(null);
+      setSubmittedError(failure instanceof Error ? failure.message : 'Search is unavailable. Please try again.');
     } finally {
-      setSubmittedLoading(false);
+      if (seq === submittedSearchSeq.current) setSubmittedLoading(false);
     }
   };
 
@@ -1003,6 +1080,21 @@ export default function App() {
   }
 
   if (userHydrating || !user) {
+    if (userLoadError) {
+      return (
+        <div className="account-bootstrap" role="alert">
+          <div className="account-bootstrap-card">
+            <div className="account-bootstrap-mark"><Logo size={30} /></div>
+            <h1>Your account could not be loaded.</h1>
+            <p>{userLoadError}</p>
+            <div className="account-bootstrap-actions">
+              <button type="button" className="account-bootstrap-action account-bootstrap-action-primary" onClick={() => setUserRefresh(value => value + 1)}>Try again</button>
+              <button type="button" className="account-bootstrap-action" onClick={handleLogout}>Sign out</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="account-bootstrap" role="status" aria-live="polite">
         <div className="account-bootstrap-card">
@@ -1012,6 +1104,45 @@ export default function App() {
           <p>We’re bringing your profile and study space back. This should only take a moment.</p>
           <span className="account-bootstrap-loader" aria-hidden="true" />
         </div>
+      </div>
+    );
+  }
+
+  const hasAdminPortalAccess = user.admin_portal_access === true;
+  if (adminPathRequested()) {
+    if (!hasAdminPortalAccess) {
+      return (
+        <AdminAccessGate
+          onReturnToWorkspace={() => go('dashboard')}
+          onUseAnotherAccount={() => {
+            handleLogout();
+            setAuthInitialMode('login');
+            setPublicView('auth');
+          }}
+        />
+      );
+    }
+
+    return (
+      <div className="admin-portal-route">
+        <header className="admin-portal-route-bar">
+          <div className="admin-portal-route-brand" aria-label="ExamMind admin portal"><Logo size={23} /><span>Exam<span>Mind.</span> Admin</span></div>
+          <div className="admin-portal-route-actions">
+            {adminView !== 'overview' && <button type="button" className="admin-portal-route-back" onClick={() => navigateAdmin('overview')}>Admin overview</button>}
+            <button type="button" className="admin-portal-route-back" onClick={() => go('dashboard')}>Return to workspace</button>
+            <button type="button" className="admin-portal-route-back" onClick={() => { handleLogout(); setPublicView('auth'); }}>Sign out</button>
+          </div>
+        </header>
+        <LazyRoute>
+          {adminView === 'overview' && <AdminDashboard user={user} onReviewCollaboration={() => navigateAdmin('collaboration')} go={screen => {
+            if (screen === 'moderation') navigateAdmin('moderation');
+            else if (screen === 'settings') navigateAdmin('feedback');
+            else go(screen);
+          }} />}
+          {adminView === 'moderation' && <Moderation go={go} isGlobalAdmin portal />}
+          {adminView === 'collaboration' && <main className="admin-portal-content"><CollaborationReview /></main>}
+          {adminView === 'feedback' && <main className="admin-portal-content"><AdminFeedbackInbox /></main>}
+        </LazyRoute>
       </div>
     );
   }
@@ -1115,7 +1246,6 @@ export default function App() {
       : null;
   const isMobileMoreActive = !MOBILE_NAV_ITEMS.some((item) => item.screen === activeScreen);
   const activeSpaceRole = learningSpaces?.active_space?.membership?.role;
-  const hasAdminPortalAccess = user?.admin_portal_access === true;
   const canModerate = hasAdminPortalAccess || ['owner', 'admin', 'moderator'].includes(activeSpaceRole || '');
   const visibleNavGroups = NAV_GROUPS
     .map(group => ({ ...group, items: group.items.filter(item => (item.screen !== 'moderation' || canModerate) && (item.screen !== 'admin' || hasAdminPortalAccess)) }))
@@ -1405,25 +1535,13 @@ export default function App() {
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'workspace' && <Workspace go={go} initialResource={workspaceTarget} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
         {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={hasAdminPortalAccess} />}
-        {activeScreen === 'admin' && hasAdminPortalAccess && <AdminDashboard go={go} user={user} />}
-        {activeScreen === 'admin' && !hasAdminPortalAccess && (
-          <div className="account-bootstrap" role="alert">
-            <div className="account-bootstrap-card">
-              <div className="account-bootstrap-mark"><Logo size={30} /></div>
-              <p className="account-bootstrap-kicker">EXAMMIND / ADMIN DESK</p>
-              <h1>Admin access is not available.</h1>
-              <p>This account is signed in, but it is not registered for the global admin portal. KSA membership does not grant global admin access.</p>
-              <div className="account-bootstrap-actions">
-                <button type="button" className="account-bootstrap-action account-bootstrap-action-primary" onClick={() => go('dashboard')}>Return to my desk</button>
-              </div>
-            </div>
-          </div>
-        )}
         {activeScreen === 'search' && (
           <SearchResults
             query={submittedQuery}
             result={submittedResult}
             loading={submittedLoading}
+            error={submittedError}
+            onRetry={() => { void openSearchResults(submittedQuery); }}
             onAskAI={askAIFromSearch}
             onUpload={() => go('upload')}
             onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }}
@@ -1446,6 +1564,14 @@ export default function App() {
             onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }}
             onClose={closeMaxe}
             user={user}
+            onCitationClick={(citation) => {
+              const id = citation.target?.resource_id || citation.resource_id || citation.material_id;
+              const type = citation.target?.resource_type || citation.resource_type || citation.material_type;
+              if (!id || !['lecture_note', 'past_question', 'audio', 'video'].includes(type || '')) return;
+              setWorkspaceTarget({kind:type === 'past_question' ? 'past_question' : 'lecture_note', id, citation});
+              closeMaxe();
+              go('workspace');
+            }}
           />
         </LazyRoute>
       )}

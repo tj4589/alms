@@ -76,6 +76,24 @@ def ksa_learning_preferences(user: models.User | None) -> dict[str, str]:
     return result
 
 
+def learner_prompt_preferences(db: Session, user: models.User) -> dict[str, str]:
+    """Use only this learner's explicit choices, without creating evidence.
+
+    A later Progress choice overrides the onboarding explanation default.
+    Inferred preferences are not silently treated as explicit instructions.
+    """
+    result = ksa_learning_preferences(user)
+    profile = db.query(models.LearningProfile).filter(models.LearningProfile.user_id == user.id).first()
+    explicit = profile.explicit_preferences if profile and isinstance(profile.explicit_preferences, dict) else {}
+    explanation = explicit.get("explanation_preference", {})
+    if isinstance(explanation, dict) and explanation.get("value") in {"concise", "step_by_step", "examples", "exam_style"}:
+        result["explanation_style"] = explanation["value"]
+    preferred_format = explicit.get("preferred_learning_format", {})
+    if isinstance(preferred_format, dict) and preferred_format.get("value") in {"multiple_choice", "short_answer", "mixed"}:
+        result["preferred_learning_format"] = preferred_format["value"]
+    return result
+
+
 def _metadata(row: Any) -> dict[str, Any]:
     value = getattr(row, "metadata_json", None)
     return value if isinstance(value, dict) else {}

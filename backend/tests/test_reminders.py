@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
@@ -20,6 +21,8 @@ from reminders import (  # noqa: E402
     subscribe_user,
     sync_legacy_notification_consent,
     unsubscribe_user,
+    BrowserPushReminderSender,
+    ReminderProviderUnavailable,
 )
 from routers.reminders import ReminderSubscriptionRequest  # noqa: E402
 
@@ -203,6 +206,74 @@ class ReminderTests(unittest.TestCase):
                 p256dh="public-key",
                 auth_key="auth-key",
             )
+
+    def test_push_rejects_internal_and_malformed_destinations_before_persistence(self) -> None:
+        for endpoint in ("https://127.0.0.1/private", "https://[::1]/private", "https://localhost/x",
+                         "https://worker.internal/x", "https://user:password@push.example.test/x",
+                         "https:///missing-host", "https://push.example.test:8443/x",
+                         "https://push.example.test/x#secret"):
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaises(ValueError):
+                    ReminderSubscriptionRequest(channel="browser_push", endpoint=endpoint)
+                with self.assertRaises(ValueError):
+                    subscribe_user(self.session, self.user, channel="browser_push", endpoint=endpoint,
+                                   p256dh="public-key", auth_key="auth-key")
+        self.assertEqual(self.session.query(models.ReminderSubscription).count(), 0)
+
+
+class PushDeliverySafetyTests(unittest.TestCase):
+    def setUp(self):
+        config = patch.dict(os.environ, {
+            "REMINDER_PUSH_VAPID_PUBLIC_KEY": "fixture-public", "REMINDER_PUSH_VAPID_PRIVATE_KEY": "fixture-private",
+            "REMINDER_PUSH_VAPID_SUBJECT": "mailto:operator@example.test",
+            "REMINDER_PUSH_ALLOWED_HOSTS": " PUSH.EXAMPLE.TEST ", "REMINDER_PROVIDER_TIMEOUT_SECONDS": "7",
+        })
+        config.start()
+        self.addCleanup(config.stop)
+        self.webpush = MagicMock(return_value=SimpleNamespace(status_code=201, headers={"x-message-id": "fixture-result"}))
+        module = patch.dict(sys.modules, {"pywebpush": SimpleNamespace(webpush=self.webpush)})
+        module.start()
+        self.addCleanup(module.stop)
+        self.subscription = SimpleNamespace(endpoint="https://push.example.test/fixture", p256dh="fixture-p256dh", auth_key="fixture-auth")
+
+    def send(self, sender):
+        return sender.send(None, self.subscription, subject="Study", body="Fixture only", idempotency_key="period-1")
+
+    def test_sending_requires_exact_configured_service_host_and_bounds_timeout(self):
+        sender = BrowserPushReminderSender()
+        self.assertEqual(self.send(sender), "fixture-result")
+        self.assertEqual(self.webpush.call_args.kwargs["timeout"], 7)
+        self.subscription.endpoint = "https://push.example.test.attacker.test/fixture"
+        self.webpush.reset_mock()
+        with self.assertRaisesRegex(ReminderProviderUnavailable, "^push_destination_denied$"):
+            self.send(sender)
+        self.webpush.assert_not_called()
+        with patch.dict(os.environ, {"REMINDER_PROVIDER_TIMEOUT_SECONDS": "999"}):
+            self.assertEqual(BrowserPushReminderSender().timeout, 60)
+        with patch.dict(os.environ, {"REMINDER_PROVIDER_TIMEOUT_SECONDS": "invalid"}):
+            self.assertEqual(BrowserPushReminderSender().timeout, 10)
+
+    def test_unconfigured_destinations_fail_closed(self):
+        with patch.dict(os.environ, {"REMINDER_PUSH_ALLOWED_HOSTS": ""}):
+            with self.assertRaisesRegex(ReminderProviderUnavailable, "^push_destinations_unconfigured$"):
+                BrowserPushReminderSender()
+        self.webpush.assert_not_called()
+
+    def test_redirects_are_not_followed_and_cannot_report_success(self):
+        self.webpush.side_effect = lambda **kwargs: kwargs["requests_session"].post(self.subscription.endpoint)
+        with patch("requests.Session.request", return_value=SimpleNamespace(status_code=302, headers={})) as request:
+            with self.assertRaisesRegex(ReminderProviderUnavailable, "^push_destination_denied$"):
+                self.send(BrowserPushReminderSender())
+        self.assertFalse(request.call_args.kwargs["allow_redirects"])
+
+    def test_timeouts_and_malformed_provider_results_are_safe(self):
+        self.webpush.side_effect = TimeoutError("SENSITIVE_PROVIDER_RESPONSE fixture-private")
+        with self.assertRaisesRegex(ReminderProviderUnavailable, "^push_provider_failed$"):
+            self.send(BrowserPushReminderSender())
+        self.webpush.side_effect = None
+        self.webpush.return_value = None
+        with self.assertRaisesRegex(ReminderProviderUnavailable, "^push_provider_failed$"):
+            self.send(BrowserPushReminderSender())
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from public_schemas import (
     public_material_metadata,
 )
 from storage_safety import defer_binary_column
+from collaboration_access import collaboration_filter
 
 router = APIRouter(tags=["search"])
 
@@ -208,6 +209,7 @@ def smart_search(
     thread_rows = (
         db.query(models.DiscussionThread)
         .filter(_thread_filter(terms))
+        .filter(collaboration_filter(db, models.DiscussionThread, current_user))
         .order_by(models.DiscussionThread.created_at.desc())
         .limit(5)
         .all()
@@ -243,6 +245,7 @@ def smart_search(
     sg_rows = (
         db.query(models.StudyGroup)
         .filter(_study_group_filter(terms))
+        .filter(collaboration_filter(db, models.StudyGroup, current_user))
         .order_by(models.StudyGroup.created_at.desc())
         .limit(4)
         .all()
@@ -294,6 +297,7 @@ def smart_search(
         .filter(
             models.StudySession.status == "active",
             _study_session_filter(terms),
+            collaboration_filter(db, models.StudySession, current_user),
         )
         .order_by(models.StudySession.created_at.desc())
         .limit(4)
@@ -409,7 +413,12 @@ def _metadata_context(db: Session, current_user: models.User | None = None) -> l
         context.append({"title": note.title, "topic": note.topic, **(note.metadata_json or {})})
     for pq in past_query.order_by(models.PastQuestion.created_at.desc()).limit(120).all():
         context.append({"content": (pq.content_text or "")[:180], **(pq.metadata_json or {})})
-    for thread in db.query(models.DiscussionThread).order_by(models.DiscussionThread.created_at.desc()).limit(80).all():
+    thread_query = db.query(models.DiscussionThread)
+    if current_user is not None:
+        thread_query = thread_query.filter(collaboration_filter(db, models.DiscussionThread, current_user))
+    else:
+        thread_query = thread_query.filter(False)
+    for thread in thread_query.order_by(models.DiscussionThread.created_at.desc()).limit(80).all():
         context.append({"title": thread.title})
     return context
 

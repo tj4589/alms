@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle, MessageCircle, ShieldCheck } from 'lucide-react';
 import { apiPost } from '../lib/api';
 import type { LearningSpace, LearningSpacesResponse } from '../types';
@@ -18,6 +18,7 @@ export default function LearningSpaces({ spaces, onOpenFeedback, onRefresh, onKs
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [earlyAccessStatus, setEarlyAccessStatus] = useState<'idle' | 'saving' | 'requested'>('idle');
+  const earlyAccessPending = useRef(false);
   const [firstAccessStage, setFirstAccessStage] = useState<'decision' | 'claim' | 'early_access'>('decision');
 
   const ksaSpace = spaces?.available_spaces.find(space => space.slug === 'ksa') || null;
@@ -64,6 +65,8 @@ export default function LearningSpaces({ spaces, onOpenFeedback, onRefresh, onKs
   };
 
   const requestEarlyAccess = async () => {
+    if (earlyAccessPending.current || earlyAccessStatus === 'requested') return;
+    earlyAccessPending.current = true;
     setBusy('early-access');
     setError('');
     try {
@@ -72,6 +75,7 @@ export default function LearningSpaces({ spaces, onOpenFeedback, onRefresh, onKs
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'We could not save your access request. Please try again.');
     } finally {
+      earlyAccessPending.current = false;
       setBusy('');
     }
   };

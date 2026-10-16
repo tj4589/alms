@@ -83,7 +83,7 @@ The current stack is:
 | Collaboration | `backend/routers/collaboration.py`, `backend/routers/community.py`, `backend/routers/mvp.py` | Materials, groups, discussions, rooms, contributions, share links and exports |
 | Schemas | `backend/schemas.py` and router-local DTOs | Explicit public response contracts; do not serialize ORM objects directly |
 | Data model | `backend/models.py` | SQLAlchemy models and ownership/foreign-key relationships |
-| Migrations | `backend/alembic/versions/` | Versioned schema history; current chain is 0001 through 0005 |
+| Migrations | `backend/alembic/versions/` | Versioned schema history; local chain is 0001 through 0006 |
 | Validation | `backend/tests/`, `scripts/`, `docs/` | Unit/integration fixtures, browser fixtures, migration checks and evidence |
 
 The frontend has no conventional client-side route table for authenticated
@@ -100,6 +100,7 @@ The versioned chain in `backend/alembic/versions/` is:
 3. `0003_learning_space_role_audit`
 4. `0004_rate_limit_buckets`
 5. `0005_reminder_delivery`
+6. `0006_collaboration_space` (not yet validated on a disposable PostgreSQL database)
 
 The API Docker command in `backend/Dockerfile` runs Alembic before Uvicorn
 binds. A migration failure must prevent the instance from serving; never bypass
@@ -144,6 +145,9 @@ Important sources:
   evidence, not as a substitute for rerunning a required check.
 - `docs/frontend-functionality-audit.md`: current frontend/backend evidence
   table and unresolved KSA onboarding findings.
+- `docs/project-integrity-review.md`: 2026-10-09 implementation/evidence update,
+  admin fixes and reproduced collaboration space-isolation blocker. Its current
+  findings supersede older browser-pending claims for the flows it verifies.
 - `DEPLOY.md` and `render.yaml`: deployment commands, environment declarations,
   health/readiness, provider configuration and migration sequencing.
 - `design-system/exammind/MASTER.md` and `DESIGN.md`: visual language,
@@ -223,17 +227,20 @@ Known frontend/product gaps from `docs/frontend-functionality-audit.md`:
   and bridges to consented email reminders. Owner-scoped browser-push
   subscriptions, unsubscribe routes, delivery tracking and mocked dispatch
   tests exist; cadence, provider activation, worker scheduling and browser
-  permission verification remain open.
+  permission verification against a real push service remain open. Mocked
+  desktop/mobile consent, subscription and opt-out interactions now pass.
 - KSA goals, help topics and explanation preference are now bounded inputs to
-  Maxe context and unscoped quiz topic focus. Their behavior remains
-  `IMPLEMENTED BUT UNVERIFIED` until the isolated student flow demonstrates
-  observable effects.
+  Maxe context and unscoped quiz topic focus. Bounded context consumers and
+  isolated preference save/reload and practice-format behavior are verified
+  locally; live provider personalization is not established.
 - KSA onboarding preferences can be edited later through the permission-aware
   `PUT /learning-spaces/ksa/preferences` path when the user has active KSA
-  membership. Browser save/reload evidence remains outstanding.
+  membership. Isolated desktop/mobile save/reload, failure/retry and edit
+  cancellation are verified in `scripts/check_student_integrity_playwright.mjs`.
 - Maxe related-question retrieval now uses the authorized
-  `GET /rag/related-questions` path; isolated browser verification remains
-  outstanding.
+  `GET /rag/related-questions` path. The action is visible in global/Reader
+  Maxe and isolated retrieval/rendering is verified. Global source citations
+  open the authorized Reader rather than remaining disabled.
 - Video upload/transcription is implemented locally for MP4, MOV and
   video/WebM containers: the original is retained, bounded FFmpeg extraction
   feeds the timestamped transcription path, and Reader/search/Maxe reuse the
@@ -248,8 +255,15 @@ Known frontend/product gaps from `docs/frontend-functionality-audit.md`:
 - The local CDP browser runner can be blocked at `Page.enable` by Chrome GPU
   startup. Isolated Playwright is an approved fallback for local fixture checks;
   browser fixtures are never live production evidence.
+- The user approved restricting ambiguous legacy groups, discussions and
+  reading rooms for global-admin review. Local revision 0006 adds nullable
+  ownership and an audited assignment path; existing rows stay unassigned.
+  Student access now requires the authorized active space. PostgreSQL migration
+  rehearsal and integrated browser checks remain prerequisites before claiming
+  the collaboration repair is deployment ready. Never infer historical space
+  ownership from a creator's current membership.
 
-The uncommitted health-panel changes are operational UI only. `/health` proves
+The health-panel changes are operational UI only. `/health` proves
 process health; `/health/ready` reports a redacted database readiness result.
 Neither endpoint proves authentication, workspace authorization, uploads,
 Maxe, practice, sharing or any other student workflow.
@@ -296,6 +310,12 @@ validation. CU eligibility belongs in CU membership/access logic.
 - `User.role == "admin"` is the global admin boundary.
 - The configured `ADMIN_PORTAL_EMAILS` list is an additional admin-portal gate;
   real addresses belong only in deployment secrets/configuration.
+- Global material-management overrides must reuse `has_admin_portal_access`,
+  not a raw role check. Approved global admins can study with the same
+  identity, but student routes still require their applicable membership,
+  active-space and resource permissions. No implicit enrollment or CU bypass.
+- `/admin` is a standalone identity-gated route, including its moderation and
+  feedback child views; denied accounts must not mount dashboard content.
 - `LearningSpaceMembership.role` is scoped to that learning space. KSA
   moderator/owner/admin permissions do not become global permissions.
 - KSA claim administration and controlled role changes require the shared
@@ -373,6 +393,10 @@ use another user’s private material.
 - Missing provider configuration, network failure, timeout, rate limit,
   authentication failure, malformed response and provider-server failure must
   produce a safe unavailable/error state, not false success.
+- Browser-push delivery requires exact `REMINDER_PUSH_ALLOWED_HOSTS` service
+  hosts, bounded provider waits and no redirects. Arbitrary HTTPS URLs are not
+  trusted destinations. Empty destination configuration fails closed and does
+  not activate reminder dispatch. See `backend/reminders.py` and `DEPLOY.md`.
 - Audio source bytes remain retained when transcription fails. Timestamp
   segments must be validated before storage or click-through.
 - Upload limits are server-side. Validate size, supported type and content
@@ -598,12 +622,14 @@ the exact evidence. Treat live deployment status separately.
 
 ### Known defects and incomplete promises
 
-The authoritative current list is `docs/frontend-functionality-audit.md`.
-KSA preference editing, preference-aware Maxe/practice focus, authorized
-related-question retrieval and persisted early-access requests now exist in
-source, but remain `IMPLEMENTED BUT UNVERIFIED` until the isolated student
-browser flow and integration evidence are completed. Reminder delivery,
-  independently evidenced handwriting OCR remains incomplete or blocked.
+The current list is `docs/project-integrity-review.md`, supplementing the
+historical `docs/frontend-functionality-audit.md`. KSA preference editing,
+bounded preference consumers, related-question retrieval and early-access
+requests have focused tests and isolated desktop/mobile evidence. Real
+reminder delivery, representative handwriting OCR and complete live workflow
+evidence remain blocked/unverified. Collaboration space isolation has a local
+implementation under the approved restricted-review policy, but its migration
+and integrated student flows still require validation before deployment.
 
 ### Explicitly approved next work
 
@@ -638,7 +664,7 @@ separate decision before code changes:
    handwriting remain outstanding.
 3. Historical proposals superseded: KSA preference editing, related-question
    retrieval and persisted early-access requests are implemented locally;
-   browser verification remains.
+   isolated student browser verification now passes. Live execution is separate.
 4. Run the complete isolated student browser workflow before calling the
    frontend launch-ready.
 
@@ -646,8 +672,9 @@ The older items in this list proposing a KSA preference editor, related-
 question route and persisted early-access decision are historical proposals
 and are superseded by the current Batch 2 implementation. They must not be
 treated as missing authorization or active defects. The remaining active
-decision is the reminder cadence/trigger and provider/worker activation; the remaining evidence work covers
-  browser verification and handwriting OCR.
+decisions include reminder cadence/provider/worker activation and safe legacy
+PostgreSQL validation of the approved restricted-review implementation. Remaining evidence includes representative
+OCR/media, unexercised collaboration controls and authorized live workflows.
 
 Do not automatically advance stabilization phases or start broader roadmap work
 because a prior phase is committed. If a current user instruction later

@@ -1,5 +1,26 @@
 # ExamMind frontend-to-backend functionality audit
 
+## Current evidence update — 2026-10-09
+
+The dated report in `docs/project-integrity-review.md` supersedes the older
+browser-pending and launch-blocker statuses below wherever it establishes new
+evidence. It records the full local command results, confirmed admin/security
+fixes, KSA preference save/reload and consumers, visible related questions,
+early-access duplicate prevention, Reader/Maxe/practice/sharing/export fixtures
+and public live GET results. These are not authenticated production evidence.
+
+The new high-priority blocker is missing durable CU/KSA ownership on groups,
+discussions and reading rooms: a network-blocked disposable query diagnostic
+reproduces cross-space listing and group joining. Safe legacy attribution and
+isolated PostgreSQL migration/access validation need a decision/environment;
+no arbitrary mapping or migration was implemented.
+
+Reminder consent/subscription/unsubscribe/tracking and mocked browser delivery
+boundaries are verified locally; an approved cadence, providers and worker
+activation remain open. Genuine handwriting quality and a complete live
+workflow remain unverified. Historical findings retained below must not be
+treated as simultaneously current missing features.
+
 Status: source audit plus bounded Batch 1/2 implementation update completed
 locally; no production writes, configuration changes, commit, push or
 deployment were performed. Current implementation status is recorded below;

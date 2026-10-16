@@ -532,7 +532,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 def require_role(required_role: str):
     def role_checker(current_user: models.User = Depends(get_current_user)):
-        if required_role == "student" and current_user.role != "student":
+        # An approved global admin may study using the same verified identity.
+        # Individual routes still enforce membership, ownership and active space.
+        if required_role == "student" and current_user.role != "student" and not has_admin_portal_access(current_user):
             raise HTTPException(status_code=403, detail="Authenticated student access is required.")
         return current_user
     return role_checker

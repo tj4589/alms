@@ -1,0 +1,164 @@
+.admin-access-page {
+  position: relative;
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 88px 24px 40px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(232, 162, 58, .08), transparent 24rem),
+    var(--bg);
+  color: var(--text);
+}
+
+.admin-access-brand {
+  position: absolute;
+  inset-block-start: 26px;
+  inset-inline-start: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.03em;
+}
+
+.admin-access-brand > span > span { color: var(--gold); }
+
+.admin-access-card {
+  width: min(100%, 480px);
+  padding: clamp(38px, 7vw, 58px) clamp(26px, 7vw, 52px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 28px 72px rgba(37, 43, 36, .12);
+  text-align: center;
+}
+
+.admin-access-icon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 24px;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--gold2);
+  color: var(--gold);
+}
+
+.admin-access-card h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(38px, 8vw, 52px);
+  font-weight: 400;
+  letter-spacing: -.035em;
+  line-height: 1;
+}
+
+.admin-access-card p {
+  max-width: 36ch;
+  margin: 18px auto 30px;
+  color: var(--text2);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.admin-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.admin-access-actions button {
+  min-height: 44px;
+  padding: 0 17px;
+  border-radius: 9px;
+  cursor: pointer;
+  font: 650 13px var(--font);
+  transition: background-color .16s, border-color .16s, color .16s, transform .16s;
+}
+
+.admin-access-actions button:active { transform: translateY(1px); }
+.admin-access-actions button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
+.admin-access-primary {
+  border: 1px solid var(--brand-word);
+  background: var(--brand-word);
+  color: var(--surface);
+}
+
+.admin-access-primary:hover { filter: brightness(1.05); }
+
+.admin-access-secondary {
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+}
+
+.admin-access-secondary:hover {
+  border-color: var(--gold);
+  color: var(--text);
+}
+
+.admin-portal-route {
+  min-height: 100dvh;
+  background: var(--bg);
+}
+
+.admin-portal-route-bar {
+  display: flex;
+  position: sticky;
+  z-index: 20;
+  inset-block-start: 0;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 0 clamp(18px, 4vw, 42px);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+}
+
+.admin-portal-route-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.admin-portal-route-brand > span > span { color: var(--gold); }
+
+.admin-portal-route-back {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text2);
+  cursor: pointer;
+  font: 650 12px var(--font);
+}
+
+.admin-portal-route-back:hover { border-color: var(--gold); color: var(--text); }
+.admin-portal-route-back:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
+.admin-portal-route-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.admin-portal-content { max-width: 1180px; margin: 0 auto; padding: 28px clamp(18px, 4vw, 42px); }
+.admin-portal-content .feedback-inbox { margin: 0 auto; }
+
+@media (max-width: 560px) {
+  .admin-access-page { padding: 82px 16px 28px; }
+  .admin-access-brand { inset-block-start: 22px; inset-inline-start: 20px; }
+  .admin-access-card { padding-inline: 24px; }
+  .admin-access-actions, .admin-access-actions button { width: 100%; }
+  .admin-portal-route-bar { min-height: 58px; flex-wrap: wrap; gap: 12px; padding-block: 12px; }
+  .admin-portal-route-actions { width: 100%; justify-content: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-access-actions button { transition: none; }
+}

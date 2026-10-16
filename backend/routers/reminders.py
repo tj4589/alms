@@ -14,6 +14,7 @@ from reminders import (
     reminder_settings_payload,
     subscribe_user,
     unsubscribe_user,
+    validate_push_endpoint,
 )
 
 router = APIRouter(prefix="/reminders", tags=["reminders"])
@@ -30,9 +31,7 @@ class ReminderSubscriptionRequest(BaseModel):
     @field_validator("endpoint")
     @classmethod
     def validate_endpoint(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip().lower().startswith("https://"):
-            raise ValueError("Browser push endpoints must use HTTPS.")
-        return value.strip() if value else value
+        return validate_push_endpoint(value) if value is not None else None
 
 
 def _student(current_user: models.User = Depends(auth.require_role("student"))) -> models.User:

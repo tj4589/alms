@@ -343,7 +343,7 @@ def delete_uploaded_document(
     # Student uploads are retained by policy. Keep the destructive path
     # available only to administrators; do this before any lookup so a
     # student cannot infer whether a material exists from the response.
-    if current_user.role != "admin":
+    if not auth.has_admin_portal_access(current_user):
         _audit_material_deletion(
             current_user,
             action="delete_material",
@@ -412,7 +412,7 @@ def clear_uploaded_materials(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    if current_user.role != "admin":
+    if not auth.has_admin_portal_access(current_user):
         _audit_material_deletion(
             current_user,
             action="clear_materials",
@@ -2984,7 +2984,7 @@ def _metadata_matches(metadata: Optional[Dict[str, Any]], source_file: str = "",
 def _authorized_material_query(db: Session, model: Any, current_user: models.User, owner_id: int | None = None):
     """Build the material query with the ownership boundary applied in SQL."""
     query = defer_binary_column(db.query(model), model)
-    if current_user.role == "admin":
+    if auth.has_admin_portal_access(current_user):
         if owner_id is not None:
             query = query.filter(model.uploaded_by == owner_id)
     else:

@@ -204,7 +204,7 @@ def restart_onboarding(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    if current_user.role != "admin" and not _development_environment():
+    if not auth.has_admin_portal_access(current_user) and not _development_environment():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Onboarding restart is not available.")
     current_user.onboarding_state = "pending"
     current_user.onboarding_completed = False

@@ -1191,6 +1191,8 @@ export default function Assistant({
   const [relatedQuestions, setRelatedQuestions] = useState<RelatedQuestion[]>([]);
   const [relatedQuestionsLoading, setRelatedQuestionsLoading] = useState(false);
   const [relatedQuestionsError, setRelatedQuestionsError] = useState('');
+  const [relatedQuestionsLoaded, setRelatedQuestionsLoaded] = useState(false);
+  const relatedRequest = useRef({pending:false, sequence:0});
   const msgsEndRef = useRef<HTMLDivElement>(null);
   const lastAutoSubmittedRef = useRef('');
   const conversationStateRef = useRef<ConversationState>({
@@ -1204,21 +1206,38 @@ export default function Assistant({
     [messages],
   );
 
+  useEffect(() => {
+    relatedRequest.current = {pending:false, sequence:relatedRequest.current.sequence + 1};
+    setRelatedQuestions([]);
+    setRelatedQuestionsError('');
+    setRelatedQuestionsLoaded(false);
+    setRelatedQuestionsLoading(false);
+  }, [latestStudyAssistant?.id]);
+
   const loadRelatedQuestions = useCallback(async () => {
+    if (relatedRequest.current.pending) return;
     const question = lastRagContext?.lastQuestion || latestStudyAssistant?.understanding?.interpreted_topic || '';
     if (!question.trim()) {
       setRelatedQuestionsError('Ask a study question first so ExamMind can find related past questions.');
       return;
     }
     setRelatedQuestionsLoading(true);
+    relatedRequest.current.pending = true;
+    const sequence = relatedRequest.current.sequence;
     setRelatedQuestionsError('');
     try {
       const result = await apiGet(`/rag/related-questions?q=${encodeURIComponent(question)}`);
+      if (sequence !== relatedRequest.current.sequence) return;
       setRelatedQuestions(Array.isArray(result) ? result as RelatedQuestion[] : []);
+      setRelatedQuestionsLoaded(true);
     } catch (error) {
+      if (sequence !== relatedRequest.current.sequence) return;
       setRelatedQuestionsError(error instanceof Error ? error.message : 'Related questions could not be loaded.');
     } finally {
-      setRelatedQuestionsLoading(false);
+      if (sequence === relatedRequest.current.sequence) {
+        relatedRequest.current.pending = false;
+        setRelatedQuestionsLoading(false);
+      }
     }
   }, [lastRagContext?.lastQuestion, latestStudyAssistant?.understanding?.interpreted_topic]);
 
@@ -1680,6 +1699,16 @@ export default function Assistant({
             ))}
 
             {thinkingPhase !== 'idle' && <ThinkingBubble text={PHASE_TEXT[thinkingPhase]} />}
+            {latestStudyAssistant && <section className="assistant-related-actions" aria-label="Related past questions">
+              <button type="button" className="cta cta-ghost" onClick={() => void loadRelatedQuestions()} disabled={loading || relatedQuestionsLoading}>
+                {relatedQuestionsLoading ? 'Finding related questions…' : 'View related questions'}
+              </button>
+              {relatedQuestionsError && <p className="assistant-related-error" role="alert">{relatedQuestionsError}</p>}
+              {relatedQuestions.length > 0 && <div className="assistant-related-list">
+                {relatedQuestions.map(item => <article className="assistant-related-item" key={item.id}><strong>{item.title}</strong><p>{item.preview || 'Authorized past-question source'}</p><small>{item.citation?.label || item.citation?.source || 'Verified source'}</small></article>)}
+              </div>}
+              {relatedQuestionsLoaded && !relatedQuestionsLoading && !relatedQuestionsError && relatedQuestions.length === 0 && <p className="assistant-related-empty">No related past questions were found in your authorized workspace.</p>}
+            </section>}
             <div ref={msgsEndRef} />
           </div>
 
@@ -1772,16 +1801,6 @@ export default function Assistant({
                   : 'Sources appear here after you ask a study question that searches uploaded material.'}
               </div>
             )}
-            <div className="assistant-source-action">
-              <button className="cta cta-ghost" onClick={() => void loadRelatedQuestions()} disabled={relatedQuestionsLoading}>
-                {relatedQuestionsLoading ? 'Finding related questions…' : 'View related questions'}
-              </button>
-            </div>
-            {relatedQuestionsError && <p className="assistant-related-error" role="alert">{relatedQuestionsError}</p>}
-            {relatedQuestions.length > 0 && <div className="assistant-related-list" aria-label="Related past questions">
-              {relatedQuestions.map(item => <article className="assistant-related-item" key={item.id}><strong>{item.title}</strong><p>{item.preview || 'Authorized past-question source'}</p><small>{item.citation?.label || item.citation?.source || 'Verified source'}</small></article>)}
-            </div>}
-            {!relatedQuestionsLoading && !relatedQuestionsError && relatedQuestions.length === 0 && lastRagContext && <p className="assistant-related-empty">No related past questions were found in your authorized workspace.</p>}
           </div>
         </div>
       </div>

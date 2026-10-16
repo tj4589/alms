@@ -204,6 +204,19 @@ class LearningSpaceRoleAudit(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
 
 
+class CollaborationSpaceAudit(Base):
+    __tablename__ = "collaboration_space_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    content_type = Column(String(16), nullable=False)
+    content_id = Column(Integer, nullable=False)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id", ondelete="RESTRICT"), nullable=False, index=True)
+    performed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    __table_args__ = (UniqueConstraint("content_type", "content_id", name="uq_collaboration_space_assignment"),)
+
+
 class DeletedFirebaseIdentity(Base):
     """A tombstone that prevents a partial Firebase deletion from recreating an account."""
 
@@ -506,6 +519,7 @@ class DiscussionThread(Base):
     __tablename__ = "discussion_threads"
 
     id = Column(Integer, primary_key=True, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id", ondelete="RESTRICT"), nullable=True, index=True)
     title = Column(String, index=True)
     content = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -538,6 +552,7 @@ class StudyGroup(Base):
     __tablename__ = "study_groups"
 
     id = Column(Integer, primary_key=True, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id", ondelete="RESTRICT"), nullable=True, index=True)
     name = Column(String, index=True)
     description = Column(Text, nullable=True)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
@@ -748,6 +763,7 @@ class StudySession(Base):
     __tablename__ = "study_sessions"
 
     id = Column(Integer, primary_key=True, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id", ondelete="RESTRICT"), nullable=True, index=True)
     title = Column(String, index=True)
     description = Column(Text, nullable=True)
     purpose = Column(Text, nullable=True)

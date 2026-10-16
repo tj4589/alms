@@ -1,7 +1,19 @@
 # Frontend functionality implementation checklist
 
-Status: active product-direction checklist, created 2026-10-07. Work remains
-uncommitted and must preserve unrelated changes in the working tree.
+Status: active product-direction checklist, created 2026-10-07. Preserve
+unrelated changes in the working tree.
+
+2026-10-09 evidence update: see `docs/project-integrity-review.md` for the
+314-test provider-isolated suite and independently run browser fixtures. Source
+and mocked browser coverage are separate from live provider/deployment proof.
+2026-10-16 continuation: local migration 0006 and route guards
+provide durable ownership for groups, discussions and rooms. The approved
+legacy policy quarantines ambiguous rows for global-admin review. The
+provider-isolated backend suite passes 321 tests and the isolated admin review
+browser fixture passes desktop/mobile. Application-wide isolation remains
+unverified until 0006 is rehearsed on a designated disposable PostgreSQL
+database and dedicated student collaboration flows are checked. No production
+migration or deployment has been performed.
 
 ## Non-negotiable completion rule
 
@@ -41,7 +53,9 @@ pointer behavior.
 - [x] Map explicit KSA goals/help topics/explanation preference into bounded
   Maxe prompt guidance and authorized unscoped quiz topic focus.
 - [x] Preserve the distinction between explicit choices and inferred behavior.
-- [ ] Browser-verify save, reload and observable Maxe/practice effects.
+- [x] Browser-verify KSA save/reload/failure retention and editable preferences;
+  verify explicit supported quiz-format defaults. Bounded Maxe preference
+  context has focused tests; real provider wording remains unverified.
 
 ### Reminders
 
@@ -51,7 +65,7 @@ pointer behavior.
   delivery verification without sending real notifications.
 - [ ] Approve the reminder cadence/trigger policy and configure a scheduled
   worker plus external SMTP and VAPID providers before enabling delivery.
-- [ ] Complete an isolated browser verification of permission prompts,
+- [x] Complete an isolated browser verification of mocked permission prompts,
   subscription recovery and opt-out UI; no real notification send is allowed
   during local validation.
 
@@ -64,7 +78,9 @@ Current implementation:
 - [x] Authenticated early-access requests use
   `POST /learning-spaces/early-access-requests`, persist idempotently and do
   not grant membership.
-- [ ] Browser-verify these flows with deterministic fixtures.
+- [x] Browser-verify visible related-question retrieval and persisted
+  early-access request feedback with deterministic fixtures; immediate duplicate
+  request guard now verified.
 
 The unchecked entries immediately below are historical pre-Batch-2 proposals;
 the current status is the implementation list above.
@@ -131,6 +147,11 @@ school isolation.
   CU/KSA access, onboarding, desk, uploads, Reader, transcripts, search,
   Maxe, practice, progress/readiness, groups, sharing, exports, settings and
   admin boundaries.
+- [x] Run isolated access, admin, student preferences/search/history, workspace,
+  Reader, Maxe, practice, sharing/export, reminder and video fixtures; local
+  account/space IndexedDB privacy is separately verified. Full group/invite/
+  discussion/room controls and destructive account lifecycle remain outstanding,
+  so the complete-workflow checkbox above stays unchecked.
 - [ ] Verify desktop/mobile layouts, loading/error/empty states, keyboard
   access, no runtime errors and no horizontal overflow.
 - [ ] Update the evidence table and classify each feature as

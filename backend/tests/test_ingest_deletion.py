@@ -2,7 +2,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -78,7 +78,7 @@ class DatabaseDouble:
 
 
 def user(user_id: int, role: str = "student"):
-    return SimpleNamespace(id=user_id, role=role)
+    return SimpleNamespace(id=user_id, role=role, email="admin@example.com" if role == "admin" else "student@example.com")
 
 
 def note(note_id: int, owner_id: int, filename: str = "shared.pdf"):
@@ -91,6 +91,11 @@ def note(note_id: int, owner_id: int, filename: str = "shared.pdf"):
 
 
 class IngestDeletionTests(unittest.TestCase):
+    def setUp(self):
+        config = patch.dict(os.environ, {"ADMIN_PORTAL_EMAILS": "admin@example.com"})
+        config.start()
+        self.addCleanup(config.stop)
+
     def test_student_cannot_delete_their_own_upload(self):
         owned = note(1, 7, "mine.pdf")
         other = note(2, 8, "theirs.pdf")

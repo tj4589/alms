@@ -57,6 +57,7 @@ from learning_intelligence import (
     record_quiz_attempt,
 )
 from storage_safety import defer_binary_column
+from collaboration_access import collaboration_filter, require_collaboration_record, require_collaboration_space, require_group, require_linked_material_space
 from rate_limiting import user_rate_limit
 
 router = APIRouter(tags=["mvp"])
@@ -862,6 +863,9 @@ def update_material_visibility(
         }
     if visibility == GROUP:
         group_ids = validate_share_groups(db, group_ids, current_user)
+        space = require_collaboration_space(db, current_user)
+        for candidate in rows:
+            require_linked_material_space(db, material_type, candidate.id, space.id, current_user)
     elif group_ids:
         raise HTTPException(status_code=400, detail="Group IDs are only valid for group sharing.")
 
@@ -938,12 +942,16 @@ def public_profile(
     ) or 0
     groups = (
         db.query(func.count(models.StudyGroupMember.id))
+        .join(models.StudyGroup, models.StudyGroup.id == models.StudyGroupMember.group_id)
+        .filter(collaboration_filter(db, models.StudyGroup, current_user))
         .filter(models.StudyGroupMember.user_id == user.id)
         .scalar()
     ) or 0
     # Distinct, because joining the same room twice is still one room sat in.
     rooms = (
         db.query(func.count(func.distinct(models.StudySessionParticipant.session_id)))
+        .join(models.StudySession, models.StudySession.id == models.StudySessionParticipant.session_id)
+        .filter(collaboration_filter(db, models.StudySession, current_user))
         .filter(models.StudySessionParticipant.user_id == user.id)
         .scalar()
     ) or 0
@@ -998,6 +1006,7 @@ def public_profile(
         .join(models.StudySession, models.StudySession.id == models.StudySessionParticipant.session_id)
         .filter(models.StudySessionParticipant.user_id == user.id)
         .filter(models.StudySession.course_id.isnot(None))
+        .filter(collaboration_filter(db, models.StudySession, current_user))
         .group_by(models.StudySession.course_id)
         .all()
     )
@@ -1032,12 +1041,19 @@ def public_profile(
     }
 
     if is_self:
-        attempts = (
+        legacy_attempts = (
             db.query(func.count(models.PracticeAttempt.id))
             .filter(models.PracticeAttempt.user_id == user.id)
             .scalar()
         ) or 0
-        payload["practice_attempts"] = attempts
+        completed_quizzes = (
+            db.query(func.count(models.LearningQuizAttempt.id))
+            .filter(models.LearningQuizAttempt.user_id == user.id)
+            .scalar()
+        ) or 0
+        # Generated quizzes are not attempts. Only immutable submitted rows
+        # count, alongside the separate legacy practice history.
+        payload["practice_attempts"] = legacy_attempts + completed_quizzes
 
     return payload
 
@@ -1192,31 +1208,13 @@ def _parse_thread_cursor(value: str) -> tuple[datetime, int]:
 
 
 def _private_thread_filter(db: Session, current_user: models.User):
-    member_group_ids = db.query(models.StudyGroupMember.group_id).filter(
-        models.StudyGroupMember.user_id == current_user.id,
-    ).subquery()
-    private_group_ids = db.query(models.StudyGroup.id).filter(
-        models.StudyGroup.visibility == "private",
-    ).subquery()
-    return or_(
-        models.DiscussionThread.group_id.is_(None),
-        ~models.DiscussionThread.group_id.in_(private_group_ids),
-        models.DiscussionThread.created_by == current_user.id,
-        models.DiscussionThread.group_id.in_(member_group_ids),
-    )
+    return collaboration_filter(db, models.DiscussionThread, current_user)
 
 
 def _can_view_thread(db: Session, thread: models.DiscussionThread, current_user: models.User) -> bool:
-    if thread.group_id is None:
-        return True
-    group = db.query(models.StudyGroup).filter(models.StudyGroup.id == thread.group_id).first()
-    if group is None:
-        return False
-    if group.visibility != "private" or thread.created_by == current_user.id:
-        return True
-    return db.query(models.StudyGroupMember.id).filter(
-        models.StudyGroupMember.group_id == thread.group_id,
-        models.StudyGroupMember.user_id == current_user.id,
+    return db.query(models.DiscussionThread.id).filter(
+        models.DiscussionThread.id == thread.id,
+        collaboration_filter(db, models.DiscussionThread, current_user),
     ).first() is not None
 
 
@@ -1233,8 +1231,10 @@ def _validate_thread_context(
         past_question = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).filter(models.PastQuestion.id == past_question_id).first()
         if not past_question or not can_view_material(db, past_question, current_user):
             raise HTTPException(status_code=400, detail="That past question could not be found.")
+        require_linked_material_space(db, "past_question", past_question_id, require_collaboration_space(db, current_user).id, current_user)
     if group_id is None:
         return
+    require_group(db, group_id, current_user)
     group = db.query(models.StudyGroup).filter(models.StudyGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=400, detail="That study group could not be found.")
@@ -1341,6 +1341,7 @@ def create_thread(
     title = content.splitlines()[0][:180]
     category, mood = classify_discussion(content)
     thread = models.DiscussionThread(
+        learning_space_id=require_collaboration_space(db, current_user).id,
         title=title,
         content=content,
         course_id=req.course_id,
@@ -1378,6 +1379,7 @@ def update_thread_context(
     thread = db.query(models.DiscussionThread).filter(models.DiscussionThread.id == thread_id).first()
     if not thread:
         raise HTTPException(status_code=404, detail="Discussion not found.")
+    require_collaboration_record(db, thread, current_user)
     if thread.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Only the discussion author can update its context.")
     _validate_thread_context(db, req.course_id, req.past_question_id, req.group_id, current_user)
@@ -1554,6 +1556,7 @@ def list_study_groups(
             & (models.StudyGroupMember.user_id == current_user.id),
         )
         .filter(models.StudyGroup.status == "active")
+        .filter(collaboration_filter(db, models.StudyGroup, current_user))
         .filter(or_(models.StudyGroup.visibility == "public", models.StudyGroupMember.user_id == current_user.id))
         .distinct()
     )
@@ -1613,6 +1616,7 @@ def create_study_group(
     if not req.name or not req.name.strip():
         raise HTTPException(status_code=400, detail="Group name is required.")
     group = models.StudyGroup(
+        learning_space_id=require_collaboration_space(db, current_user).id,
         name=req.name.strip(),
         description=req.description,
         course_id=req.course_id,
@@ -1635,6 +1639,7 @@ def join_study_group(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
+    require_group(db, group_id, current_user)
     group = db.query(models.StudyGroup).filter(models.StudyGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Study group not found.")
@@ -1666,6 +1671,7 @@ def list_group_members(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    require_group(db, group_id, current_user)
     group = db.query(models.StudyGroup).filter(models.StudyGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Study group not found.")
@@ -1688,6 +1694,7 @@ def leave_study_group(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
+    require_group(db, group_id, current_user)
     member = db.query(models.StudyGroupMember).filter(
         models.StudyGroupMember.group_id == group_id,
         models.StudyGroupMember.user_id == current_user.id,

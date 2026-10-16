@@ -12,6 +12,7 @@ import models
 from database import get_db
 from routers.rag import run_rag_query
 from rate_limiting import user_rate_limit
+from collaboration_access import collaboration_filter, require_collaboration_record, require_collaboration_space, require_group
 
 router = APIRouter(prefix="/study-sessions", tags=["sessions"])
 
@@ -70,6 +71,8 @@ def _is_active(p: models.StudySessionParticipant) -> bool:
 
 
 def _get_participant(session_id: int, user_id: int, db: Session):
+    session = db.query(models.StudySession).filter_by(id=session_id).first()
+    _ensure_room_access(session, user_id, db)
     return (
         db.query(models.StudySessionParticipant)
         .filter(
@@ -82,6 +85,8 @@ def _get_participant(session_id: int, user_id: int, db: Session):
 
 def _ensure_room_access(session: models.StudySession, user_id: int, db: Session) -> None:
     """Group rooms inherit group membership; standalone rooms stay open."""
+    user = db.query(models.User).filter_by(id=user_id).first()
+    require_collaboration_record(db, session, user)
     if session.group_id:
         member = db.query(models.StudyGroupMember).filter(
             models.StudyGroupMember.group_id == session.group_id,
@@ -210,7 +215,7 @@ def list_sessions(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     from sqlalchemy import or_
-    query = db.query(models.StudySession)
+    query = db.query(models.StudySession).filter(collaboration_filter(db, models.StudySession, current_user))
     if active_only:
         query = query.filter(models.StudySession.status == "active")
     if q:
@@ -293,6 +298,7 @@ def create_session(
         raise HTTPException(status_code=400, detail="The room end time must be after its start time.")
 
     if req.group_id:
+        require_group(db, req.group_id, current_user)
         membership = db.query(models.StudyGroupMember).filter(
             models.StudyGroupMember.group_id == req.group_id,
             models.StudyGroupMember.user_id == current_user.id,
@@ -303,6 +309,7 @@ def create_session(
     now = datetime.now(timezone.utc)
     status = "scheduled" if starts_at > now else "active"
     session = models.StudySession(
+        learning_space_id=require_collaboration_space(db, current_user).id,
         title=req.title.strip(),
         description=req.description,
         purpose=req.purpose,

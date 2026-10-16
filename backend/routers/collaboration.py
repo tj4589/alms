@@ -56,6 +56,7 @@ from public_schemas import (
     public_shared_content_payload,
 )
 from rate_limiting import share_read_rate_limit, user_rate_limit
+from collaboration_access import collaboration_filter, require_group, require_linked_material_space
 
 router = APIRouter(prefix="/collaboration", tags=["collaboration"])
 
@@ -248,6 +249,12 @@ def _policy_allows_link(db: Session, link: models.SecureShareLink, current_user:
     if link.access_policy == "owner":
         return False
     if link.access_policy == "group":
+        group = db.query(models.StudyGroup).filter(
+            models.StudyGroup.id == link.group_id,
+            collaboration_filter(db, models.StudyGroup, current_user),
+        ).first()
+        if group is None:
+            return False
         return bool(link.group_id and db.query(models.StudyGroupMember.id).filter(
             models.StudyGroupMember.group_id == link.group_id,
             models.StudyGroupMember.user_id == current_user.id,
@@ -473,6 +480,8 @@ def create_share_link(
         if req.access_policy == "group" and not req.group_id:
             raise HTTPException(status_code=400, detail="Choose a study group for a group link.")
         if req.access_policy == "group":
+            group = require_group(db, req.group_id, current_user)
+            require_linked_material_space(db, req.material_type, req.material_id, group.learning_space_id, current_user)
             group_member = db.query(models.StudyGroupMember.id).filter(
                 models.StudyGroupMember.group_id == req.group_id,
                 models.StudyGroupMember.user_id == current_user.id,

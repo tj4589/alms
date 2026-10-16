@@ -27,6 +27,7 @@ type FeedbackItem = {
 type AdminDashboardProps = {
   go: (screen: ScreenType) => void;
   user: User;
+  onReviewCollaboration: () => void;
 };
 
 type PanelError = {
@@ -113,7 +114,7 @@ function formatCheckedTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? 'Not checked yet' : date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 }
 
-export default function AdminDashboard({ go, user }: AdminDashboardProps) {
+export default function AdminDashboard({ go, user, onReviewCollaboration }: AdminDashboardProps) {
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -290,6 +291,7 @@ export default function AdminDashboard({ go, user }: AdminDashboardProps) {
         <div className="admin-dashboard-tool-actions">
           <button type="button" className="admin-dashboard-action is-primary" onClick={() => go('moderation')}>Review contributions <ArrowUpRight size={15} aria-hidden="true" /></button>
           <button type="button" className="admin-dashboard-action" onClick={() => go('settings')}>Open feedback inbox <ArrowUpRight size={15} aria-hidden="true" /></button>
+          <button type="button" className="admin-dashboard-action" onClick={onReviewCollaboration}>Review unassigned collaboration <ArrowUpRight size={15} aria-hidden="true" /></button>
         </div>
       </section>
 

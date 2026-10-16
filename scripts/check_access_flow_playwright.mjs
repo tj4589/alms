@@ -56,11 +56,26 @@ await page.locator('.workspace-shell').waitFor();
 await navigate('multi_no_active');
 await page.locator('.account-bootstrap').waitFor();
 const recoveryText = await page.locator('.account-bootstrap').innerText();
-assert.match(recoveryText, /multiple verified school memberships/i);
+assert.match(recoveryText, /multiple verified learning-space memberships/i);
 assert.equal(await page.locator('#spaces-title').count(), 0);
 assert.equal(await page.getByText('Switch learning space', { exact: true }).count(), 0);
 assert.equal(await page.locator('.space-card').count(), 0);
 assert.equal(await page.locator('.workspace-shell').count(), 0);
+
+await page.goto('http://127.0.0.1:4175/ksa', { waitUntil: 'networkidle' });
+await page.locator('.workspace-shell').waitFor();
+assert.equal(await page.evaluate(() => sessionStorage.getItem('exammind-access-fixture')), 'multi_ksa');
+assert.equal(await page.locator('#spaces-title').count(), 0);
+assert.equal(await page.evaluate(() => window.__accessRequests.filter(item => item.method === 'POST' && item.url.endsWith('/ksa/activate')).length), 1);
+await page.evaluate(() => sessionStorage.setItem('exammind-access-fixture', 'multi_no_active'));
+await page.goto('http://127.0.0.1:4175/cu', { waitUntil: 'networkidle' });
+await page.locator('.workspace-shell').waitFor();
+assert.equal(await page.evaluate(() => sessionStorage.getItem('exammind-access-fixture')), 'multi_cu');
+await page.evaluate(() => sessionStorage.setItem('exammind-access-fixture', 'ksa_complete'));
+await page.goto('http://127.0.0.1:4175/cu', { waitUntil: 'networkidle' });
+await page.getByText('This account does not have authorized access to the requested learning space.', {exact:false}).waitFor();
+assert.equal(await page.locator('.workspace-shell').count(), 0, 'KSA-only users must not enter CU through its URL.');
+assert.equal(await page.evaluate(() => window.__accessRequests.some(item => item.method === 'POST' && item.url.endsWith('/cu/activate'))), false);
 
 for (const width of [1366, 390]) {
   await page.setViewportSize({ width, height: width === 1366 ? 768 : 844 });
@@ -70,7 +85,7 @@ for (const width of [1366, 390]) {
 assert.deepEqual(errors, []);
 console.log(JSON.stringify({
   ok: true,
-  checked: ['first access', 'returning KSA', 'pending KSA onboarding', 'returning CU', 'multi-membership fail-closed recovery', 'desktop/mobile overflow'],
+  checked: ['first access', 'returning KSA', 'pending KSA onboarding', 'returning CU', 'multi-membership recovery through authorized /ksa and /cu entries', 'KSA-only CU entry denied', 'desktop/mobile overflow'],
   errors,
 }, null, 2));
 await context.close();

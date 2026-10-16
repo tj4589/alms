@@ -32,7 +32,7 @@ schema, and never stamp a database that has not been inspected.
    .\.venv\Scripts\python.exe verify_migration.py
    ```
 
-   The checker defaults to `0004_rate_limit_buckets` and reports the current
+   The checker defaults to `0006_collaboration_space` (the current repository head) and reports the current
    `alembic_version` marker, missing objects, unexpected later-revision
    objects, and pgvector status. It is read-only and fails rather than
    silently accepting an incomplete or mismatched schema.
@@ -45,6 +45,8 @@ schema, and never stamp a database that has not been inspected.
    .\.venv\Scripts\python.exe verify_migration.py --revision 0002_ksa_claim_audit
    .\.venv\Scripts\python.exe verify_migration.py --revision 0003_learning_space_role_audit
    .\.venv\Scripts\python.exe verify_migration.py --revision 0004_rate_limit_buckets
+   .\.venv\Scripts\python.exe verify_migration.py --revision 0005_reminder_delivery
+   .\.venv\Scripts\python.exe verify_migration.py --revision 0006_collaboration_space
    ```
 
    A report for an earlier revision intentionally marks later migration

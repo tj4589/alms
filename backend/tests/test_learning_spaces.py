@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -13,6 +14,7 @@ os.environ.setdefault("ALLOWED_SCHOOL_EMAIL_DOMAINS", "stu.cu.edu.ng,covenantuni
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import models  # noqa: E402
+import auth  # noqa: E402
 from learning_spaces import (  # noqa: E402
     CLAIM_FAILURE_MESSAGE,
     KSA_ALREADY_CONFIGURED_MESSAGE,
@@ -59,6 +61,23 @@ class LearningSpaceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.session.close()
         self.engine.dispose()
+
+    def test_approved_personal_email_admin_can_study_in_ksa_but_not_cu(self) -> None:
+        admin = models.User(name="Program learner", username="admin_learner",
+                            email="admin@example.com", firebase_uid="admin-identity", role="admin")
+        self.session.add(admin)
+        self.session.commit()
+        with patch.dict(os.environ, {"ADMIN_PORTAL_EMAILS": "ADMIN@example.com"}):
+            self.assertIs(auth.require_role("student")(admin), admin)
+            self.assertIsNone(authorized_active_space(self.session, admin))
+            self.assertEqual(list_spaces(self.session, admin)["memberships"], [])
+            claim_ksa_member(self.session, admin, "KSA-44")
+            mark_ksa_onboarding_complete(self.session, admin, {})
+            self.assertEqual(authorized_active_space(self.session, admin).slug, KSA_SLUG)
+            with self.assertRaises(HTTPException) as error:
+                require_cu_membership(self.session, admin, require_active_context=False)
+            self.assertEqual(error.exception.status_code, 403)
+            self.assertEqual(self.session.query(models.LearningSpaceMembership).filter_by(user_id=admin.id).count(), 1)
 
     def test_format_validation_and_normalization_are_separate_from_claim_authorization(self) -> None:
         self.assertEqual(normalize_ksa_id("  ksa-36 "), "KSA-36")

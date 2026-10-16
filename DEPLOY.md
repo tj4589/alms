@@ -173,6 +173,13 @@ recreated by this process.
    credentials and the `pywebpush` dependency. The API must never receive a
    browser push private key in frontend variables.
 
+   Configure `REMINDER_PUSH_ALLOWED_HOSTS` with exact approved public browser
+   push service hostnames (comma-separated, no wildcards or URL paths). Missing
+   configuration denies sending. Stored endpoints are revalidated, redirects
+   are not followed, and `REMINDER_PROVIDER_TIMEOUT_SECONDS` bounds each push
+   call. This does not activate dispatch or choose a cadence. Choose only the
+   actual service hosts used by the supported browsers; never internal hosts.
+
    ```text
    REMINDER_DISPATCH_ENABLED=false
    REMINDER_CADENCE=
@@ -366,22 +373,24 @@ back to keyword ranking, which every caller already handles.
 
 ## What the code does on first boot
 
-- On startup, enables the `vector` extension, then creates any missing tables.
-  Safe to run repeatedly; it never drops anything. If Neon is temporarily
-  unavailable, the process still binds `/docs` and logs the database error;
-  database-backed requests remain unavailable until the connection is fixed.
+- The Docker start command runs `alembic upgrade head` before Uvicorn. Alembic
+  installs pgvector and creates/alters the versioned schema. Any migration
+  failure stops startup; `/docs` does not bind. The FastAPI startup hook does
+  not perform schema DDL. Never bypass this gate to recover a legacy database.
 - Does **not** load the embedding model. That happens on first use, so the
   service starts at ~205MB and passes its health check before paying the cost.
-- Attempts the database connection with a 10s timeout (`DB_CONNECT_TIMEOUT`).
-  Without it a missing database could hold the startup hook indefinitely;
-  with it, the warning is logged and `/docs` binds after the timeout.
+- Database connections use a bounded `DB_CONNECT_TIMEOUT`. Process health
+  (`/health`) is separate from bounded database readiness (`/health/ready`);
+  healthy process status does not establish a working student workflow.
 
 ---
 
 ## Local development
 
-`backend/.env` is gitignored. Point `DATABASE_URL` at the same Neon database —
-there is no local Postgres in this setup, and Docker is not required.
+`backend/.env` is gitignored. Use an explicitly designated disposable Neon
+database/branch or isolated local PostgreSQL, never the Render application
+database. Docker is optional. Verify the test database identity before any
+migrations or writes; do not copy production credentials into test fixtures.
 
 ```bash
 cd backend
@@ -396,9 +405,33 @@ cd frontend
 npm run dev
 ```
 
-Pointing local development at the deployed Neon database means local uploads go
-into the same archive the deployed app reads. Create a second Neon branch if
-you want them kept apart — Neon branches are cheap and instant.
+For provider-isolated unit tests, use `scripts/run_isolated_backend_tests.py`.
+It blocks external network access and supplies test-only process settings.
+Real PostgreSQL migration validation separately requires an authorized
+disposable database. Do not treat SQLite fixtures as migration validation.
+
+## Admin access diagnosis and controlled assignment
+
+The admin entry is `/admin`; `/admin?view=moderation` and
+`/admin?view=feedback` retain the protected admin shell. Access requires BOTH
+the existing database user's global `role = admin` and a matching normalized
+email in server-side `ADMIN_PORTAL_EMAILS`. Adding an email alone never grants
+a role. A KSA membership role is separate and cannot grant global access.
+
+There is no automatic global-admin bootstrap in this repository. If access is
+denied, an authorized operator must confirm the existing verified Firebase UID
+and ExamMind user identity, the account's active status, global role, and
+server email allowlist. Any first role assignment needs separate explicit
+authorization and a backed-up, narrowly targeted operator procedure. Never
+create another identity, promote all matching domains, or rely on a frontend
+flag. No account/configuration changes are performed by the diagnosis.
+
+After an authorized role/configuration change, reload the page to fetch fresh
+`GET /auth/me`; the backend reloads the user and gate on every authenticated
+request. Its `admin_portal_access` result is authoritative. If it remains
+false, inspect the two server conditions rather than bypassing the UI gate.
+An approved admin can also study with the same identity, but ordinary study
+routes still require their applicable membership, resource and owner checks.
 
 ## Account lifecycle and deletion
 

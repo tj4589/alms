@@ -12,6 +12,7 @@ MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0001_initial_schema.py
 KSA_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0002_ksa_claim_audit.py"
 ROLE_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0003_learning_space_role_audit.py"
 RATE_LIMIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0004_rate_limit_buckets.py"
+COLLABORATION_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0006_collaboration_space_ownership.py"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -64,11 +65,13 @@ class MigrationSystemTests(unittest.TestCase):
                 "rate_limit_buckets",
                 "reminder_subscriptions",
                 "reminder_deliveries",
+                "collaboration_space_audits",
             }
         }
         self.assertEqual(set(baseline), set(models_by_name))
         for table_name, columns in models_by_name.items():
-            self.assertEqual(baseline[table_name], columns, table_name)
+            additional = {"learning_space_id"} if table_name in {"study_groups", "discussion_threads", "study_sessions"} else set()
+            self.assertEqual(baseline[table_name] | additional, columns, table_name)
 
     def test_ksa_claim_audit_revision_is_additive_and_reversible(self):
         spec = importlib.util.spec_from_file_location("ksa_claim_audit_migration", KSA_AUDIT_MIGRATION_PATH)
@@ -213,6 +216,26 @@ class MigrationSystemTests(unittest.TestCase):
         self.assertIn("reminder_subscriptions", reminder_head["tables"])
         self.assertIn("reminder_deliveries", reminder_head["tables"])
         self.assertIn(("reminder_deliveries", ("dedupe_key",)), reminder_head["unique_constraints"])
+        collaboration_head = revision_requirements("0006_collaboration_space")
+        self.assertNotIn("collaboration_space_audits", reminder_head["tables"])
+        self.assertIn("collaboration_space_audits", collaboration_head["tables"])
+        for table in ("study_groups", "discussion_threads", "study_sessions"):
+            self.assertNotIn("learning_space_id", reminder_head["columns"][table])
+            self.assertIn("learning_space_id", collaboration_head["columns"][table])
+            self.assertIn(f"ix_{table}_learning_space_id", collaboration_head["indexes"])
+            self.assertIn((table, "learning_space_id", "learning_spaces", "id", "RESTRICT"), collaboration_head["foreign_keys"])
+        self.assertIn(("collaboration_space_audits", ("content_type", "content_id")), collaboration_head["unique_constraints"])
+
+    def test_collaboration_revision_preserves_legacy_rows_for_explicit_review(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("collaboration_migration", COLLABORATION_MIGRATION_PATH)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        self.assertEqual(migration.down_revision, "0005_reminder_delivery")
+        source = COLLABORATION_MIGRATION_PATH.read_text(encoding="utf-8")
+        self.assertIn("nullable=True", source)
+        self.assertNotIn("op.execute(", source)
+        self.assertNotIn("op.drop_table(", source)
 
     def test_revision_inspection_reads_marker_and_flags_later_tables(self):
         from sqlalchemy import create_engine, text

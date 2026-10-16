@@ -60,7 +60,7 @@ type WorkspaceProps = {
   onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void;
   onNewThread: () => void;
   user: User | null;
-  initialResource?: { kind: 'lecture_note' | 'past_question'; id: number } | null;
+  initialResource?: { kind: 'lecture_note' | 'past_question'; id: number; citation?: MaxeCitation } | null;
 };
 type CitationTarget = { resourceId: number; resourceType: string; startTime?: number; pageFrom?: number; slideFrom?: number } | null;
 
@@ -509,7 +509,9 @@ export default function Workspace({ go, notifyUnavailable, messages, onMessagesC
     if (!resource) { setError('That source is unavailable in this learning space.'); return; }
     setSelectedKey(resource.key);
     setSelectedText('');
-    setCitationTarget(null);
+    const citation = initialResource.citation;
+    const target = citation?.target;
+    setCitationTarget(citation ? {resourceId:resource.id, resourceType:target?.resource_type || citation.resource_type || resource.kind, startTime:target?.start_time ?? citation.timestamp_start ?? undefined, pageFrom:target?.page_from ?? citation.page_from ?? undefined, slideFrom:target?.slide_from ?? citation.slide_from ?? undefined} : null);
     setMobilePanel('reader');
   }, [initialResource, loading, resources]);
   const handleCitationClick = (citation: MaxeCitation) => {

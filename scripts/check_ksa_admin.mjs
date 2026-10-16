@@ -58,12 +58,16 @@ window.fetch = async (...args) => {
   window.__fixtureRequests.push({url, method: args[1]?.method || 'GET', body: args[1]?.body || null});
   if (url.endsWith('/health')) return new Response(JSON.stringify({status:'ok',application:'ok'}), {status:200,headers:{'Content-Type':'application/json'}});
   if (url.endsWith('/health/ready')) return new Response(JSON.stringify({status:'ready',application:'ok',database:'ok'}), {status:200,headers:{'Content-Type':'application/json'}});
-  if (url.endsWith('/auth/me')) return new Response(JSON.stringify({id:2,name:'Global Admin',username:'admin',email:'admin@example.com',role:'admin',admin_portal_access:true,account_status:'active'}), {status:200,headers:{'Content-Type':'application/json'}});
+  if (url.endsWith('/auth/me')) {
+    const unauthorizedAdminRoute = new URL(window.location.href).searchParams.get('unauthorized') === '1';
+    return new Response(JSON.stringify({id:2,name:'Global Admin',username:'admin',email:'admin@example.com',role:unauthorizedAdminRoute?'student':'admin',admin_portal_access:!unauthorizedAdminRoute,account_status:'active'}), {status:200,headers:{'Content-Type':'application/json'}});
+  }
   if (url.endsWith('/learning-spaces')) {
     const ksa = {id:1,slug:'ksa',name:'Kora Sales Academy',type:'academy',status:'active',membership:{id:1,role:'admin',status:'active',onboarding_required:false}};
     return new Response(JSON.stringify({active_space:ksa,memberships:[{space:ksa}],available_spaces:[]}), {status:200,headers:{'Content-Type':'application/json'}});
   }
   if (url.includes('/community/profile')) return new Response(JSON.stringify({onboarding_completed:true}), {status:200,headers:{'Content-Type':'application/json'}});
+  if (url.includes('/feedback/inbox')) return new Response(JSON.stringify([]), {status:200,headers:{'Content-Type':'application/json'}});
   if (url.includes('/collaboration/moderation/contributions')) return new Response(JSON.stringify([]), {status:200,headers:{'Content-Type':'application/json'}});
   if (url.includes('/learning-spaces/ksa/admin/moderators/44') && (args[1]?.method || 'GET') === 'POST') {
     if (window.__failNextRolePost) {
@@ -93,8 +97,15 @@ window.fetch = async (...args) => {
 await send('Page.enable');
 await send('Runtime.enable');
 await send('Page.addScriptToEvaluateOnNewDocument', { source: fixture });
-await send('Page.navigate', { url: 'http://127.0.0.1:5173/#home' });
-await clickWhenAvailable('button[aria-label="Review contributions"]');
+await send('Page.navigate', { url: 'http://127.0.0.1:5173/admin?unauthorized=1' });
+await waitFor(`document.querySelector('[data-testid="admin-access-denied"]')`);
+assert.equal(await evaluate(`document.querySelector('.admin-dashboard-page')`), null, 'Unauthorized accounts must not mount the admin dashboard');
+assert.equal(await evaluate(`document.querySelector('.workspace-shell')`), null, 'Unauthorized accounts must not see the student workspace behind the admin gate');
+
+await send('Page.navigate', { url: 'http://127.0.0.1:5173/admin' });
+await waitFor(`document.querySelector('.admin-dashboard-page')`);
+assert.equal(await evaluate(`window.location.pathname`), '/admin', 'Authorized admin route should remain addressable at /admin');
+await clickWhenAvailable('.admin-dashboard-text-button');
 await waitFor(`document.querySelector('.moderation-page')`);
 await clickWhenAvailable('[data-testid="ksa-access-tab"]');
 await waitFor(`document.querySelector('#ksa-search')`);
@@ -111,9 +122,11 @@ assert.equal(await evaluate(`document.querySelector('[role="dialog"] button[type
 await evaluate(`(() => { const textarea = document.querySelector('[role="dialog"] textarea'); const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; setter.call(textarea, 'Assigned to support KSA contributions'); textarea.dispatchEvent(new Event('input', {bubbles:true})); textarea.dispatchEvent(new Event('change', {bubbles:true})); })()`);
 await waitFor(`document.querySelector('[role="dialog"] button[type="submit"]').disabled === false`);
 await clickWhenAvailable('[role="dialog"] button[type="submit"]');
-await waitFor(`document.querySelector('[data-testid="promote-ksa-moderator"]')`);
+await waitFor(`document.querySelector('[role="alert"]') && document.querySelector('[role="dialog"] button[type="submit"]')?.disabled === false`);
 assert.equal(await evaluate(`document.querySelector('.moderation-role-state strong').textContent.trim()`), 'member', 'Rejected role changes must leave the displayed role unchanged');
 assert.ok(await evaluate(`document.querySelector('[role="alert"]').textContent.includes('role changed')`), 'Rejected role changes should explain the conflict');
+await clickWhenAvailable('button[aria-label="Close role change dialog"]');
+await waitFor(`!document.querySelector('[role="dialog"]')`);
 
 await clickWhenAvailable('[data-testid="promote-ksa-moderator"]');
 await waitFor(`document.querySelector('[role="dialog"]')`);

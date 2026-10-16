@@ -13,6 +13,8 @@ import json
 import os
 import smtplib
 import ssl
+import ipaddress
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Any, Protocol
@@ -25,6 +27,28 @@ import models
 SUPPORTED_CHANNELS = ("email", "browser_push")
 ACTIVE_STATUS = "active"
 UNSUBSCRIBED_STATUS = "unsubscribed"
+
+
+def validate_push_endpoint(endpoint: str) -> str:
+    """Reject non-service destinations before saving an untrusted endpoint."""
+    endpoint = endpoint.strip()
+    try:
+        url = urlsplit(endpoint)
+        host = (url.hostname or "").lower().rstrip(".")
+        invalid = (url.scheme != "https" or not host or url.username is not None
+                   or url.password is not None or url.fragment or url.port not in (None, 443)
+                   or any(character.isspace() for character in endpoint)
+                   or host == "localhost" or host.endswith((".localhost", ".local", ".internal")))
+        try:
+            ipaddress.ip_address(host)
+            invalid = True
+        except ValueError:
+            pass
+        if invalid:
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError("Use a valid HTTPS browser push service endpoint.") from exc
+    return endpoint
 
 
 def utc_now() -> datetime:
@@ -149,8 +173,7 @@ def subscribe_user(
         p256dh = None
         auth_key = None
     else:
-        if not endpoint or not endpoint.lower().startswith("https://"):
-            raise ValueError("Browser push endpoints must use HTTPS.")
+        endpoint = validate_push_endpoint(endpoint or "")
         if not p256dh or not auth_key:
             raise ValueError("Browser push subscription keys are required.")
 
@@ -351,6 +374,18 @@ class BrowserPushReminderSender:
         self.subject = os.getenv("REMINDER_PUSH_VAPID_SUBJECT", "").strip()
         if not self.public_key or not self.private_key or not self.subject:
             raise ReminderProviderUnavailable("push_provider_unconfigured")
+        # Exact operator-approved service hosts, not an arbitrary outbound URL
+        # supplied by a browser. Empty configuration deliberately fails closed.
+        self.allowed_hosts = {
+            host.strip().lower().rstrip(".")
+            for host in os.getenv("REMINDER_PUSH_ALLOWED_HOSTS", "").split(",") if host.strip()
+        }
+        if not self.allowed_hosts:
+            raise ReminderProviderUnavailable("push_destinations_unconfigured")
+        try:
+            self.timeout = max(1, min(int(os.getenv("REMINDER_PROVIDER_TIMEOUT_SECONDS", "10")), 60))
+        except ValueError:
+            self.timeout = 10
         try:
             from pywebpush import webpush
         except ImportError as exc:
@@ -358,17 +393,39 @@ class BrowserPushReminderSender:
         self._webpush = webpush
 
     def send(self, user, subscription, *, subject, body, idempotency_key):
+        # Revalidate stored endpoints as well as new subscriptions.
         try:
-            result = self._webpush(
-                subscription_info={
-                    "endpoint": subscription.endpoint,
-                    "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth_key},
-                },
-                data=json.dumps({"title": subject, "body": body, "url": "/"}),
-                vapid_private_key=self.private_key,
-                vapid_claims={"sub": self.subject},
-                ttl=3600,
-            )
+            endpoint = validate_push_endpoint(subscription.endpoint or "")
+        except ValueError as exc:
+            raise ReminderProviderUnavailable("push_destination_denied") from exc
+        if urlsplit(endpoint).hostname.lower().rstrip(".") not in self.allowed_hosts:
+            raise ReminderProviderUnavailable("push_destination_denied")
+        import requests
+
+        class NoRedirectSession(requests.Session):
+            def request(self, method, url, **kwargs):
+                kwargs["allow_redirects"] = False
+                return super().request(method, url, **kwargs)
+
+        try:
+            with NoRedirectSession() as session:
+                result = self._webpush(
+                    subscription_info={
+                        "endpoint": endpoint,
+                        "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth_key},
+                    },
+                    data=json.dumps({"title": subject, "body": body, "url": "/"}),
+                    vapid_private_key=self.private_key,
+                    vapid_claims={"sub": self.subject},
+                    timeout=self.timeout, requests_session=session,
+                    ttl=3600,
+                )
+                if result is not None and 300 <= result.status_code < 400:
+                    raise ReminderProviderUnavailable("push_destination_denied")
+                if result is None or result.status_code not in (200, 201, 202):
+                    raise ReminderProviderUnavailable("push_provider_failed")
+        except ReminderProviderUnavailable:
+            raise
         except Exception as exc:  # provider libraries expose several exception types
             raise ReminderProviderUnavailable("push_provider_failed") from exc
         return getattr(result, "headers", {}).get("x-message-id") if result is not None else None

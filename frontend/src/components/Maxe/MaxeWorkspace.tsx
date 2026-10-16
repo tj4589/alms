@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, MessageCircle, Plus, X } from 'lucide-react';
-import type { ChatMessage, ScreenType, User } from '../../types';
+import type { ChatMessage, MaxeCitation, ScreenType, User } from '../../types';
 import { apiDownloadPost } from '../../lib/api';
 import Assistant from '../../screens/Assistant';
 import MaxeMark from './MaxeMark';
@@ -14,6 +14,7 @@ type MaxeWorkspaceProps = {
   onNewThread: () => void;
   onClose: () => void;
   user: User | null;
+  onCitationClick: (citation: MaxeCitation) => void;
 };
 
 const MAXE_WORKSPACE_STYLES = `
@@ -91,6 +92,7 @@ export default function MaxeWorkspace({
   onNewThread,
   onClose,
   user,
+  onCitationClick,
 }: MaxeWorkspaceProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -231,6 +233,7 @@ export default function MaxeWorkspace({
               messages={messages}
               onMessagesChange={onMessagesChange}
               user={user}
+              onCitationClick={onCitationClick}
             />
           </div>
         </main>

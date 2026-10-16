@@ -10,6 +10,8 @@ from sqlalchemy import and_, exists, not_, or_, select, true
 from sqlalchemy.orm import Session
 
 import models
+from admin_access import has_admin_portal_access
+from collaboration_access import collaboration_filter
 
 
 PRIVATE = "private"
@@ -88,7 +90,7 @@ def material_visibility(row: Any) -> str:
 
 def is_moderator(db: Session, current_user: Any, learning_space_id: int | None = None) -> bool:
     """Return whether the caller can review contributions in this space."""
-    if getattr(current_user, "role", None) == "admin":
+    if has_admin_portal_access(current_user):
         return True
     if learning_space_id is None or not getattr(current_user, "id", None):
         return False
@@ -209,7 +211,7 @@ def _moderator_contribution_exists(model: Any, current_user: Any):
 
 def accessible_material_filter(db: Session, model: Any, current_user: Any):
     """SQL predicate for materials visible to the verified current user."""
-    if getattr(current_user, "role", None) == "admin":
+    if has_admin_portal_access(current_user):
         return true()
 
     material_type = material_type_for_model(model)
@@ -226,6 +228,7 @@ def accessible_material_filter(db: Session, model: Any, current_user: Any):
         .where(
             models.MaterialGroupShare.material_type == material_type,
             models.StudyGroup.status == "active",
+            collaboration_filter(db, models.StudyGroup, current_user),
             models.StudyGroupMember.user_id == current_user.id,
         )
     )
@@ -255,7 +258,7 @@ def accessible_material_filter(db: Session, model: Any, current_user: Any):
 
 
 def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
-    if getattr(current_user, "role", None) == "admin":
+    if has_admin_portal_access(current_user):
         return True
     if getattr(row, "uploaded_by", None) == getattr(current_user, "id", None):
         return True
@@ -306,6 +309,7 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
             models.MaterialGroupShare.material_type == material_type,
             models.MaterialGroupShare.material_id == row.id,
             models.StudyGroup.status == "active",
+            collaboration_filter(db, models.StudyGroup, current_user),
             models.StudyGroupMember.user_id == current_user.id,
         )
         .first()
@@ -314,7 +318,7 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
 
 
 def require_material_owner(row: Any, current_user: Any) -> None:
-    if getattr(current_user, "role", None) != "admin" and getattr(row, "uploaded_by", None) != getattr(current_user, "id", None):
+    if not has_admin_portal_access(current_user) and getattr(row, "uploaded_by", None) != getattr(current_user, "id", None):
         raise HTTPException(status_code=403, detail="Only the uploader can change this material's sharing.")
 
 
@@ -410,6 +414,7 @@ def validate_share_groups(db: Session, group_ids: Iterable[int], current_user: A
         .filter(
             models.StudyGroup.id.in_(group_ids),
             models.StudyGroup.status == "active",
+            collaboration_filter(db, models.StudyGroup, current_user),
             models.StudyGroupMember.user_id == current_user.id,
         )
         .all()

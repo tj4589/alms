@@ -163,7 +163,7 @@ assert.equal(await evaluate(`Boolean(document.querySelector('.workspace-shell'))
 
 await navigate('multi_no_active');
 await waitFor(`document.querySelector('.account-bootstrap')`);
-assert.ok(await evaluate(`document.querySelector('.account-bootstrap').textContent.includes('multiple verified school memberships')`), 'Multi-space context recovery did not render');
+assert.ok(await evaluate(`document.querySelector('.account-bootstrap').textContent.includes('multiple verified learning-space memberships')`), 'Multi-space context recovery did not render');
 assert.equal(await evaluate(`Boolean(document.querySelector('.workspace-shell'))`), false, 'Multi-space user entered workspace without an active selection');
 assert.equal(await evaluate(`Boolean(document.querySelector('#spaces-title'))`), false, 'Multi-space school picker was exposed');
 assert.equal(await evaluate(`document.body.textContent.includes('Switch learning space')`), false, 'Multi-space switch control was exposed');

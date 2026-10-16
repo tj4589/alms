@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from routers import auth, collaboration, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, reminders, search, sessions, understand
+from routers import auth, collaboration, collaboration_admin, community, feedback, ingest, learning, learning_spaces, maxe, mvp, rag, reminders, search, sessions, understand
 from database import engine
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
@@ -58,6 +58,7 @@ async def limit_public_feedback_body(request: Request, call_next):
 
 app.include_router(auth.router)
 app.include_router(collaboration.router)
+app.include_router(collaboration_admin.router)
 app.include_router(community.router)
 app.include_router(feedback.router)
 app.include_router(ingest.router)

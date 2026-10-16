@@ -18,7 +18,7 @@ from query_understanding import expanded_search_terms, public_understanding, und
 from material_access import accessible_material_filter
 from learning_spaces import authorized_active_space
 from resource_index import citation_payload
-from learning_intelligence import ksa_learning_preferences, learning_suggestion
+from learning_intelligence import learner_prompt_preferences, learning_suggestion
 from public_schemas import (
     PublicLearningSuggestion,
     PublicMaxeContext,
@@ -341,7 +341,7 @@ def run_rag_query(
         selected_text=selected_text,
         selected_text_source=selected_text_source,
         recent_context=room_context,
-        learner_preferences=ksa_learning_preferences(current_user),
+        learner_preferences=learner_prompt_preferences(db, current_user),
     )
     mode = maxe_context.mode
     if understanding.get("needs_clarification"):

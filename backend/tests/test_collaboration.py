@@ -149,7 +149,7 @@ class CollaborationTests(unittest.TestCase):
             collaboration.resolve_share_link(link_response["token"], self.db, self.owner)
 
     def test_group_share_links_require_group_membership(self):
-        group = models.StudyGroup(name="KSA revision", status="active", created_by=self.owner.id)
+        group = models.StudyGroup(name="KSA revision", status="active", created_by=self.owner.id, learning_space_id=self.space.id)
         self.db.add(group)
         self.db.flush()
         with self.assertRaises(HTTPException) as error:

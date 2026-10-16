@@ -90,12 +90,12 @@ window.fetch = async (...args) => {
   if (url.includes('/auth/me')) data = {id:1,name:'Test Student',username:'test_student',email:'test@example.com',role:'student',account_status:'active'};
   else if (url.includes('/collaboration/materials/') && url.includes('/export')) {
     const format = new URL(url).searchParams.get('format') || 'md';
-    return new Response('Test source\n\nExported ' + format + ' content.\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="test-source.' + format + '"'}});
+    return new Response('Test source\\n\\nExported ' + format + ' content.\\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="test-source.' + format + '"'}});
   }
   else if (url.endsWith('/collaboration/exports') && method === 'POST') {
     const request = JSON.parse(args[1]?.body || '{}');
     const format = request.format || 'md';
-    return new Response('ExamMind export\n\n' + (request.payload?.answer || request.payload?.body || '') + '\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="maxe-export.' + format + '"'}});
+    return new Response('ExamMind export\\n\\n' + (request.payload?.answer || request.payload?.body || '') + '\\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="maxe-export.' + format + '"'}});
   }
   else if (url.includes('/collaboration/share-links/') && method === 'DELETE') {
     const linkId = Number(url.split('/').pop());
@@ -160,6 +160,12 @@ window.fetch = async (...args) => {
   else if (url.includes('/study-groups')) data = populated ? [{id:9,name:'Economics revision group',is_member:true,status:'active'}] : [];
   else if (url.includes('/study-sessions')) data = populated ? [{id:1,title:'Let’s work through economics',topic:'Demand and supply',starts_at:new Date(Date.now()+86400000).toISOString()}] : [];
   else if (url.endsWith(':8001/')) data = {status:'ok'};
+  // Current public DTOs supply ownership explicitly; the UI must not infer it
+  // from an uploader ID. Keep Reader and list fixture branches in that contract.
+  if (url.includes('/lecture-notes') || url.includes('/past-questions')) {
+    const ownership = item => ({...item, is_owner:item.uploaded_by === 1});
+    data = Array.isArray(data) ? data.map(ownership) : ownership(data);
+  }
   return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
 };` });
 await send('Page.navigate', { url: 'http://127.0.0.1:5173/#home' });

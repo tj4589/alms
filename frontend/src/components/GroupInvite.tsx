@@ -37,13 +37,19 @@ export default function GroupInvite({
 
   useEffect(() => {
     let cancelled = false;
+    setPreview(null);
+    setError('');
+    if (!authenticated) {
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
     setLoading(true);
     apiGet(`/community/group-invites/${encodeURIComponent(token)}`)
       .then((data) => { if (!cancelled) setPreview(data as InvitePreview); })
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'This invitation is no longer available.'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, authenticated]);
 
   const accept = async () => {
     if (joining) return;
@@ -65,6 +71,7 @@ export default function GroupInvite({
         <button type="button" className="group-invite-back" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" /> Back to ExamMind</button>
         <div className="group-invite-mark"><Link2 size={18} aria-hidden="true" /> Secure group invitation</div>
         {loading && <div className="group-invite-state"><LoaderCircle className="group-invite-spin" size={22} /><p>Opening the invitation…</p></div>}
+        {!loading && !authenticated && <div className="group-invite-state"><h1>Sign in to review this invitation.</h1><p>We’ll show the study group after confirming your learning-space access.</p><button type="button" className="group-invite-button" onClick={onSignIn}>Sign in to continue <ArrowRight size={17} aria-hidden="true" /></button></div>}
         {!loading && error && <div className="group-invite-state is-error"><h1>This invitation is unavailable.</h1><p>{error}</p><button type="button" className="group-invite-button group-invite-button--quiet" onClick={onBack}>Return home</button></div>}
         {!loading && !error && preview && !joined && (
           <section className="group-invite-card" aria-labelledby="group-invite-title">

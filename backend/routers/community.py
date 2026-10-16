@@ -20,6 +20,7 @@ import auth
 import models
 from material_access import accessible_material_filter, can_view_material, material_model
 from database import get_db
+from collaboration_access import collaboration_filter, require_collaboration_record
 
 router = APIRouter(prefix="/community", tags=["community"])
 _USERNAME_RE = re.compile(r"^[a-z0-9_]{3,24}$")
@@ -83,10 +84,11 @@ def _member(db: Session, group_id: int, user_id: int) -> models.StudyGroupMember
     )
 
 
-def _group_or_404(db: Session, group_id: int) -> models.StudyGroup:
+def _group_or_404(db: Session, group_id: int, current_user=None) -> models.StudyGroup:
     group = db.query(models.StudyGroup).filter(models.StudyGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Study group not found.")
+    require_collaboration_record(db, group, current_user)
     return group
 
 
@@ -274,6 +276,9 @@ def recommendations(
     groups_query = db.query(models.StudyGroup).filter(models.StudyGroup.status == "active")
     threads_query = db.query(models.DiscussionThread)
     rooms_query = db.query(models.StudySession).filter(models.StudySession.status == "active")
+    groups_query = groups_query.filter(collaboration_filter(db, models.StudyGroup, current_user))
+    threads_query = threads_query.filter(collaboration_filter(db, models.DiscussionThread, current_user))
+    rooms_query = rooms_query.filter(collaboration_filter(db, models.StudySession, current_user))
     if course_ids:
         groups_query = groups_query.filter(models.StudyGroup.course_id.in_(course_ids))
         threads_query = threads_query.filter(models.DiscussionThread.course_id.in_(course_ids))
@@ -359,12 +364,12 @@ def group_home(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    group = _group_or_404(db, group_id)
+    group = _group_or_404(db, group_id, current_user)
     membership = _member(db, group_id, current_user.id)
     if group.visibility != "public" and membership is None:
         raise HTTPException(status_code=403, detail="Join this group to view its home.")
     post_count = db.query(models.StudyGroupPost).filter(models.StudyGroupPost.group_id == group_id).count()
-    room_count = db.query(models.StudySession).filter(models.StudySession.group_id == group_id).count()
+    room_count = db.query(models.StudySession).filter(models.StudySession.group_id == group_id, collaboration_filter(db, models.StudySession, current_user)).count()
     material_count = 0
     if group.course_id:
         material_count = db.query(models.LectureNote).filter(
@@ -401,6 +406,7 @@ def group_home(
             ).filter(
                 models.StudySession.group_id == group_id,
                 models.StudySessionParticipant.user_id == current_user.id,
+                collaboration_filter(db, models.StudySession, current_user),
             ).count() > 0,
         },
     }
@@ -413,7 +419,7 @@ def list_group_posts(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    group = _group_or_404(db, group_id)
+    group = _group_or_404(db, group_id, current_user)
     if group.visibility != "public" and _member(db, group_id, current_user.id) is None:
         raise HTTPException(status_code=403, detail="Join this group to view its posts.")
     query = db.query(models.StudyGroupPost).filter(models.StudyGroupPost.group_id == group_id)
@@ -433,7 +439,7 @@ def update_group(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    group = _group_or_404(db, group_id)
+    group = _group_or_404(db, group_id, current_user)
     _require_group_admin(db, group_id, current_user.id)
     if req.visibility is not None:
         group.visibility = req.visibility
@@ -454,11 +460,15 @@ def invite_to_group(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    group = _group_or_404(db, group_id)
+    group = _group_or_404(db, group_id, current_user)
     _require_group_admin(db, group_id, current_user.id)
     invited = db.query(models.User).filter(models.User.username == req.username.strip().lower()).first()
     if not invited:
         raise HTTPException(status_code=404, detail="That student could not be found.")
+    if not db.query(models.LearningSpaceMembership.id).filter_by(
+        user_id=invited.id, learning_space_id=group.learning_space_id, status="active",
+    ).first():
+        raise HTTPException(status_code=404, detail="That student is unavailable in this learning space.")
     if _member(db, group_id, invited.id):
         return {"status": "already_member"}
     invite = db.query(models.StudyGroupInvite).filter(
@@ -484,7 +494,7 @@ def create_group_link_invite(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    group = _group_or_404(db, group_id)
+    group = _group_or_404(db, group_id, current_user)
     _require_group_admin(db, group_id, current_user.id)
     if group.status != "active":
         raise HTTPException(status_code=409, detail="This study group is archived.")
@@ -511,13 +521,13 @@ def create_group_link_invite(
 
 
 @router.get("/group-invites/{token}")
-def preview_group_link_invite(token: str, db: Session = Depends(get_db)):
+def preview_group_link_invite(token: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     invite = db.query(models.StudyGroupInvite).filter(models.StudyGroupInvite.token == token).first()
     if not invite or invite.revoked_at or invite.status == "revoked" or _invite_expired(invite):
         raise HTTPException(status_code=404, detail="This invitation is no longer available.")
     if invite.max_uses is not None and invite.use_count >= invite.max_uses:
         raise HTTPException(status_code=404, detail="This invitation is no longer available.")
-    group = _group_or_404(db, invite.group_id)
+    group = _group_or_404(db, invite.group_id, current_user)
     if group.status != "active":
         raise HTTPException(status_code=404, detail="This invitation is no longer available.")
     return {"invite": {"expires_at": invite.expires_at, "remaining_uses": max(0, invite.max_uses - invite.use_count) if invite.max_uses else None}, "group": _group_preview(db, group)}
@@ -534,7 +544,7 @@ def accept_group_link_invite(
         raise HTTPException(status_code=404, detail="This invitation is no longer available.")
     if invite.max_uses is not None and invite.use_count >= invite.max_uses:
         raise HTTPException(status_code=409, detail="This invitation has reached its use limit.")
-    group = _group_or_404(db, invite.group_id)
+    group = _group_or_404(db, invite.group_id, current_user)
     if group.status != "active":
         raise HTTPException(status_code=409, detail="This study group is archived.")
     if not _member(db, group.id, current_user.id):
@@ -553,6 +563,7 @@ def revoke_group_link_invite(
     invite = db.query(models.StudyGroupInvite).filter(models.StudyGroupInvite.token == token).first()
     if not invite:
         raise HTTPException(status_code=404, detail="Invitation not found.")
+    _group_or_404(db, invite.group_id, current_user)
     _require_group_admin(db, invite.group_id, current_user.id)
     invite.status = "revoked"
     invite.revoked_at = _now()
@@ -566,7 +577,7 @@ def accept_group_invite(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    group = _group_or_404(db, group_id)
+    group = _group_or_404(db, group_id, current_user)
     if group.status != "active":
         raise HTTPException(status_code=409, detail="This study group is archived.")
     invite = db.query(models.StudyGroupInvite).filter(
@@ -590,7 +601,7 @@ def remove_group_member(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    _group_or_404(db, group_id)
+    _group_or_404(db, group_id, current_user)
     _require_group_admin(db, group_id, current_user.id)
     member = _member(db, group_id, user_id)
     if not member:
@@ -632,7 +643,7 @@ def create_group_post(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    group = _group_or_404(db, group_id)
+    group = _group_or_404(db, group_id, current_user)
     membership = _member(db, group_id, current_user.id)
     if membership is None:
         raise HTTPException(status_code=403, detail="Join the group before posting.")
@@ -661,6 +672,7 @@ def room_summary(
     session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Reading room not found.")
+    require_collaboration_record(db, session, current_user)
     participant = db.query(models.StudySessionParticipant).filter(
         models.StudySessionParticipant.session_id == session_id,
         models.StudySessionParticipant.user_id == current_user.id,

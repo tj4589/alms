@@ -17,6 +17,7 @@ REVISION_ORDER = (
     "0003_learning_space_role_audit",
     "0004_rate_limit_buckets",
     "0005_reminder_delivery",
+    "0006_collaboration_space",
 )
 
 
@@ -68,6 +69,7 @@ REQUIRED_TABLES = frozenset(
         "rate_limit_buckets",
         "reminder_subscriptions",
         "reminder_deliveries",
+        "collaboration_space_audits",
     }
 )
 
@@ -96,6 +98,10 @@ REQUIRED_COLUMNS = {
     "rate_limit_buckets": {"bucket_key", "window_started_at", "window_expires_at", "request_count", "updated_at"},
     "reminder_subscriptions": {"user_id", "channel", "status", "endpoint_key", "consented_at", "unsubscribed_at", "last_seen_at"},
     "reminder_deliveries": {"user_id", "subscription_id", "channel", "dedupe_key", "status", "scheduled_for", "attempted_at", "sent_at", "attempt_count", "failure_code"},
+    "collaboration_space_audits": {"content_type", "content_id", "learning_space_id", "performed_by_user_id", "reason", "created_at"},
+    "study_groups": {"learning_space_id"},
+    "discussion_threads": {"learning_space_id"},
+    "study_sessions": {"learning_space_id"},
 }
 
 REQUIRED_INDEXES = frozenset(
@@ -126,6 +132,11 @@ REQUIRED_INDEXES = frozenset(
         "ix_reminder_deliveries_channel",
         "ix_reminder_deliveries_status",
         "ix_reminder_deliveries_scheduled_for",
+        "ix_study_groups_learning_space_id",
+        "ix_discussion_threads_learning_space_id",
+        "ix_study_sessions_learning_space_id",
+        "ix_collaboration_space_audits_learning_space_id",
+        "ix_collaboration_space_audits_performed_by_user_id",
     }
 )
 
@@ -294,6 +305,25 @@ _ADDITIONAL_REVISION_TABLES = {
             },
         },
     },
+    "0006_collaboration_space": {
+        "collaboration_space_audits": {
+            "columns": {"id", "content_type", "content_id", "learning_space_id", "performed_by_user_id", "reason", "created_at"},
+            "indexes": {"ix_collaboration_space_audits_id", "ix_collaboration_space_audits_learning_space_id", "ix_collaboration_space_audits_performed_by_user_id"},
+        },
+    },
+}
+
+_ADDITIONAL_REVISION_COLUMNS = {
+    "0006_collaboration_space": {
+        table: {"learning_space_id"}
+        for table in ("study_groups", "discussion_threads", "study_sessions")
+    },
+}
+
+_ADDITIONAL_REVISION_INDEXES = {
+    "0006_collaboration_space": {
+        "ix_study_groups_learning_space_id", "ix_discussion_threads_learning_space_id", "ix_study_sessions_learning_space_id",
+    },
 }
 
 _ADDITIONAL_REVISION_FOREIGN_KEYS = {
@@ -314,6 +344,10 @@ _ADDITIONAL_REVISION_FOREIGN_KEYS = {
         ("reminder_deliveries", "user_id", "users", "id", "CASCADE"),
         ("reminder_deliveries", "subscription_id", "reminder_subscriptions", "id", "SET NULL"),
     },
+    "0006_collaboration_space": {
+        (table, "learning_space_id", "learning_spaces", "id", "RESTRICT")
+        for table in ("study_groups", "discussion_threads", "study_sessions", "collaboration_space_audits")
+    } | {("collaboration_space_audits", "performed_by_user_id", "users", "id", "SET NULL")},
 }
 
 _ADDITIONAL_REVISION_UNIQUE_CONSTRAINTS = {
@@ -322,6 +356,7 @@ _ADDITIONAL_REVISION_UNIQUE_CONSTRAINTS = {
         ("reminder_subscriptions", ("channel", "endpoint_key")),
         ("reminder_deliveries", ("dedupe_key",)),
     },
+    "0006_collaboration_space": {("collaboration_space_audits", ("content_type", "content_id"))},
 }
 
 
@@ -349,6 +384,9 @@ def revision_requirements(revision: str) -> dict[str, Any]:
             tables.add(table)
             columns[table] = set(specification["columns"])
             indexes.update(specification["indexes"])
+        for table, added_columns in _ADDITIONAL_REVISION_COLUMNS.get(additional_revision, {}).items():
+            columns[table].update(added_columns)
+        indexes.update(_ADDITIONAL_REVISION_INDEXES.get(additional_revision, set()))
         foreign_keys.update(_ADDITIONAL_REVISION_FOREIGN_KEYS[additional_revision])
         unique_constraints.update(_ADDITIONAL_REVISION_UNIQUE_CONSTRAINTS.get(additional_revision, set()))
 
