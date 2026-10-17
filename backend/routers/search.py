@@ -3,7 +3,7 @@ import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import Text, and_, func, or_
+from sqlalchemy import Text, and_, false, func, or_
 from sqlalchemy.orm import Session
 
 import auth
@@ -25,6 +25,8 @@ from public_schemas import (
 )
 from storage_safety import defer_binary_column
 from collaboration_access import collaboration_filter
+from course_access import active_course_query, course_link_filter
+from learning_spaces import authorized_active_space
 
 router = APIRouter(tags=["search"])
 
@@ -210,6 +212,7 @@ def smart_search(
         db.query(models.DiscussionThread)
         .filter(_thread_filter(terms))
         .filter(collaboration_filter(db, models.DiscussionThread, current_user))
+        .filter(course_link_filter(db, current_user, models.DiscussionThread))
         .order_by(models.DiscussionThread.created_at.desc())
         .limit(5)
         .all()
@@ -246,6 +249,7 @@ def smart_search(
         db.query(models.StudyGroup)
         .filter(_study_group_filter(terms))
         .filter(collaboration_filter(db, models.StudyGroup, current_user))
+        .filter(course_link_filter(db, current_user, models.StudyGroup))
         .order_by(models.StudyGroup.created_at.desc())
         .limit(4)
         .all()
@@ -298,6 +302,7 @@ def smart_search(
             models.StudySession.status == "active",
             _study_session_filter(terms),
             collaboration_filter(db, models.StudySession, current_user),
+            course_link_filter(db, current_user, models.StudySession),
         )
         .order_by(models.StudySession.created_at.desc())
         .limit(4)
@@ -400,9 +405,15 @@ def _suggested_actions(understanding: dict, query: str, has_results: bool) -> li
 
 def _metadata_context(db: Session, current_user: models.User | None = None) -> list[dict]:
     context: list[dict] = []
-    for course in db.query(models.Course).limit(80).all():
+    course_query = active_course_query(db, current_user) if current_user is not None else db.query(models.Course).filter(false())
+    for course in course_query.limit(80).all():
         context.append({"code": course.code, "name": course.name, "description": course.description})
-    for topic in db.query(models.Topic).limit(120).all():
+    topic_query = db.query(models.Topic).join(models.Course, models.Course.id == models.Topic.course_id)
+    if current_user is not None:
+        topic_query = topic_query.filter(models.Course.learning_space_id == getattr(authorized_active_space(db, current_user), "id", None))
+    else:
+        topic_query = topic_query.filter(false())
+    for topic in topic_query.limit(120).all():
         context.append({"topic": topic.name})
     notes_query = _material_query(db, models.LectureNote)
     past_query = _material_query(db, models.PastQuestion)

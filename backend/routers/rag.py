@@ -17,6 +17,7 @@ from maxe_provider import get_maxe_provider
 from query_understanding import expanded_search_terms, public_understanding, understand_query
 from material_access import accessible_material_filter
 from learning_spaces import authorized_active_space
+from course_access import active_course, active_course_query
 from resource_index import citation_payload
 from learning_intelligence import learner_prompt_preferences, learning_suggestion
 from public_schemas import (
@@ -318,10 +319,14 @@ def run_rag_query(
     active_timestamp: Optional[float] = None,
 ) -> dict:
     """Core RAG pipeline — reusable across endpoints. Raises HTTPException on failure."""
+    if current_user is not None and course_id is not None and getattr(current_user, "active_learning_space_id", None) is not None:
+        if active_course(db, current_user, course_id) is None:
+            raise HTTPException(status_code=403, detail="That course is unavailable in this learning space.")
     understanding = understand_query(question, _metadata_context(db, current_user))
     if course_id is None and understanding.get("course_code"):
         compact_code = re.sub(r"\s+", "", str(understanding.get("course_code") or "")).upper()
-        course = db.query(models.Course).filter(func.replace(models.Course.code, " ", "") == compact_code).first()
+        course_query = active_course_query(db, current_user) if current_user is not None else db.query(models.Course).filter(false())
+        course = course_query.filter(func.replace(models.Course.code, " ", "") == compact_code).first()
         if course:
             course_id = course.id
     public_view = public_understanding(understanding)
@@ -594,9 +599,16 @@ def ask_question(
 
 def _metadata_context(db: Session, current_user: models.User | None = None) -> list[dict]:
     context: list[dict] = []
-    for course in db.query(models.Course).limit(80).all():
+    course_query = active_course_query(db, current_user) if current_user is not None else db.query(models.Course).filter(false())
+    for course in course_query.limit(80).all():
         context.append({"code": course.code, "name": course.name, "description": course.description})
-    for topic in db.query(models.Topic).limit(120).all():
+    topic_query = db.query(models.Topic).join(models.Course, models.Course.id == models.Topic.course_id)
+    if current_user is not None:
+        space = authorized_active_space(db, current_user)
+        topic_query = topic_query.filter(models.Course.learning_space_id == getattr(space, "id", None))
+    else:
+        topic_query = topic_query.filter(false())
+    for topic in topic_query.limit(120).all():
         context.append({"topic": topic.name})
     notes_query = defer_binary_column(db.query(models.LectureNote), models.LectureNote)
     past_query = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion)

@@ -18,6 +18,7 @@ REVISION_ORDER = (
     "0004_rate_limit_buckets",
     "0005_reminder_delivery",
     "0006_collaboration_space",
+    "0007_course_space",
 )
 
 
@@ -318,12 +319,16 @@ _ADDITIONAL_REVISION_COLUMNS = {
         table: {"learning_space_id"}
         for table in ("study_groups", "discussion_threads", "study_sessions")
     },
+    "0007_course_space": {
+        "courses": {"learning_space_id"},
+    },
 }
 
 _ADDITIONAL_REVISION_INDEXES = {
     "0006_collaboration_space": {
         "ix_study_groups_learning_space_id", "ix_discussion_threads_learning_space_id", "ix_study_sessions_learning_space_id",
     },
+    "0007_course_space": {"ix_courses_learning_space_id"},
 }
 
 _ADDITIONAL_REVISION_FOREIGN_KEYS = {
@@ -348,6 +353,9 @@ _ADDITIONAL_REVISION_FOREIGN_KEYS = {
         (table, "learning_space_id", "learning_spaces", "id", "RESTRICT")
         for table in ("study_groups", "discussion_threads", "study_sessions", "collaboration_space_audits")
     } | {("collaboration_space_audits", "performed_by_user_id", "users", "id", "SET NULL")},
+    "0007_course_space": {
+        ("courses", "learning_space_id", "learning_spaces", "id", "RESTRICT"),
+    },
 }
 
 _ADDITIONAL_REVISION_UNIQUE_CONSTRAINTS = {

@@ -99,6 +99,25 @@ class UploadValidationTests(unittest.TestCase):
         self.assertEqual(result["failure_reason"], "video_audio_extraction_failed")
 
 
+class OcrAvailabilityTests(unittest.TestCase):
+    def test_missing_tesseract_is_reported_as_unavailable_for_images(self):
+        warnings = []
+        with patch.object(ingest, "_tesseract_available", return_value=False):
+            result = ingest._extract_image_text(b"not-an-image", warnings)
+
+        self.assertEqual(result["failure_reason"], "ocr_not_installed")
+        self.assertTrue(any("Tesseract" in warning for warning in warnings))
+
+    def test_missing_tesseract_is_reported_as_unavailable_for_scanned_pdfs(self):
+        warnings = []
+        with patch.object(ingest, "_tesseract_available", return_value=False):
+            text, failure_reason = ingest._ocr_pdf(b"not-a-pdf", 1, warnings)
+
+        self.assertEqual(text, "")
+        self.assertEqual(failure_reason, "ocr_not_installed")
+        self.assertTrue(any("Tesseract" in warning for warning in warnings))
+
+
 class StorageCleanupTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")

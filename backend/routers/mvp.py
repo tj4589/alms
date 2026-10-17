@@ -58,6 +58,7 @@ from learning_intelligence import (
 )
 from storage_safety import defer_binary_column
 from collaboration_access import collaboration_filter, require_collaboration_record, require_collaboration_space, require_group, require_linked_material_space
+from course_access import active_course, active_course_query, course_link_filter, require_active_course
 from rate_limiting import user_rate_limit
 
 router = APIRouter(tags=["mvp"])
@@ -540,7 +541,7 @@ class StudyGroupCreateRequest(BaseModel):
 
 @router.get("/courses")
 def list_courses(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    rows = db.query(models.Course).order_by(models.Course.code).all()
+    rows = active_course_query(db, current_user).order_by(models.Course.code).all()
     return [serialize_course(row) for row in rows]
 
 
@@ -625,7 +626,7 @@ def read_lecture_note(
     )
 
     uploader = db.query(models.User).filter(models.User.id == note.uploaded_by).first()
-    course = db.query(models.Course).filter(models.Course.id == note.course_id).first()
+    course = active_course(db, current_user, note.course_id)
 
     base = serialize_lecture_note(note, current_user.id)
     reader_sections = [
@@ -1014,7 +1015,7 @@ def public_profile(
         _bucket(course_id)["rooms"] = count
 
     if course_rows:
-        for course in db.query(models.Course).filter(models.Course.id.in_(course_rows.keys())).all():
+        for course in active_course_query(db, current_user).filter(models.Course.id.in_(course_rows.keys())).all():
             row = course_rows[course.id]
             row["code"] = course.code
             row["name"] = course.name
@@ -1225,8 +1226,8 @@ def _validate_thread_context(
     group_id: int | None,
     current_user: models.User,
 ) -> None:
-    if course_id is not None and not db.query(models.Course.id).filter(models.Course.id == course_id).first():
-        raise HTTPException(status_code=400, detail="That course could not be found.")
+    if course_id is not None:
+        require_active_course(db, current_user, course_id)
     if past_question_id is not None:
         past_question = defer_binary_column(db.query(models.PastQuestion), models.PastQuestion).filter(models.PastQuestion.id == past_question_id).first()
         if not past_question or not can_view_material(db, past_question, current_user):
@@ -1297,7 +1298,10 @@ def list_threads(
         raise HTTPException(status_code=400, detail="That discussion feed is not available.")
     effective_feed = feed or "for-you"
     paginated = feed is not None or cursor is not None or limit != 50
-    query = db.query(models.DiscussionThread).filter(_private_thread_filter(db, current_user))
+    query = db.query(models.DiscussionThread).filter(
+        _private_thread_filter(db, current_user),
+        course_link_filter(db, current_user, models.DiscussionThread),
+    )
     if course_id is not None:
         query = query.filter(models.DiscussionThread.course_id == course_id)
     if effective_feed == "for-you":
@@ -1466,7 +1470,7 @@ def post_thread_message(
         if not ai_question:
             ai_question = thread.title
         try:
-            course = db.query(models.Course).filter(models.Course.id == thread.course_id).first() if thread.course_id else None
+            course = active_course(db, current_user, thread.course_id)
             recent_messages = (
                 db.query(models.ThreadMessage)
                 .filter(models.ThreadMessage.thread_id == thread_id)
@@ -1557,6 +1561,7 @@ def list_study_groups(
         )
         .filter(models.StudyGroup.status == "active")
         .filter(collaboration_filter(db, models.StudyGroup, current_user))
+        .filter(course_link_filter(db, current_user, models.StudyGroup))
         .filter(or_(models.StudyGroup.visibility == "public", models.StudyGroupMember.user_id == current_user.id))
         .distinct()
     )
@@ -1615,8 +1620,11 @@ def create_study_group(
 ):
     if not req.name or not req.name.strip():
         raise HTTPException(status_code=400, detail="Group name is required.")
+    space = require_collaboration_space(db, current_user)
+    if req.course_id is not None:
+        require_active_course(db, current_user, req.course_id)
     group = models.StudyGroup(
-        learning_space_id=require_collaboration_space(db, current_user).id,
+        learning_space_id=space.id,
         name=req.name.strip(),
         description=req.description,
         course_id=req.course_id,

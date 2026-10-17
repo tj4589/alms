@@ -6,14 +6,14 @@ unrelated changes in the working tree.
 2026-10-09 evidence update: see `docs/project-integrity-review.md` for the
 314-test provider-isolated suite and independently run browser fixtures. Source
 and mocked browser coverage are separate from live provider/deployment proof.
-2026-10-16 continuation: local migration 0006 and route guards
-provide durable ownership for groups, discussions and rooms. The approved
-legacy policy quarantines ambiguous rows for global-admin review. The
-provider-isolated backend suite passes 321 tests and the isolated admin review
-browser fixture passes desktop/mobile. Application-wide isolation remains
-unverified until 0006 is rehearsed on a designated disposable PostgreSQL
-database and dedicated student collaboration flows are checked. No production
-migration or deployment has been performed.
+2026-10-16 continuation: local migrations 0006 and 0007 and route guards
+provide durable ownership for collaboration records and the course catalogue.
+The approved legacy policy quarantines ambiguous rows for global-admin review;
+only the eight documented pre-space CU catalogue codes are backfilled by 0007.
+The provider-isolated backend suite passes 327 tests. Course and material
+cross-space tests pass locally, but 0006/0007 PostgreSQL rehearsal and
+dedicated student collaboration browser flows remain unverified. No
+production migration or deployment has been performed.
 
 ## Non-negotiable completion rule
 
@@ -63,11 +63,15 @@ pointer behavior.
   unsubscribe state and owner-scoped delivery tracking.
 - [x] Add atomic period-key duplicate prevention and deterministic mocked
   delivery verification without sending real notifications.
+- [x] Add a fail-closed `backend/reminder_worker.py` entry point with explicit
+  daily/weekly period keys, bounded batches and database-idempotent delivery.
 - [ ] Approve the reminder cadence/trigger policy and configure a scheduled
   worker plus external SMTP and VAPID providers before enabling delivery.
 - [x] Complete an isolated browser verification of mocked permission prompts,
   subscription recovery and opt-out UI; no real notification send is allowed
-  during local validation.
+  during local validation. The bounded Playwright fixture passed desktop/mobile
+  on 2026-10-17 with a test-only public VAPID key; the real provider and worker
+  remain disabled.
 
 ### Related questions and early access
 
@@ -132,11 +136,17 @@ school isolation.
   errors. This is controlled synthetic-media evidence, not a representative
   student recording or production-provider result.
 - The local OCR health probe reports the Python wrappers are installed but the
-  system Tesseract executable is unavailable. The isolated installer required
-  elevation and the user-scoped package had no applicable installer. Typed
-  scanned PDFs in the repo are not handwriting evidence and were not used to
-  claim handwriting support. A genuine handwritten sample plus checked
-  transcription remains outstanding.
+  system Tesseract executable is unavailable. A public-domain handwritten
+  sample (`Hello handwriting sample.JPG`, Wikimedia Commons, retrieved
+  2026-10-17; expected visible word: `Hello`) was inspected and passed to the
+  real image-extraction path, but extraction could not run because the engine
+  was absent. The application now reports `ocr_not_installed` and gives an
+  installation-specific message instead of misclassifying the result as a
+  blurry scan. The result is therefore **BLOCKED**, not a quality pass. The
+  isolated installer required elevation and could not be used without
+  persistent installation; typed scanned PDFs in the repo are not handwriting
+  evidence. A verified Tesseract executable (or Docker/CI runtime) is still
+  required before measuring accuracy against the checked transcription.
 - The multi-membership access fixture passed with an explicit fail-closed
   recovery screen, retry/support/sign-out actions, no school picker and no
   workspace flash. It remains a local fixture result, not production evidence.
@@ -147,11 +157,15 @@ school isolation.
   CU/KSA access, onboarding, desk, uploads, Reader, transcripts, search,
   Maxe, practice, progress/readiness, groups, sharing, exports, settings and
   admin boundaries.
-- [x] Run isolated access, admin, student preferences/search/history, workspace,
+- [x] Run isolated access, admin, student preferences/search/history, materials,
   Reader, Maxe, practice, sharing/export, reminder and video fixtures; local
-  account/space IndexedDB privacy is separately verified. Full group/invite/
-  discussion/room controls and destructive account lifecycle remain outstanding,
-  so the complete-workflow checkbox above stays unchecked.
+  account/space IndexedDB privacy is separately verified. Collaboration
+  moderation/upload coverage also passes through isolated Playwright.
+  The full workspace fixture still needs repair: the current shell reopens on
+  the separate My Materials screen and does not satisfy its legacy My desk
+  readiness predicate. Full group/invite/discussion/room controls and the
+  destructive account lifecycle remain outstanding, so the complete-workflow
+  checkbox above stays unchecked.
 - [ ] Verify desktop/mobile layouts, loading/error/empty states, keyboard
   access, no runtime errors and no horizontal overflow.
 - [ ] Update the evidence table and classify each feature as

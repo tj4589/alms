@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 import auth
 import models
 from learning_spaces import authorized_active_space
+from course_access import active_course_query
 from sectioniser import split_into_sections
 from database import get_db
 from material_access import (
@@ -332,6 +333,17 @@ def ocr_health():
         "pillow_available": bool(Image),
         "pymupdf_available": bool(fitz),
     }
+
+
+def _tesseract_available() -> bool:
+    """Return whether the configured Tesseract executable can be invoked."""
+    if not pytesseract:
+        return False
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception:
+        return False
+    return True
 
 
 @router.delete("/documents")
@@ -737,6 +749,9 @@ def _ocr_pdf(content: bytes, page_count: int, warnings: list[str]) -> tuple[str,
     if not pytesseract or not Image:
         warnings.append("OCR support is not installed. Install Tesseract OCR or upload a text-based file.")
         return "", "ocr_not_installed"
+    if not _tesseract_available():
+        warnings.append("OCR support is not installed. Install Tesseract OCR or upload a text-based file.")
+        return "", "ocr_not_installed"
 
     doc = fitz.open(stream=content, filetype="pdf")
     try:
@@ -889,6 +904,9 @@ def _extract_pptx_text(content: bytes, warnings: list[str]) -> Dict[str, Any]:
 
 def _extract_image_text(content: bytes, warnings: list[str]) -> Dict[str, Any]:
     if not pytesseract or not Image:
+        warnings.append("OCR support is not installed. Install Tesseract OCR to read image uploads.")
+        return _failed_text_extraction("", 1, warnings, "ocr_not_installed", ocr_used=True)
+    if not _tesseract_available():
         warnings.append("OCR support is not installed. Install Tesseract OCR to read image uploads.")
         return _failed_text_extraction("", 1, warnings, "ocr_not_installed", ocr_used=True)
     try:
@@ -2399,12 +2417,21 @@ def normalized_metadata(metadata_json: Optional[str], fallback: Dict[str, Any]) 
     return normalize_metadata_fields({**fallback, **parsed})
 
 
-def match_course(db: Session, metadata: Dict[str, Any]) -> Optional[models.Course]:
+def match_course(
+    db: Session,
+    metadata: Dict[str, Any],
+    current_user: models.User | None = None,
+) -> Optional[models.Course]:
     """Resolve an existing catalogue course without creating user-supplied rows."""
-    return derive_course_catalogue(db, metadata)
+    return derive_course_catalogue(db, metadata, current_user=current_user)
 
 
-def derive_course_catalogue(db: Session, metadata: Dict[str, Any]) -> Optional[models.Course]:
+def derive_course_catalogue(
+    db: Session,
+    metadata: Dict[str, Any],
+    *,
+    current_user: models.User | None = None,
+) -> Optional[models.Course]:
     course_code = metadata.get("course_code")
     if not course_code or course_code == "UNKNOWN":
         metadata["course_catalogue_status"] = "unmatched"
@@ -2414,7 +2441,8 @@ def derive_course_catalogue(db: Session, metadata: Dict[str, Any]) -> Optional[m
         return None
 
     course_title = (metadata.get("course_title") or "").strip()
-    course = db.query(models.Course).filter(models.Course.code == course_code).first()
+    course_query = active_course_query(db, current_user) if current_user is not None else db.query(models.Course)
+    course = course_query.filter(models.Course.code == course_code).first()
     if course:
         metadata["course_catalogue_status"] = "confirmed"
         metadata["catalogue_course_id"] = course.id
@@ -2824,7 +2852,7 @@ def _persist_audio_upload(
         "indexed_status": "processing",
         "transcript_available": False,
     })
-    course = match_course(db, metadata)
+    course = match_course(db, metadata, current_user)
     note = models.LectureNote(
         course_id=course.id if course else None,
         uploaded_by=current_user.id,
@@ -3285,7 +3313,7 @@ def upload_document(
 
     # Catalogue data is read-only enrichment. Unknown codes remain unmatched;
     # an upload never creates a new course row as a side effect of review.
-    derive_course_catalogue(db, metadata)
+    derive_course_catalogue(db, metadata, current_user=current_user)
     if not confirm:
         metadata["metadata_proposal"] = _metadata_snapshot(metadata)
     else:
@@ -3422,7 +3450,7 @@ def upload_document(
             source_document_type=extraction.get("resource_type") or "audio",
         )
 
-    course = match_course(db, metadata)
+    course = match_course(db, metadata, current_user)
     manual_unindexed = metadata.get("extraction_method") == "manual" or not extraction_succeeded
     chunks = [] if manual_unindexed else [chunk for chunk in chunk_text(operational_text) if len(chunk.strip()) >= 50]
     if not chunks:

@@ -25,6 +25,7 @@ from reminders import (  # noqa: E402
     ReminderProviderUnavailable,
 )
 from routers.reminders import ReminderSubscriptionRequest  # noqa: E402
+from reminder_worker import eligible_user_ids, period_key, run_once  # noqa: E402
 
 
 class ReminderTests(unittest.TestCase):
@@ -274,6 +275,61 @@ class PushDeliverySafetyTests(unittest.TestCase):
         self.webpush.return_value = None
         with self.assertRaisesRegex(ReminderProviderUnavailable, "^push_provider_failed$"):
             self.send(BrowserPushReminderSender())
+
+
+class ReminderWorkerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.session = sessionmaker(bind=self.engine)()
+        self.user = models.User(
+            id=20,
+            name="Worker Student",
+            username="worker_student",
+            email="worker@example.com",
+            firebase_uid="firebase-worker-1",
+            role="student",
+            account_status="active",
+            onboarding_preferences={"notifications_enabled": True},
+        )
+        self.session.add(self.user)
+        self.session.commit()
+        self.config = patch.dict(os.environ, {
+            "REMINDER_WORKER_ENABLED": "true",
+            "REMINDER_DISPATCH_ENABLED": "true",
+            "REMINDER_CADENCE": "daily",
+        }, clear=False)
+        self.config.start()
+        self.addCleanup(self.config.stop)
+
+    def tearDown(self) -> None:
+        self.session.close()
+        self.engine.dispose()
+
+    def test_period_keys_are_deterministic_and_bounded(self) -> None:
+        now = datetime(2026, 10, 17, 12, tzinfo=timezone.utc)
+        self.assertEqual(period_key(now, "daily"), "2026-10-17")
+        self.assertEqual(period_key(now, "weekly"), "2026-W42")
+        with self.assertRaises(ValueError):
+            period_key(now, "monthly")
+
+    def test_eligible_users_require_active_consent_and_destination(self) -> None:
+        self.assertEqual(eligible_user_ids(self.session, limit=10), [])
+        subscribe_user(self.session, self.user, channel="email")
+        self.session.commit()
+        self.assertEqual(eligible_user_ids(self.session, limit=10), [self.user.id])
+
+    def test_worker_requires_explicit_enablement_and_cadence(self) -> None:
+        with patch.dict(os.environ, {"REMINDER_WORKER_ENABLED": "false"}):
+            with self.assertRaisesRegex(RuntimeError, "REMINDER_WORKER_ENABLED"):
+                run_once(now=datetime(2026, 10, 17, tzinfo=timezone.utc))
+        with patch.dict(os.environ, {
+            "REMINDER_WORKER_ENABLED": "true",
+            "REMINDER_DISPATCH_ENABLED": "true",
+            "REMINDER_CADENCE": "",
+        }):
+            with self.assertRaisesRegex(RuntimeError, "REMINDER_CADENCE"):
+                run_once(now=datetime(2026, 10, 17, tzinfo=timezone.utc))
 
 
 if __name__ == "__main__":

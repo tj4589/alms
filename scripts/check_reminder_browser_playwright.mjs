@@ -18,6 +18,15 @@ const context = await browser.newContext({
   serviceWorkers: 'block',
   reducedMotion: 'reduce',
 });
+context.setDefaultTimeout(10_000);
+context.setDefaultNavigationTimeout(10_000);
+await context.route('**/*', route => {
+  const url = new URL(route.request().url());
+  if (['127.0.0.1', 'localhost'].includes(url.hostname) || ['about:', 'data:', 'blob:'].includes(url.protocol)) {
+    return route.continue();
+  }
+  return route.abort('blockedbyclient');
+});
 const errors = [];
 const failedRequests = [];
 const page = await context.newPage();
@@ -102,10 +111,10 @@ await context.addInitScript(() => {
   };
 });
 
-const waitFor = async selector => page.locator(selector).waitFor({ state: 'visible', timeout: 20000 });
+const waitFor = async selector => page.locator(selector).waitFor({ state: 'visible', timeout: 10_000 });
 
 try {
-  await page.goto(`${baseUrl}/#home`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#home`, { waitUntil: 'domcontentloaded', timeout: 10_000 });
   await page.getByRole('button', { name: 'Settings' }).first().click();
   await waitFor('#settings-reminders-title');
 

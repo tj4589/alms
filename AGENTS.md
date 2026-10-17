@@ -101,6 +101,7 @@ The versioned chain in `backend/alembic/versions/` is:
 4. `0004_rate_limit_buckets`
 5. `0005_reminder_delivery`
 6. `0006_collaboration_space` (not yet validated on a disposable PostgreSQL database)
+7. `0007_course_space` (course catalogue ownership; not yet validated on a disposable PostgreSQL database)
 
 The API Docker command in `backend/Dockerfile` runs Alembic before Uvicorn
 binds. A migration failure must prevent the instance from serving; never bypass

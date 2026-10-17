@@ -142,7 +142,7 @@ const STEP_LABELS = [
   'Extracting text / running OCR if needed',
   'Understanding academic metadata',
   'Checking duplicates',
-  'Transcribing audio if needed',
+  'Checking source readiness',
   'Preparing for indexing',
 ];
 
@@ -170,6 +170,16 @@ const DOC_TYPES = Object.keys(DOC_TYPE_LABEL);
 const EXAM_TYPES = ['unknown', 'quiz', 'test', 'midterm', 'continuous_assessment', 'final'];
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const UNKNOWN_VALUES = new Set(['unknown', 'not found', 'n/a', 'na', 'none', 'null', 'undefined', 'not available']);
+const MEDIA_UPLOAD_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.webm', '.mp4', '.mov'];
+const MEDIA_UPLOAD_MIME_TYPES = [
+  'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/ogg', 'audio/flac', 'audio/webm',
+  'video/webm', 'video/mp4', 'video/quicktime',
+];
+
+function isMediaUpload(file: File) {
+  const name = file.name.toLowerCase();
+  return MEDIA_UPLOAD_MIME_TYPES.includes(file.type) || MEDIA_UPLOAD_EXTENSIONS.some(extension => name.endsWith(extension));
+}
 
 function rescueMessage(reason?: string) {
   if (reason === 'ocr_not_installed') return 'OCR is not installed on this server. Install Tesseract OCR or upload a text-based file.';
@@ -1180,6 +1190,11 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
 
   const analyzeFile = async (selected: File, notice = '') => {
     if (analysisPending.current) return;
+    if (isMediaUpload(selected)) {
+      setMessage('Audio and video transcription is not supported yet. Coming soon.');
+      setState('idle');
+      return;
+    }
     analysisPending.current = true;
     setFile(selected);
     setState('processing');
@@ -1432,38 +1447,30 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.webm', '.mp4', '.mov'];
+    const supportedExtensions = ['.pdf', '.docx', '.pptx', '.png', '.jpg', '.jpeg'];
     const supportedMimeTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'image/png',
       'image/jpeg',
-      'audio/mpeg',
-      'audio/wav',
-      'audio/x-wav',
-      'audio/mp4',
-      'audio/ogg',
-      'audio/flac',
-      'audio/webm',
-      'video/webm',
-      'video/mp4',
-      'video/quicktime',
     ];
     const selectedFiles = Array.from(files);
+    const mediaFiles = selectedFiles.filter(isMediaUpload);
     const supportedFiles = selectedFiles.filter((f) => {
       const name = f.name.toLowerCase();
       return supportedMimeTypes.includes(f.type) || supportedExtensions.some((ext) => name.endsWith(ext));
     });
     const oversizedFiles = supportedFiles.filter(fileItem => fileItem.size > MAX_UPLOAD_BYTES);
     const acceptedFiles = supportedFiles.filter(fileItem => fileItem.size <= MAX_UPLOAD_BYTES);
-    const rejectedUnsupported = selectedFiles.length - supportedFiles.length;
+    const rejectedUnsupported = selectedFiles.length - supportedFiles.length - mediaFiles.length;
     const rejectionMessage = [
+      mediaFiles.length > 0 ? 'Audio and video transcription is not supported yet. Coming soon.' : '',
       rejectedUnsupported > 0 ? `${rejectedUnsupported} unsupported file${rejectedUnsupported === 1 ? '' : 's'} skipped` : '',
       oversizedFiles.length > 0 ? `${oversizedFiles.map(item => item.name).join(', ')} exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} limit` : '',
     ].filter(Boolean).join('. ');
     if (acceptedFiles.length === 0) {
-      setMessage(rejectionMessage || 'Supported files include PDF, Word, PowerPoint, images, audio, and MP4, MOV, or WEBM video.');
+      setMessage(rejectionMessage || 'Supported files include PDF, Word, PowerPoint, and image files.');
       return;
     }
     if (acceptedFiles.length === 1) {
@@ -1522,7 +1529,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
     <ArchiveNameContext.Provider value={archiveName}><div className="page" id="s-upload">
       <div className="pg-head">
         <div className="pg-title">Upload <em>Knowledge</em></div>
-        <div className="pg-sub">Drop a PDF, Word document, PowerPoint, image, audio recording, or video. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
+      <div className="pg-sub">Drop a PDF, Word document, PowerPoint, or image. ExamMind reads it, classifies it, checks duplicates, and asks for one final confirmation before indexing.</div>
       </div>
 
       {queuedUpload && state === 'idle' && <section className="upload-alert" role="status"><p>Queued file: {queuedUpload.fileName}. Review metadata and choose who can access it before confirming.</p><button type="button" className="cta" disabled={!navigator.onLine} onClick={() => { if (analysisPending.current) return; const queuedFile = new File([queuedUpload.fileData], queuedUpload.fileName, { type: queuedUpload.mimeType || '' }); reviewedQueueFile.current = queuedFile; void analyzeFile(queuedFile); }}>Review queued file</button></section>}
@@ -1547,7 +1554,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
             tabIndex={0}
             aria-label="Choose academic files to upload"
           >
-            <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.mp3,.wav,.m4a,.ogg,.flac,.webm,.mp4,.mov,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg,audio/flac,audio/webm,video/webm,video/mp4,video/quicktime" multiple onChange={e => handleFiles(e.target.files)} />
+            <input id="file-input" type="file" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" multiple onChange={e => handleFiles(e.target.files)} />
             <span className="sheet-margin" aria-hidden="true"><i /><i /><i /></span>
             <span className="sheet-frame" aria-hidden="true"><i /><i /><i /><i /></span>
             <span className="sheet-body">
@@ -1564,6 +1571,10 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
           </div>
 
           <aside className="upload-margin">
+            <section className="margin-block upload-coming-soon" aria-labelledby="upload-media-coming-soon">
+              <h2 className="margin-label" id="upload-media-coming-soon">Audio &amp; video</h2>
+              <p className="margin-note"><strong>Coming soon.</strong> Transcription is not supported yet. We’ll add voice-note and video processing after the provider setup is ready.</p>
+            </section>
             <section className="margin-block">
               <h2 className="margin-label">Reading pipeline</h2>
               <ol className="margin-steps">
@@ -1719,7 +1730,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
             {' '}Choose what to do with your copy.
           </div>
           <div className="confirm-actions">
-            {duplicateDocument?.id && <button type="button" className="cta cta-ghost" onClick={() => go('questions')}>View existing</button>}
+            {duplicateDocument?.id && <button type="button" className="cta cta-ghost" onClick={() => go('materials')}>View existing</button>}
             <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(false, 'continue')}>Continue with this version</button>
             <button type="button" className="cta" onClick={() => void confirmUpload(false, 'newer_version')}>Submit as newer version</button>
             {hasQueue && <button type="button" className="cta" onClick={nextInQueue}>Next file ({queueIndex + 1}/{queue.length})</button>}
@@ -1740,7 +1751,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
           initialRequestedVisibility={lastRequestedVisibility}
           initialGroupIds={selectedShareGroupIds}
           groups={shareGroups}
-          onViewLibrary={() => go('questions')}
+          onViewLibrary={() => go('materials')}
           onDismiss={() => setState('idle')}
           onUploadAnother={() => {
             if (hasQueue && queueIndex + 1 < queue.length) {

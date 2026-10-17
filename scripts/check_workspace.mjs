@@ -150,7 +150,7 @@ window.fetch = async (...args) => {
     data = {id:1,quiz_id:1,score:3,total_questions:5,percentage:60,topic:'Market structures',completed_at:'2026-09-29T10:00:00Z',review:[1,2,3,4,5].map((questionId) => ({question_id:questionId,position:questionId,prompt:'Which statement is supported by the authorized source? ('+questionId+')',answer:'0',correct_answer:'Many competing firms',is_correct:questionId <= 3,explanation:questionId <= 3 ? 'The source supports this answer.' : 'Review the source section before trying this question again.',citation:{label:'Week 4 slides · Slide '+(questionId + 3),source:'Week 4 slides',slide_from:questionId + 3},topic:'Market structures'})),readiness:{available:true,score:60}};
   }
   else if (url.includes('/analytics/student/')) data = populated ? {readiness:[{id:1,topic:'Opportunity cost',score:62,course_id:1}],attempts:[{id:1,score:70,total_questions:10,topic:'Demand and supply',course_id:1,completed_at:'2026-09-15T14:00:00Z'}]} : {readiness:[],attempts:[]};
-  else if (url.includes('/courses')) data = [{id:1,code:'ECO 101',name:'Introduction to Economics'},{id:2,code:'BIO 102',name:'Cell Biology'}];
+  else if (url.includes('/courses')) data = populated ? [{id:1,code:'ECO 101',name:'Introduction to Economics'},{id:2,code:'BIO 102',name:'Cell Biology'}] : [];
   else if (url.includes('/lecture-notes/1')) data = {id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'Market structures and competitive strategy.',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'},sections:[{id:11,heading:'Market structure',body:'Market structures describe how firms compete in an industry.',page_from:null,page_to:null}]};
   else if (url.includes('/lecture-notes/2')) data = {id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'Opportunity cost explains the value of the next best alternative.',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'},sections:[{id:12,heading:'Opportunity cost',body:'Opportunity cost is the value of the next best alternative forgone.',page_from:4,page_to:4}]};
   else if (url.includes('/lecture-notes/3')) data = {id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'The recording explains market structures.',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}};
@@ -169,6 +169,10 @@ window.fetch = async (...args) => {
   return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
 };` });
 await send('Page.navigate', { url: 'http://127.0.0.1:5173/#home' });
+await waitFor(`document.querySelector('.desk-course-empty') || document.querySelector('button[aria-label="My desk"]')`);
+if (!(await evaluate(`Boolean(document.querySelector('.desk-course-empty'))`))) {
+  await evaluate(`document.querySelector('button[aria-label="My desk"]')?.click()`);
+}
 await waitFor(`document.querySelector('.desk-course-empty') && !document.querySelector('.desk-loading')`);
 const authFixture = await evaluate(`fetch('http://127.0.0.1:8001/auth/me').then(response => response.json())`);
 assert.equal(authFixture.id, 1, 'Authenticated fixture user id is missing');

@@ -167,11 +167,13 @@ recreated by this process.
    Study reminders have explicit owner consent, email/browser-push
    subscriptions, unsubscribe state and durable delivery tracking. Dispatch
    remains disabled by default and is not run from API startup or request
-   handlers. Before enabling it, approve the cadence and trigger policy, then
-   configure a separately scheduled worker to call the bounded reminder
-   dispatch function. Email uses an SMTP provider; browser push uses VAPID
-   credentials and the `pywebpush` dependency. The API must never receive a
-   browser push private key in frontend variables.
+   handlers. The separate `backend/reminder_worker.py` entry point supports
+   only an explicitly configured `daily` or `weekly` cadence and uses the
+   durable delivery key to make concurrent runs idempotent. Run it from a
+   separately scheduled worker after choosing the cadence/trigger policy and
+   configuring a provider. Email uses an SMTP provider; browser push uses
+   VAPID credentials and the `pywebpush` dependency. The API must never
+   receive a browser push private key in frontend variables.
 
    Configure `REMINDER_PUSH_ALLOWED_HOSTS` with exact approved public browser
    push service hostnames (comma-separated, no wildcards or URL paths). Missing
@@ -194,7 +196,19 @@ recreated by this process.
    REMINDER_PUSH_VAPID_PRIVATE_KEY=<API secret>
    REMINDER_PUSH_VAPID_SUBJECT=mailto:<operator address>
    REMINDER_WORKER_ENABLED=false
+   REMINDER_WORKER_BATCH_SIZE=500
+   REMINDER_SUBJECT=A study check-in from ExamMind
+   REMINDER_BODY=Take a few minutes to review one useful section in your ExamMind workspace.
    ```
+
+   Start the worker with `backend/.venv/Scripts/python.exe reminder_worker.py`
+   from the `backend` directory only after `REMINDER_WORKER_ENABLED=true`,
+   `REMINDER_DISPATCH_ENABLED=true`, `REMINDER_CADENCE=daily` or `weekly`,
+   and the selected delivery provider are configured. A Render cron/worker
+   service or an equivalent external scheduler must invoke it once per chosen
+   period. Do not run it on every API request or API startup. The subject and
+   body are operator-configurable copy and must not contain private student
+   data.
 
    Set `VITE_VAPID_PUBLIC_KEY` on the frontend only after the matching VAPID
    key pair is configured on the API. It is public browser configuration; the
@@ -290,7 +304,7 @@ The API requires these deployment-time values:
 | Providers | `AI_PROVIDER`, `AI_MODEL`, `AI_PROVIDER_TIMEOUT_SECONDS`, `AI_FALLBACK_PROVIDER`, `COHERE_MODEL`, `DEEPSEEK_API_KEY`, `COHERE_API_KEY` | Provider keys are API-service secrets. Requests have bounded timeouts and no uncontrolled retries. |
 | Transcription | `TRANSCRIPTION_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `OPENAI_TRANSCRIPTION_BASE_URL`, `TRANSCRIPTION_TIMEOUT_SECONDS` | OpenAI transcription is optional; when unavailable, audio/video originals remain stored and are marked unavailable for transcription. |
 | Video processing | `FFMPEG_BINARY`, `VIDEO_EXTRACTION_TIMEOUT_SECONDS`, `VIDEO_MAX_DURATION_SECONDS`, `VIDEO_MAX_EXTRACTED_AUDIO_BYTES` | FFmpeg is installed in the Docker image; extraction is bounded and the derived WAV is temporary. |
-| Reminders | `REMINDER_DISPATCH_ENABLED`, `REMINDER_CADENCE`, SMTP values, VAPID values, `REMINDER_WORKER_ENABLED` | Disabled by default. Requires an approved cadence/trigger, external email/push providers and a separately scheduled worker. |
+| Reminders | `REMINDER_DISPATCH_ENABLED`, `REMINDER_CADENCE`, SMTP values, VAPID values, `REMINDER_WORKER_ENABLED`, worker batch/copy values | Disabled by default. The separate `backend/reminder_worker.py` supports daily or weekly periods and requires approved cadence/trigger, external email/push providers and a separately scheduled worker. |
 | Safety limits | `MAX_UPLOAD_BYTES`, `UPLOAD_READ_CHUNK_BYTES`, `MAX_INDEX_CHUNKS`, `MAX_RAG_QUESTION_CHARS`, `MAX_OCR_PAGES` | Keep upload, extraction and provider work bounded. |
 | Rate limiting | `RATE_LIMIT_ENABLED=true`, `RATE_LIMIT_FAILURE_MODE=closed`, `RATE_LIMIT_*` values | PostgreSQL is the shared backing store. The service does not fall back to process-local counters. |
 | Browser/API boundary | `CORS_ORIGINS` | Set to the exact frontend origin(s), with scheme and no wildcard. |

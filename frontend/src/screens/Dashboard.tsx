@@ -402,7 +402,7 @@ export default function Dashboard({
           <section className="desk-next" aria-labelledby="desk-next-title" aria-busy={loading}>
             <div className="desk-next-copy">
             <h2 id="desk-next-title">{loading ? 'Getting your desk ready…' : weakestTopic ? <>A little more practice<br />with {weakestTopic.topic}.</> : hasUploads ? 'Pick up where you left off.' : loadError ? 'Your study space is right here.' : <>{isKsaProgram ? 'New cohort.' : 'Big semester.'}<br />One small start.</>}</h2>
-            <p>{loading ? 'Gathering your courses, notes and recent practice.' : weakestTopic ? `Your latest readiness for this topic is ${weakestTopic.score}%. Make room for a quick practice session.` : hasUploads ? 'Your notes are here. Turn what you’ve learned into something that sticks.' : loadError ? 'You can still add material or find your study group while we reconnect.' : isKsaProgram ? 'Bring a training note or practice resource. We’ll help you make sense of the work and get ready for what’s next.' : 'Bring a lecture note or a past paper. We’ll help you find answers, make connections and get ready for what’s next.'}</p>
+            <p>{loading ? (isKsaProgram ? 'Gathering your programme topics, notes and recent practice.' : 'Gathering your courses, notes and recent practice.') : weakestTopic ? `Your latest readiness for this topic is ${weakestTopic.score}%. Make room for a quick practice session.` : hasUploads ? 'Your notes are here. Turn what you’ve learned into something that sticks.' : loadError ? 'You can still add material or find your study group while we reconnect.' : isKsaProgram ? 'Bring a training note or practice resource. We’ll help you make sense of the work and get ready for what’s next.' : 'Bring a lecture note or a past paper. We’ll help you find answers, make connections and get ready for what’s next.'}</p>
               {!loading && <button type="button" className="desk-primary" onClick={() => go(hasUploads ? 'practice' : 'upload')}>{hasUploads ? 'Let’s practise' : 'Add your first material'}<ArrowRight size={18} aria-hidden="true" /></button>}
             </div>
             <div className="desk-next-side">
@@ -411,7 +411,7 @@ export default function Dashboard({
                   <FileText size={23} strokeWidth={1.5} aria-hidden="true" />
                   <span>Last added to your desk</span>
                   <strong>{shorten(latestMaterial!.title, 62)}</strong>
-                  <button type="button" onClick={() => onOpenSearch(latestMaterial!.courseCode)}>Open materials <ArrowRight size={16} aria-hidden="true" /></button>
+                  <button type="button" onClick={() => go('materials')}>Open My Materials <ArrowRight size={16} aria-hidden="true" /></button>
                 </div>
               ) : (
                 <ol className="desk-start-steps" aria-label="How to get started">
@@ -431,8 +431,8 @@ export default function Dashboard({
           </div>}
 
           <section className="desk-section" aria-labelledby="desk-courses-title">
-            <header className="desk-section-head"><h2 id="desk-courses-title">Your courses</h2><button type="button" className="desk-text-button" onClick={() => go('upload')}><Plus size={16} aria-hidden="true" />Add material</button></header>
-            {loading ? <div className="desk-loading" role="status">Loading your courses…</div> : courseWorkspaces.length ? (
+            <header className="desk-section-head"><h2 id="desk-courses-title">{isKsaProgram ? 'Your programme topics' : 'Your courses'}</h2><button type="button" className="desk-text-button" onClick={() => go('upload')}><Plus size={16} aria-hidden="true" />Add material</button></header>
+            {loading ? <div className="desk-loading" role="status">{isKsaProgram ? 'Loading your programme topics…' : 'Loading your courses…'}</div> : courseWorkspaces.length ? (
               <div className="desk-course-grid">{courseWorkspaces.map((course) => (
                 <button type="button" className="desk-course" key={course.id} onClick={() => onOpenSearch(course.code === 'Archive' ? course.name : course.code)}>
                   <span className="desk-course-top"><span>{course.code}</span><ArrowRight size={18} aria-hidden="true" /></span>
@@ -443,15 +443,15 @@ export default function Dashboard({
               ))}</div>
             ) : <div className="desk-course-empty">
               <FolderOpen size={27} strokeWidth={1.4} aria-hidden="true" />
-              <h3>{loadError ? 'Your courses couldn’t be loaded' : 'A home for every course.'}</h3>
-              <p>{loadError ? 'Try reconnecting to see your saved materials.' : 'Add your first material and we’ll organise it by course. Less searching through chats. More time to understand.'}</p>
-              <button type="button" className="desk-outline" onClick={loadError ? retry : () => go('upload')}>{loadError ? 'Reload courses' : 'Upload course material'}<ArrowRight size={16} aria-hidden="true" /></button>
+              <h3>{loadError ? (isKsaProgram ? 'Your programme topics couldn’t be loaded' : 'Your courses couldn’t be loaded') : isKsaProgram ? 'A home for every programme topic.' : 'A home for every course.'}</h3>
+              <p>{loadError ? 'Try reconnecting to see your saved materials.' : isKsaProgram ? 'Add your first material and we’ll organise it by programme topic. Less searching through chats. More time to understand.' : 'Add your first material and we’ll organise it by course. Less searching through chats. More time to understand.'}</p>
+              <button type="button" className="desk-outline" onClick={loadError ? retry : () => go('upload')}>{loadError ? (isKsaProgram ? 'Reload programme topics' : 'Reload courses') : isKsaProgram ? 'Upload programme material' : 'Upload course material'}<ArrowRight size={16} aria-hidden="true" /></button>
               {!loadError && <span className="desk-file-hint">Lecture notes · Past questions · Scanned PDFs</span>}
             </div>}
           </section>
 
           {hasUploads && <section className="desk-section" aria-labelledby="desk-materials-title">
-            <header className="desk-section-head"><h2 id="desk-materials-title">On your desk</h2><button type="button" className="desk-text-button" onClick={() => go('search')}>View all <ArrowRight size={16} aria-hidden="true" /></button></header>
+            <header className="desk-section-head"><h2 id="desk-materials-title">On your desk</h2><button type="button" className="desk-text-button" onClick={() => go('materials')}>View all materials <ArrowRight size={16} aria-hidden="true" /></button></header>
             <div className="desk-filters" role="group" aria-label="Filter materials">
               <button type="button" aria-pressed={archiveView === 'materials'} onClick={() => setArchiveView('materials')}>All materials <span>{archiveItems.length}</span></button>
               <button type="button" aria-pressed={archiveView === 'questions'} onClick={() => setArchiveView('questions')}>Past questions <span>{pastQuestions.length}</span></button>

@@ -6,12 +6,13 @@ import json
 from typing import Any, Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, not_, or_, select, true
+from sqlalchemy import and_, exists, false, not_, or_, select, true
 from sqlalchemy.orm import Session
 
 import models
 from admin_access import has_admin_portal_access
 from collaboration_access import collaboration_filter
+from learning_spaces import authorized_active_space
 
 
 PRIVATE = "private"
@@ -248,12 +249,27 @@ def accessible_material_filter(db: Session, model: Any, current_user: Any):
             _space_member_exists(model, current_user),
         ),
     )
+    # Course links are scoped just like collaboration links. An owner keeps
+    # access to their own private upload for repair/review, but a shared or
+    # public response must never carry a course owned by another space.
+    active_space_id = getattr(authorized_active_space(db, current_user), "id", None)
+    course_in_space = (
+        or_(
+            model.course_id.is_(None),
+            exists(select(models.Course.id).where(
+                models.Course.id == model.course_id,
+                models.Course.learning_space_id == active_space_id,
+            )),
+        )
+        if active_space_id is not None
+        else false()
+    )
     return or_(
         model.uploaded_by == current_user.id,
-        public_visibility,
-        and_(model.visibility == GROUP, model.id.in_(group_material_ids)),
-        shared_visibility,
-        moderator_visibility,
+        and_(course_in_space, public_visibility),
+        and_(course_in_space, model.visibility == GROUP, model.id.in_(group_material_ids)),
+        and_(course_in_space, shared_visibility),
+        and_(course_in_space, moderator_visibility),
     )
 
 
@@ -262,6 +278,15 @@ def can_view_material(db: Session, row: Any, current_user: Any) -> bool:
         return True
     if getattr(row, "uploaded_by", None) == getattr(current_user, "id", None):
         return True
+    active_space_id = getattr(authorized_active_space(db, current_user), "id", None)
+    if getattr(row, "course_id", None) is not None and (
+        active_space_id is None
+        or db.query(models.Course.id).filter(
+            models.Course.id == row.course_id,
+            models.Course.learning_space_id == active_space_id,
+        ).first() is None
+    ):
+        return False
     contribution = contribution_for_material(db, row)
     if contribution is not None and is_moderator(db, current_user, contribution.learning_space_id):
         return True

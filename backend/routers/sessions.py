@@ -13,6 +13,7 @@ from database import get_db
 from routers.rag import run_rag_query
 from rate_limiting import user_rate_limit
 from collaboration_access import collaboration_filter, require_collaboration_record, require_collaboration_space, require_group
+from course_access import active_course, course_link_filter, require_active_course
 
 router = APIRouter(prefix="/study-sessions", tags=["sessions"])
 
@@ -215,7 +216,10 @@ def list_sessions(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     from sqlalchemy import or_
-    query = db.query(models.StudySession).filter(collaboration_filter(db, models.StudySession, current_user))
+    query = db.query(models.StudySession).filter(
+        collaboration_filter(db, models.StudySession, current_user),
+        course_link_filter(db, current_user, models.StudySession),
+    )
     if active_only:
         query = query.filter(models.StudySession.status == "active")
     if q:
@@ -297,6 +301,10 @@ def create_session(
     if ends_at <= starts_at:
         raise HTTPException(status_code=400, detail="The room end time must be after its start time.")
 
+    space = require_collaboration_space(db, current_user)
+    if req.course_id is not None:
+        require_active_course(db, current_user, req.course_id)
+
     if req.group_id:
         require_group(db, req.group_id, current_user)
         membership = db.query(models.StudyGroupMember).filter(
@@ -309,7 +317,7 @@ def create_session(
     now = datetime.now(timezone.utc)
     status = "scheduled" if starts_at > now else "active"
     session = models.StudySession(
-        learning_space_id=require_collaboration_space(db, current_user).id,
+        learning_space_id=space.id,
         title=req.title.strip(),
         description=req.description,
         purpose=req.purpose,
@@ -652,7 +660,12 @@ def ask_ai(
         raise HTTPException(status_code=413, detail="Question is too long.")
 
     course_id = req.course_id or session.course_id
-    course = db.query(models.Course).filter(models.Course.id == course_id).first() if course_id else None
+    if course_id is not None:
+        course = active_course(db, current_user, course_id)
+        if course is None:
+            raise HTTPException(status_code=400, detail="That course is unavailable in this learning space.")
+    else:
+        course = None
     recent_messages = (
         db.query(models.StudySessionMessage)
         .filter(models.StudySessionMessage.session_id == session_id)

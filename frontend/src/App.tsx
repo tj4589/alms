@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type ReactNode } from 'react';
 import { getOfflineScope, setOfflineScope, type PendingUpload } from './offline';
 import { BellIcon } from '@phosphor-icons/react/dist/icons/Bell';
+import { BookOpenTextIcon } from '@phosphor-icons/react/dist/icons/BookOpenText';
 import { BooksIcon } from '@phosphor-icons/react/dist/icons/Books';
 import { ChatsCircleIcon } from '@phosphor-icons/react/dist/icons/ChatsCircle';
 import { DotsThreeIcon } from '@phosphor-icons/react/dist/icons/DotsThree';
@@ -42,6 +43,7 @@ const Questions = lazy(() => import('./screens/Questions'));
 const Assistant = lazy(() => import('./screens/Assistant'));
 const Upload = lazy(() => import('./screens/Upload'));
 const Offline = lazy(() => import('./screens/Offline'));
+const Materials = lazy(() => import('./screens/Materials'));
 const Collab = lazy(() => import('./screens/Collab'));
 const Practice = lazy(() => import('./screens/Practice'));
 const Progress = lazy(() => import('./screens/Progress'));
@@ -206,7 +208,8 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
     items: [
       { label: 'My desk', screen: 'dashboard', icon: SquaresFourIcon },
       { label: 'Add material', screen: 'upload', icon: UploadSimpleIcon },
-      { label: 'My Materials', screen: 'workspace', icon: BooksIcon },
+      { label: 'My Materials', screen: 'materials', icon: BooksIcon },
+      { label: 'Workspace', screen: 'workspace', icon: BookOpenTextIcon },
       { label: 'Practice', screen: 'practice', icon: ExamIcon },
     ],
   },
@@ -1524,10 +1527,17 @@ export default function App() {
             onReviewUpload={upload => { setQueuedUpload(upload); go('upload'); }}
           />
         )}
-        {activeScreen === 'collab' && <Collab go={go} user={user} initialContext={discussionContext} initialThreadId={sharedThreadIdFromPath()} onClearSharedThread={clearSharedThreadUrl} />}
+        {activeScreen === 'materials' && (
+          <Materials
+            go={go}
+            learningSpaceName={verifiedSpace?.name}
+            onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }}
+          />
+        )}
+        {activeScreen === 'collab' && <Collab go={go} user={user} learningSpace={verifiedSpace} initialContext={discussionContext} initialThreadId={sharedThreadIdFromPath()} onClearSharedThread={clearSharedThreadUrl} />}
         {activeScreen === 'practice' && <Practice initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} onPracticeTopic={topic => handleGoToPractice(topic, { query: topic, topic })} />}
-        {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
+        {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} learningSpace={verifiedSpace} initialContext={groupContext} />}
         {activeScreen === 'empty' && <Empty go={go} />}
         {profileNudgeVisible && <div className="profile-nudge" role="status"><span><strong>Your desk can know you better.</strong><small>Add your department, level or courses for more useful recommendations.</small></span><button type="button" onClick={() => { setOnboardingReturnScreen('dashboard'); setEditingProfile(true); setProfileNudgeVisible(false); setActiveScreen('onboarding'); }}>Finish profile</button><button type="button" className="profile-nudge-dismiss" aria-label="Dismiss profile reminder" onClick={() => { localStorage.setItem('exammind-profile-nudge-dismissed', 'true'); setProfileNudgeVisible(false); }}>×</button></div>}
         {activeScreen === 'settings' && <Settings go={go} user={user} profileEditLabel={verifiedSpace?.slug === 'ksa' ? 'Edit KSA learning preferences →' : undefined} onEditProfile={() => { setOnboardingSpace(verifiedSpace?.slug === 'ksa' ? verifiedSpace : null); setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}

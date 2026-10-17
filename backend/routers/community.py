@@ -21,6 +21,8 @@ import models
 from material_access import accessible_material_filter, can_view_material, material_model
 from database import get_db
 from collaboration_access import collaboration_filter, require_collaboration_record
+from course_access import active_course, active_course_query, course_link_filter
+from learning_spaces import authorized_active_space
 
 router = APIRouter(prefix="/community", tags=["community"])
 _USERNAME_RE = re.compile(r"^[a-z0-9_]{3,24}$")
@@ -107,7 +109,7 @@ class AcademicProfileRequest(BaseModel):
 
 def _profile_payload(db: Session, user: models.User) -> dict:
     course_rows = (
-        db.query(models.Course)
+        active_course_query(db, user)
         .join(models.UserCourse, models.UserCourse.course_id == models.Course.id)
         .filter(models.UserCourse.user_id == user.id)
         .order_by(models.Course.code)
@@ -169,7 +171,7 @@ def _save_profile(
 
     if req.course_ids is not None:
         valid_ids = {
-            row.id for row in db.query(models.Course.id).filter(models.Course.id.in_(req.course_ids)).all()
+            row.id for row in active_course_query(db, user).filter(models.Course.id.in_(req.course_ids)).all()
         }
         if valid_ids != set(req.course_ids):
             raise HTTPException(status_code=400, detail="One or more selected courses are unavailable.")
@@ -272,13 +274,22 @@ def recommendations(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role("student")),
 ):
-    course_ids = [row.course_id for row in db.query(models.UserCourse).filter(models.UserCourse.user_id == current_user.id).all()]
+    course_ids = [
+        row.course_id
+        for row in db.query(models.UserCourse)
+        .join(models.Course, models.Course.id == models.UserCourse.course_id)
+        .filter(
+            models.UserCourse.user_id == current_user.id,
+            models.Course.learning_space_id == getattr(authorized_active_space(db, current_user), "id", None),
+        )
+        .all()
+    ]
     groups_query = db.query(models.StudyGroup).filter(models.StudyGroup.status == "active")
     threads_query = db.query(models.DiscussionThread)
     rooms_query = db.query(models.StudySession).filter(models.StudySession.status == "active")
-    groups_query = groups_query.filter(collaboration_filter(db, models.StudyGroup, current_user))
-    threads_query = threads_query.filter(collaboration_filter(db, models.DiscussionThread, current_user))
-    rooms_query = rooms_query.filter(collaboration_filter(db, models.StudySession, current_user))
+    groups_query = groups_query.filter(collaboration_filter(db, models.StudyGroup, current_user), course_link_filter(db, current_user, models.StudyGroup))
+    threads_query = threads_query.filter(collaboration_filter(db, models.DiscussionThread, current_user), course_link_filter(db, current_user, models.DiscussionThread))
+    rooms_query = rooms_query.filter(collaboration_filter(db, models.StudySession, current_user), course_link_filter(db, current_user, models.StudySession))
     if course_ids:
         groups_query = groups_query.filter(models.StudyGroup.course_id.in_(course_ids))
         threads_query = threads_query.filter(models.DiscussionThread.course_id.in_(course_ids))
@@ -345,8 +356,8 @@ def _invite_expired(invite: models.StudyGroupInvite, now: datetime | None = None
     return bool(invite.expires_at and invite.expires_at <= now)
 
 
-def _group_preview(db: Session, group: models.StudyGroup) -> dict:
-    course = db.query(models.Course).filter(models.Course.id == group.course_id).first() if group.course_id else None
+def _group_preview(db: Session, group: models.StudyGroup, current_user: models.User) -> dict:
+    course = active_course(db, current_user, group.course_id)
     return {
         "id": group.id,
         "name": group.name,
@@ -530,7 +541,7 @@ def preview_group_link_invite(token: str, db: Session = Depends(get_db), current
     group = _group_or_404(db, invite.group_id, current_user)
     if group.status != "active":
         raise HTTPException(status_code=404, detail="This invitation is no longer available.")
-    return {"invite": {"expires_at": invite.expires_at, "remaining_uses": max(0, invite.max_uses - invite.use_count) if invite.max_uses else None}, "group": _group_preview(db, group)}
+    return {"invite": {"expires_at": invite.expires_at, "remaining_uses": max(0, invite.max_uses - invite.use_count) if invite.max_uses else None}, "group": _group_preview(db, group, current_user)}
 
 
 @router.post("/group-invites/{token}/accept")
@@ -551,7 +562,7 @@ def accept_group_link_invite(
         db.add(models.StudyGroupMember(group_id=group.id, user_id=current_user.id, role="member"))
     invite.use_count = (invite.use_count or 0) + 1
     db.commit()
-    return {"status": "joined", "group": _group_preview(db, group)}
+    return {"status": "joined", "group": _group_preview(db, group, current_user)}
 
 
 @router.post("/group-invites/{token}/revoke")

@@ -16,7 +16,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import type { ScreenType, SearchActionContext, User } from '../types';
+import type { LearningSpace, ScreenType, SearchActionContext, User } from '../types';
 import { apiGet, apiPatch, apiPost } from '../lib/api';
 import './Collab.css';
 
@@ -84,16 +84,21 @@ async function shareThread(thread: Thread): Promise<'shared' | 'copied'> {
 export default function Collab({
   go,
   user,
+  learningSpace = null,
   initialContext = null,
   initialThreadId = null,
   onClearSharedThread,
 }: {
   go: (s: ScreenType, username?: string | null) => void;
   user: User | null;
+  learningSpace?: LearningSpace | null;
   initialContext?: (SearchActionContext & { action?: 'discussion' }) | null;
   initialThreadId?: number | null;
   onClearSharedThread?: () => void;
 }) {
+  const isKsaProgram = learningSpace?.slug === 'ksa';
+  const contextLabel = isKsaProgram ? 'programme topic' : 'course';
+  const contextLabelCapitalized = isKsaProgram ? 'Programme topic' : 'Course';
   const [threads, setThreads] = useState<Thread[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [myCourseIds, setMyCourseIds] = useState<number[]>([]);
@@ -361,7 +366,7 @@ export default function Collab({
       <section className="collab-aside-card collab-aside-card--accent">
         <div className="collab-aside-heading"><Sparkles size={16} aria-hidden="true" /><span>{selectedThread ? 'Thread context' : 'A useful rhythm'}</span></div>
         {selectedThread ? <>
-          <h2>{selectedThread.course_id ? courseMap.get(selectedThread.course_id) || 'Course discussion' : 'Open topic'}</h2>
+          <h2>{selectedThread.course_id ? courseMap.get(selectedThread.course_id) || `${contextLabelCapitalized} discussion` : 'Open topic'}</h2>
           <p>{selectedThread.group_name ? `Shared in ${selectedThread.group_name}.` : 'Keep replies close to the question so the next student can follow the thinking.'}</p>
         </> : <>
           <h2>Ask, then build on it.</h2>
@@ -369,12 +374,12 @@ export default function Collab({
         </>}
       </section>
       <section className="collab-aside-card">
-        <div className="collab-aside-heading"><BookOpen size={16} aria-hidden="true" /><span>Relevant courses</span></div>
-        {courses.length > 0 ? <ul className="collab-course-list">{courses.filter((course) => !selectedThread || course.id === selectedThread.course_id || myCourseIds.includes(course.id)).slice(0, 4).map((course) => <li key={course.id}><span>{course.code}</span><small>{course.name}</small></li>)}</ul> : <p>Course context will appear here as the catalogue grows.</p>}
+        <div className="collab-aside-heading"><BookOpen size={16} aria-hidden="true" /><span>{isKsaProgram ? 'Relevant programme topics' : 'Relevant courses'}</span></div>
+        {courses.length > 0 ? <ul className="collab-course-list">{courses.filter((course) => !selectedThread || course.id === selectedThread.course_id || myCourseIds.includes(course.id)).slice(0, 4).map((course) => <li key={course.id}><span>{course.code}</span><small>{course.name}</small></li>)}</ul> : <p>{isKsaProgram ? 'Programme topics will appear here as your cohort catalogue grows.' : 'Course context will appear here as the catalogue grows.'}</p>}
       </section>
       <section className="collab-aside-card">
         <div className="collab-aside-heading"><Users size={16} aria-hidden="true" /><span>Active study circles</span></div>
-        <p>{myGroupIds.length > 0 ? `You are connected to ${myGroupIds.length} study group${myGroupIds.length === 1 ? '' : 's'}.` : 'Join a study group to bring course conversations closer together.'}</p>
+        <p>{myGroupIds.length > 0 ? `You are connected to ${myGroupIds.length} study group${myGroupIds.length === 1 ? '' : 's'}.` : isKsaProgram ? 'Join a study group to bring cohort conversations closer together.' : 'Join a study group to bring course conversations closer together.'}</p>
         <button type="button" className="collab-aside-link" onClick={() => go('groups')}>Find a study group <ArrowUpRight size={15} aria-hidden="true" /></button>
       </section>
       <section className="collab-aside-card collab-aside-card--quiet">
@@ -410,7 +415,7 @@ export default function Collab({
               {contextOpen && selectedThread.created_by === user?.id && <div className="context-editor">
                 <div className="context-editor-head"><strong>Keep the context useful</strong><button type="button" className="icon-action" onClick={() => setContextOpen(false)} aria-label="Close context editor" title="Close context editor"><X size={15} aria-hidden="true" /></button></div>
                 <div className="context-editor-fields">
-                  <label>Course<select className="anchor-select" value={contextCourseId} onChange={(event) => setContextCourseId(event.target.value ? Number(event.target.value) : '')}><option value="">No course</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.code} · {course.name}</option>)}</select></label>
+                  <label>{contextLabelCapitalized}<select className="anchor-select" value={contextCourseId} onChange={(event) => setContextCourseId(event.target.value ? Number(event.target.value) : '')}><option value="">No {contextLabel}</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.code} · {course.name}</option>)}</select></label>
                   <label>Past question<select className="anchor-select" value={contextQuestionId} onChange={(event) => setContextQuestionId(event.target.value ? Number(event.target.value) : '')}><option value="">No past question</option>{pastQuestions.filter((question) => !contextCourseId || question.course_id === contextCourseId).map((question) => <option key={question.id} value={question.id}>{question.year ? `${question.year} · ` : ''}{question.title}</option>)}</select></label>
                   <label>Study group<select className="anchor-select" value={contextGroupId} onChange={(event) => setContextGroupId(event.target.value ? Number(event.target.value) : '')}><option value="">No group</option>{selectedThread.group_id && !myGroups.some((group) => group.id === selectedThread.group_id) && <option value={selectedThread.group_id}>{selectedThread.group_name || 'Current group'}</option>}{myGroups.map((group) => <option key={group.id} value={group.id}>{group.name || `Study group ${group.id}`}</option>)}</select></label>
                 </div>
@@ -461,7 +466,7 @@ export default function Collab({
       <div className="collab-layout">
         <main className="collab-feed-column">
           <div className="collab-feed-tabs" role="tablist" aria-label="Discussion feed view">
-            {(['for-you', 'latest', 'my-courses', 'my-groups'] as const).map((mode) => <button type="button" role="tab" key={mode} aria-selected={feedMode === mode} className={feedMode === mode ? 'is-active' : ''} onClick={() => setFeedMode(mode)}>{mode === 'for-you' ? 'For You' : mode === 'latest' ? 'Latest' : mode === 'my-courses' ? 'My Courses' : 'My Groups'}</button>)}
+            {(['for-you', 'latest', 'my-courses', 'my-groups'] as const).map((mode) => <button type="button" role="tab" key={mode} aria-selected={feedMode === mode} className={feedMode === mode ? 'is-active' : ''} onClick={() => setFeedMode(mode)}>{mode === 'for-you' ? 'For You' : mode === 'latest' ? 'Latest' : mode === 'my-courses' ? (isKsaProgram ? 'My Topics' : 'My Courses') : 'My Groups'}</button>)}
             <span className="collab-feed-count">{visibleThreads.length}{nextCursor ? '+' : ''} shown</span>
           </div>
 
@@ -472,16 +477,16 @@ export default function Collab({
               <textarea ref={composerRef} id="new-thread" className="composer-input" rows={showForm || newTitle ? 3 : 1} maxLength={2000} placeholder="What are you working through?" value={newTitle} onFocus={() => { setShowForm(true); setComposerFocused(true); }} onBlur={() => setComposerFocused(false)} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void createThread(); } }} />
               {showContext && <>
                 <div className="composer-anchor">
-                  <select aria-label="Course this discussion is about" className="anchor-select" value={formCourseId} onChange={(e) => { setFormCourseId(e.target.value ? Number(e.target.value) : ''); setFormQuestionId(''); }}>
-                    <option value="">Course not selected</option>
+                  <select aria-label={`${contextLabelCapitalized} this discussion is about`} className="anchor-select" value={formCourseId} onChange={(e) => { setFormCourseId(e.target.value ? Number(e.target.value) : ''); setFormQuestionId(''); }}>
+                    <option value="">{contextLabelCapitalized} not selected</option>
                     {courses.map((course) => <option key={course.id} value={course.id}>{course.code} · {course.name}</option>)}
                   </select>
                   <select aria-label="Past question this discussion is about" className="anchor-select" value={formQuestionId} disabled={!formCourseId} onChange={(e) => setFormQuestionId(e.target.value ? Number(e.target.value) : '')}>
-                    <option value="">{formCourseId ? 'Link a past question (optional)' : 'Select a course first'}</option>
+                    <option value="">{formCourseId ? 'Link a past question (optional)' : `Select a ${contextLabel} first`}</option>
                     {pastQuestions.filter((question) => question.course_id === formCourseId).map((question) => <option key={question.id} value={question.id}>{question.year ? `${question.year} · ` : ''}{question.title}</option>)}
                   </select>
                 </div>
-                {courses.length === 0 && <p className="composer-note">Your course catalogue is empty or unavailable right now. You can still post this conversation and add context in the text.</p>}
+                {courses.length === 0 && <p className="composer-note">Your {isKsaProgram ? 'programme topic catalogue' : 'course catalogue'} is empty or unavailable right now. You can still post this conversation and add context in the text.</p>}
               </>}
               {formError && <div className="upload-alert">{formError}</div>}
               <div className="composer-foot"><div className="composer-tools"><button type="button" className="btn-context" aria-expanded={showContext} onClick={() => setShowContext((current) => !current)}><BookOpen size={14} aria-hidden="true" /> {showContext ? 'Hide context' : 'Add context'}</button>{(composerFocused || newTitle.length > 0) && <span className="composer-count">{newTitle.length}/2000</span>}<span className="composer-hint">A clear question helps a classmate help.</span></div><div className="composer-actions">{(showForm || newTitle) && <button type="button" className="btn-quiet" onClick={() => { setShowForm(false); setShowContext(false); setNewTitle(''); setFormError(''); }}>Cancel</button>}<button type="button" className="btn-post" onClick={() => void createThread()} disabled={creating || !newTitle.trim()}>{creating ? 'Posting...' : 'Post'} <ChevronRight size={15} aria-hidden="true" /></button></div></div>
@@ -491,8 +496,8 @@ export default function Collab({
           {threadsLoading && <div className="feed-state feed-state--loading"><RefreshCw size={17} className="spin" aria-hidden="true" /> Finding conversations</div>}
           {threadsError && <div className="feed-error"><strong>Discussions are taking a moment.</strong><span>{threadsError}</span><button type="button" onClick={() => void loadThreads(feedMode)}>Try again</button></div>}
           {!threadsLoading && !threadsError && threads.length === 0 && feedMode !== 'my-courses' && feedMode !== 'my-groups' && <div className="feed-empty"><div className="feed-empty-icon"><MessageCircle size={23} aria-hidden="true" /></div><strong>Start the first conversation.</strong><p>Ask the question you wish someone had asked before the exam.</p><button type="button" className="btn-post" onClick={() => setShowForm(true)}>Write a question <Plus size={15} aria-hidden="true" /></button></div>}
-          {!threadsLoading && !threadsError && visibleThreads.length === 0 && threads.length > 0 && feedMode !== 'my-courses' && feedMode !== 'my-groups' && <div className="feed-empty"><div className="feed-empty-icon"><BookOpen size={23} aria-hidden="true" /></div><strong>No academic conversations here yet.</strong><p>Try Latest for the newest campus conversations, or start a study question.</p><button type="button" className="btn-quiet" onClick={() => setFeedMode('latest')}>View Latest</button></div>}
-          {!threadsLoading && !threadsError && visibleThreads.length === 0 && (feedMode === 'my-courses' || feedMode === 'my-groups') && <div className="feed-empty"><div className="feed-empty-icon"><BookOpen size={23} aria-hidden="true" /></div><strong>{feedMode === 'my-groups' ? 'Your groups are quiet for now.' : 'Your course feed is ready when you are.'}</strong><p>{feedMode === 'my-courses' ? 'Add courses to your academic profile so relevant discussions can find you.' : 'Discussions from joined study groups will appear here.'}</p><button type="button" className="btn-quiet" onClick={() => feedMode === 'my-groups' ? go('groups') : go('profile')}>{feedMode === 'my-groups' ? 'Explore study groups' : 'Edit academic profile'}</button></div>}
+          {!threadsLoading && !threadsError && visibleThreads.length === 0 && threads.length > 0 && feedMode !== 'my-courses' && feedMode !== 'my-groups' && <div className="feed-empty"><div className="feed-empty-icon"><BookOpen size={23} aria-hidden="true" /></div><strong>No academic conversations here yet.</strong><p>{isKsaProgram ? 'Try Latest for the newest cohort conversations, or start a study question.' : 'Try Latest for the newest campus conversations, or start a study question.'}</p><button type="button" className="btn-quiet" onClick={() => setFeedMode('latest')}>View Latest</button></div>}
+          {!threadsLoading && !threadsError && visibleThreads.length === 0 && (feedMode === 'my-courses' || feedMode === 'my-groups') && <div className="feed-empty"><div className="feed-empty-icon"><BookOpen size={23} aria-hidden="true" /></div><strong>{feedMode === 'my-groups' ? 'Your groups are quiet for now.' : isKsaProgram ? 'Your programme topic feed is ready when you are.' : 'Your course feed is ready when you are.'}</strong><p>{feedMode === 'my-courses' ? `Add ${isKsaProgram ? 'programme topics' : 'courses'} to your academic profile so relevant discussions can find you.` : 'Discussions from joined study groups will appear here.'}</p><button type="button" className="btn-quiet" onClick={() => feedMode === 'my-groups' ? go('groups') : go('profile')}>{feedMode === 'my-groups' ? 'Explore study groups' : 'Edit academic profile'}</button></div>}
 
           <ul className="feed">
             {!threadsLoading && visibleThreads.map((thread) => (

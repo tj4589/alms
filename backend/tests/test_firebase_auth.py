@@ -32,6 +32,12 @@ import models  # noqa: E402
 import schemas  # noqa: E402
 from routers import auth as auth_router  # noqa: E402
 
+# unittest discovery may import another router before this module, which can
+# cache firebase_tokens with the host environment's empty Google client ID.
+# Reassert the signed-token fixture value locally without changing production
+# configuration or relying on test import order.
+firebase_tokens.GOOGLE_OAUTH_CLIENT_ID = "web-client-id.apps.googleusercontent.com"
+
 
 PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PUBLIC_KEY = PRIVATE_KEY.public_key().public_bytes(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronRight, Clock3, Link2, MessageCircle, Plus, Search, Share2, Sparkles, Users, Video } from 'lucide-react';
-import type { ScreenType, SearchActionContext, User } from '../types';
+import type { LearningSpace, ScreenType, SearchActionContext, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
 import './StudyGroups.css';
 
@@ -749,14 +749,19 @@ export default function StudyGroups({
   go,
   notifyUnavailable,
   user,
+  learningSpace = null,
   initialContext = null,
 }: {
   go: (s: ScreenType, username?: string | null) => void;
   notifyUnavailable: (feature: string) => void;
   user: User | null;
+  learningSpace?: LearningSpace | null;
   initialContext?: (SearchActionContext & { action?: 'study_group' | 'reading_room' }) | null;
 }) {
   void notifyUnavailable;
+  const isKsaProgram = learningSpace?.slug === 'ksa';
+  const contextLabel = isKsaProgram ? 'programme topic' : 'course';
+  const contextLabelCapitalized = isKsaProgram ? 'Programme topic' : 'Course';
   const [mainTab, setMainTab] = useState<'groups' | 'rooms'>('groups');
   const [selectedSession, setSelectedSession] = useState<StudySession | null>(null);
 
@@ -1145,7 +1150,7 @@ export default function StudyGroups({
               <div className="gs-form gs-create-panel">
                 <div className="gs-form-heading"><div><p className="gs-form-title">New study group</p><h2>Make a place to keep showing up.</h2><p>Give classmates enough context to know if this is their kind of study space.</p></div><span className="gs-form-art"><Users size={22} aria-hidden="true" /></span></div>
                 {groupFormError && <div className="upload-alert">{groupFormError}</div>}
-                <div className="gs-form-grid"><div className="gs-field"><label htmlFor="group-name">Group name</label><input id="group-name" type="text" placeholder="CSC 301 Finals Squad" value={formName} onChange={(e) => setFormName(e.target.value)} autoFocus /></div><div className="gs-field"><label htmlFor="group-course">Course <span>optional</span></label><select id="group-course" value={formCourseId} onChange={(e) => setFormCourseId(e.target.value ? Number(e.target.value) : '')}><option value="">No specific course</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select>{courseState === 'empty' && <small className="gs-field-note">No course catalogue is set up yet. Topic-based groups still work.</small>}{courseState === 'unavailable' && <small className="gs-field-note">Course list is unavailable while offline. You can still create the group.</small>}</div></div>
+                <div className="gs-form-grid"><div className="gs-field"><label htmlFor="group-name">Group name</label><input id="group-name" type="text" placeholder={isKsaProgram ? 'Prospecting practice circle' : 'CSC 301 Finals Squad'} value={formName} onChange={(e) => setFormName(e.target.value)} autoFocus /></div><div className="gs-field"><label htmlFor="group-course">{contextLabelCapitalized} <span>optional</span></label><select id="group-course" value={formCourseId} onChange={(e) => setFormCourseId(e.target.value ? Number(e.target.value) : '')}><option value="">No specific {contextLabel}</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select>{courseState === 'empty' && <small className="gs-field-note">No {isKsaProgram ? 'programme topic' : 'course'} catalogue is set up yet. Topic-based groups still work.</small>}{courseState === 'unavailable' && <small className="gs-field-note">{isKsaProgram ? 'Programme topics' : 'Course list'} unavailable while offline. You can still create the group.</small>}</div></div>
                 <div className="gs-field"><label htmlFor="group-topic">What are you working through? <span>optional</span></label><input id="group-topic" type="text" placeholder="Dynamic programming, MIS 415, exam prep" value={formTopic} onChange={(e) => setFormTopic(e.target.value)} /></div>
                 <div className="gs-field"><label htmlFor="group-desc">A short description <span>optional</span></label><textarea id="group-desc" placeholder="What should a new member know before joining?" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void createGroup(); } }} rows={2} /></div>
                 <div className="gs-field gs-visibility-field"><label htmlFor="group-visibility">Who can join?</label><select id="group-visibility" value={formVisibility} onChange={(event) => setFormVisibility(event.target.value as 'public' | 'unlisted' | 'private')}><option value="public">Public — discoverable and open</option><option value="unlisted">Unlisted — invite link only</option><option value="private">Private — invite or approval required</option></select><small className="gs-field-note">{formVisibility === 'public' ? 'Classmates can discover this group.' : formVisibility === 'unlisted' ? 'Only people with the secure link can find it.' : 'Keep the group closed and share invitations selectively.'}</small></div>
@@ -1159,7 +1164,7 @@ export default function StudyGroups({
             {groupsLoading && <p className="gs-state">Loading groups...</p>}
             {groupsError && <div className="upload-alert">{groupsError}</div>}
             {!groupsLoading && !groupsError && groups.length === 0 && (
-              <p className="gs-state">No study groups yet. Create one for a course and your coursemates can join it.</p>
+              <p className="gs-state">No study groups yet. Create one for a {contextLabel} and your {isKsaProgram ? 'cohort' : 'coursemates'} can join it.</p>
             )}
 
             <div className="gs-discovery-controls" aria-label="Group discovery filters">
@@ -1168,7 +1173,7 @@ export default function StudyGroups({
                   <button type="button" role="tab" aria-selected={groupView === value} className={groupView === value ? 'is-active' : ''} key={value} onClick={() => setGroupView(value)}>{label}</button>
                 ))}
               </div>
-              <label className="gs-course-filter"><span className="sr-only">Filter groups by course</span><select value={groupCourseFilter} onChange={(event) => setGroupCourseFilter(event.target.value ? Number(event.target.value) : '')}><option value="">All courses</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.code}</option>)}</select></label>
+              <label className="gs-course-filter"><span className="sr-only">Filter groups by {isKsaProgram ? 'programme topic' : 'course'}</span><select value={groupCourseFilter} onChange={(event) => setGroupCourseFilter(event.target.value ? Number(event.target.value) : '')}><option value="">{isKsaProgram ? 'All programme topics' : 'All courses'}</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.code}</option>)}</select></label>
             </div>
             {!groupsLoading && !groupsError && groups.length > 0 && visibleGroups.length === 0 && <p className="gs-state">Nothing in this view yet. Try Discover or clear the course filter.</p>}
 
@@ -1200,7 +1205,7 @@ export default function StudyGroups({
           </div>
 
           <aside className="gs-margin gs-side-rail">
-            <section className="gs-side-card gs-side-card--accent"><Sparkles size={17} aria-hidden="true" /><h2>Groups last. Rooms are for tonight.</h2><p>A group is your standing course community. A reading room is the focused session you open inside it.</p></section>
+            <section className="gs-side-card gs-side-card--accent"><Sparkles size={17} aria-hidden="true" /><h2>Groups last. Rooms are for tonight.</h2><p>A group is your standing {isKsaProgram ? 'cohort' : 'course'} community. A reading room is the focused session you open inside it.</p></section>
             <section className="gs-side-card"><div className="gs-side-card-title"><Users size={16} aria-hidden="true" /> Make it easy to join</div><p>Use the share button inside a group to send its link to a classmate.</p></section>
           </aside>
         </div>
@@ -1343,7 +1348,7 @@ export default function StudyGroups({
             )}
 
             {groupTab === 'materials' && (
-              <section className="gs-section"><p className="gs-section-label">Course materials</p><p className="margin-note">{groupHome?.tabs.materials ?? 0} materials are anchored to this group’s course. Open My Materials to read and practice from them.</p><button type="button" className="gs-link" onClick={() => go('questions')}>Open course materials <span>→</span></button></section>
+                  <section className="gs-section"><p className="gs-section-label">{isKsaProgram ? 'Programme materials' : 'Course materials'}</p><p className="margin-note">{groupHome?.tabs.materials ?? 0} materials are anchored to this group’s {isKsaProgram ? 'programme topic' : 'course'}. Open My Materials to read and practice from them.</p><button type="button" className="gs-link" onClick={() => go('materials')}>Open {isKsaProgram ? 'programme' : 'course'} materials <span>→</span></button></section>
             )}
 
             {groupTab === 'rooms' && (
@@ -1380,7 +1385,7 @@ export default function StudyGroups({
               <div className="gs-form gs-create-panel gs-room-form">
                 <div className="gs-form-heading"><div><p className="gs-form-title">Start a reading room</p><h2>Give tonight a shape.</h2><p>Every room has a clear start and finish, so joining never feels awkward.</p></div><span className="gs-form-art gs-form-art--teal"><Clock3 size={22} aria-hidden="true" /></span></div>
                 {roomFormError && <div className="upload-alert">{roomFormError}</div>}
-                <div className="gs-form-grid"><div className="gs-field"><label htmlFor="room-title">Room name</label><input id="room-title" type="text" placeholder="MIS 415 project management revision" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus /></div><div className="gs-field"><label htmlFor="room-course">Course <span>optional</span></label><select id="room-course" value={roomCourseId} onChange={(e) => setRoomCourseId(e.target.value ? Number(e.target.value) : '')}><option value="">No specific course</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select>{courseState === 'empty' && <small className="gs-field-note">No course catalogue is set up yet. A topic-based room is still okay.</small>}{courseState === 'unavailable' && <small className="gs-field-note">Course list is unavailable while offline. You can still start by topic.</small>}</div></div>
+                <div className="gs-form-grid"><div className="gs-field"><label htmlFor="room-title">Room name</label><input id="room-title" type="text" placeholder={isKsaProgram ? 'Prospecting practice room' : 'MIS 415 project management revision'} value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} autoFocus /></div><div className="gs-field"><label htmlFor="room-course">{contextLabelCapitalized} <span>optional</span></label><select id="room-course" value={roomCourseId} onChange={(e) => setRoomCourseId(e.target.value ? Number(e.target.value) : '')}><option value="">No specific {contextLabel}</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select>{courseState === 'empty' && <small className="gs-field-note">No {isKsaProgram ? 'programme topic' : 'course'} catalogue is set up yet. A topic-based room is still okay.</small>}{courseState === 'unavailable' && <small className="gs-field-note">{isKsaProgram ? 'Programme topics' : 'Course list'} unavailable while offline. You can still start by topic.</small>}</div></div>
                 <div className="gs-field"><label htmlFor="room-topic">What are you working through? <span>optional</span></label><input id="room-topic" type="text" placeholder="Critical path, cost variance" value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} /></div>
                 <div className="gs-schedule-block"><div className="gs-schedule-title"><CalendarDays size={16} aria-hidden="true" /><div><strong>When should people arrive?</strong><span>Start and end time are required for every room.</span></div></div><div className="room-start-modes" role="group" aria-label="Room start mode"><button type="button" className={roomStartMode === 'now' ? 'is-active' : ''} onClick={() => setRoomStartMode('now')}>Start now</button><button type="button" className={roomStartMode === 'scheduled' ? 'is-active' : ''} onClick={() => setRoomStartMode('scheduled')}>Schedule it</button></div>{roomStartMode === 'now' && <div className="room-duration-chips" role="group" aria-label="Room duration"><span>How long?</span>{['25', '50', '90', 'custom'].map((duration) => <button type="button" key={duration} className={roomDuration === duration ? 'is-active' : ''} onClick={() => setRoomDuration(duration)}>{duration === 'custom' ? 'Custom' : `${duration} min`}</button>)}</div>}<div className="gs-form-grid"><div className="gs-field"><label htmlFor="room-starts">Starts</label><input id="room-starts" type="datetime-local" value={roomStartsAt} onChange={(e) => { setRoomStartMode('scheduled'); setRoomStartsAt(e.target.value); }} required /></div><div className="gs-field"><label htmlFor="room-ends">Ends</label><input id="room-ends" type="datetime-local" value={roomEndsAt} onChange={(e) => { setRoomStartMode('scheduled'); setRoomEndsAt(e.target.value); }} required /></div></div></div>
                 <details className="gs-form-optional"><summary>Add a little context <span>optional</span></summary><div className="gs-form-grid"><div className="gs-field"><label htmlFor="room-purpose">What is the purpose?</label><input id="room-purpose" type="text" placeholder="Work through the paper together" value={roomPurpose} onChange={(e) => setRoomPurpose(e.target.value)} /></div><div className="gs-field"><label htmlFor="room-goal">A small goal for tonight</label><input id="room-goal" type="text" placeholder="Get through the 2023 paper" value={roomGoal} onChange={(e) => setRoomGoal(e.target.value)} /></div></div></details>
@@ -1395,7 +1400,7 @@ export default function StudyGroups({
             {sessionsLoading && <p className="gs-state">Loading rooms...</p>}
             {sessionsError && <div className="upload-alert">{sessionsError}</div>}
             {!sessionsLoading && !sessionsError && sessions.length === 0 && (
-              <p className="gs-state">No reading rooms yet. Start one for tonight and anyone on the course can sit in it with you.</p>
+              <p className="gs-state">No reading rooms yet. Start one for tonight and anyone in the {isKsaProgram ? 'cohort' : 'course'} can sit in it with you.</p>
             )}
 
             <ul className="gs-list">

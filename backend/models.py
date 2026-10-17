@@ -235,6 +235,14 @@ class Course(Base):
     description = Column(Text, nullable=True)
     department = Column(String, nullable=True, index=True)
     level = Column(String, nullable=True, index=True)
+    # NULL is an intentionally quarantined legacy state. Student-facing
+    # catalogue paths must only expose rows assigned to the active space.
+    learning_space_id = Column(
+        Integer,
+        ForeignKey("learning_spaces.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
 class Topic(Base):
     __tablename__ = "topics"

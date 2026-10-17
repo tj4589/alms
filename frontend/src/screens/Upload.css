@@ -213,6 +213,26 @@
   text-transform: uppercase;
 }
 
+#s-upload .upload-coming-soon {
+  background: rgba(255, 253, 247, .45);
+  border: 1px solid rgba(189, 70, 30, .18);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+#s-upload .upload-coming-soon .margin-label {
+  margin-bottom: 8px;
+  color: var(--upload-orange);
+}
+
+#s-upload .upload-coming-soon .margin-note {
+  margin-top: 0;
+}
+
+#s-upload .upload-coming-soon .margin-note strong {
+  color: var(--upload-ink);
+}
+
 #s-upload .margin-note {
   margin: 16px 0 0;
   color: #6b5a4b;
@@ -806,6 +826,11 @@
     padding: 22px 0 0;
     border-top: 1px solid rgba(108, 62, 46, .22);
   }
+
+  #s-upload .upload-margin .upload-coming-soon {
+    padding: 18px;
+    border: 1px solid rgba(189, 70, 30, .18);
+  }
 }
 
 @media (max-width: 620px) {
@@ -861,6 +886,12 @@
     padding: 0;
     margin: 0;
     border-bottom: 0;
+  }
+
+  #s-upload .upload-margin .upload-coming-soon {
+    padding: 18px;
+    margin: 0 0 22px;
+    border: 1px solid rgba(189, 70, 30, .18);
   }
 
   #s-upload .upload-confirm-card,

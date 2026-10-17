@@ -20,6 +20,7 @@ import models
 from material_access import accessible_material_filter
 from resource_index import citation_payload
 from storage_safety import defer_binary_column
+from course_access import active_course
 
 
 MIN_READINESS_ANSWERS = 10
@@ -242,6 +243,12 @@ def authorized_sources(
         raise ValueError("source_scope must be workspace, resource, or topic")
     if source_scope == "resource" and (resource_type not in {"lecture_note", "past_question", "audio"} or not resource_id):
         raise ValueError("resource scope requires a resource type and id")
+    if (
+        course_id is not None
+        and getattr(user, "active_learning_space_id", None) is not None
+        and active_course(db, user, course_id) is None
+    ):
+        raise LookupError("That course is unavailable in this learning space.")
 
     rows: list[Any] = []
     note_query = defer_binary_column(db.query(models.LectureNote), models.LectureNote).filter(accessible_material_filter(db, models.LectureNote, user))
@@ -263,6 +270,12 @@ def authorized_sources(
     sources: list[AuthorizedSource] = []
     topic_terms = [term for term in re.findall(r"[a-z0-9]+", str(topic or "").lower()) if len(term) >= 3]
     for row in rows:
+        if (
+            getattr(user, "active_learning_space_id", None) is not None
+            and getattr(row, "course_id", None) is not None
+            and active_course(db, user, row.course_id) is None
+        ):
+            continue
         source = _source_from_row(db, row, topic)
         if source is None:
             continue

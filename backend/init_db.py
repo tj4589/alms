@@ -16,10 +16,13 @@ COURSES = [
 def seed_courses():
     db = SessionLocal()
     try:
+        cu_space = db.query(models.LearningSpace).filter(models.LearningSpace.slug == "cu").first()
+        if cu_space is None:
+            raise RuntimeError("Seed learning spaces before seeding the course catalogue.")
         for item in COURSES:
             exists = db.query(models.Course).filter(models.Course.code == item["code"]).first()
             if not exists:
-                db.add(models.Course(**item))
+                db.add(models.Course(**item, learning_space_id=cu_space.id))
             else:
                 # Keep existing primary keys and linked material intact while
                 # allowing this small catalogue to improve over time.
@@ -27,6 +30,8 @@ def seed_courses():
                     value = item.get(field)
                     if value and not getattr(exists, field, None):
                         setattr(exists, field, value)
+                if exists.learning_space_id is None:
+                    exists.learning_space_id = cu_space.id
         db.commit()
     finally:
         db.close()
@@ -43,8 +48,8 @@ def seed_learning_spaces():
 if __name__ == "__main__":
     print("Seeding reference data; schema changes must be applied with Alembic first.")
     try:
-        seed_courses()
         seed_learning_spaces()
+        seed_courses()
         print("Seed complete.")
     except Exception as e:
         print(f"Error seeding reference data: {e}")

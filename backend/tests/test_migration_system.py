@@ -13,6 +13,7 @@ KSA_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0002_ksa_cla
 ROLE_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0003_learning_space_role_audit.py"
 RATE_LIMIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0004_rate_limit_buckets.py"
 COLLABORATION_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0006_collaboration_space_ownership.py"
+COURSE_SPACE_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0007_course_space_ownership.py"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -70,7 +71,7 @@ class MigrationSystemTests(unittest.TestCase):
         }
         self.assertEqual(set(baseline), set(models_by_name))
         for table_name, columns in models_by_name.items():
-            additional = {"learning_space_id"} if table_name in {"study_groups", "discussion_threads", "study_sessions"} else set()
+            additional = {"learning_space_id"} if table_name in {"study_groups", "discussion_threads", "study_sessions", "courses"} else set()
             self.assertEqual(baseline[table_name] | additional, columns, table_name)
 
     def test_ksa_claim_audit_revision_is_additive_and_reversible(self):
@@ -111,6 +112,19 @@ class MigrationSystemTests(unittest.TestCase):
         self.assertIn('op.create_table(\n        "rate_limit_buckets"', source)
         self.assertIn('op.create_index(\n        "ix_rate_limit_buckets_window_expires_at"', source)
         self.assertIn('op.drop_table("rate_limit_buckets")', source)
+
+    def test_course_space_revision_scopes_known_catalogue_and_quarantines_unknown_rows(self):
+        spec = importlib.util.spec_from_file_location("course_space_migration", COURSE_SPACE_MIGRATION_PATH)
+        migration = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(migration)
+
+        self.assertEqual(migration.revision, "0007_course_space")
+        self.assertEqual(migration.down_revision, "0006_collaboration_space")
+        source = COURSE_SPACE_MIGRATION_PATH.read_text(encoding="utf-8")
+        self.assertIn('sa.Column("learning_space_id", sa.Integer(), nullable=True)', source)
+        self.assertIn('ondelete="RESTRICT"', source)
+        self.assertIn("course.code IN", source)
 
     def test_full_migration_chain_renders_role_audit_upgrade_and_downgrade_sql(self):
         env = os.environ.copy()
