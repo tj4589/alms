@@ -2912,17 +2912,20 @@ def _persist_audio_upload(
         ))
 
     groups = _audio_chunk_groups(segments)
-    embeddings: list[list[float]] = []
-    indexing_warning = False
-    if len(groups) > MAX_INDEX_CHUNKS:
-        indexing_warning = True
-    else:
-        try:
-            embeddings = [embed_or_fail(group["text"]) for group in groups]
-        except Exception:
-            indexing_warning = True
-
+    embeddings: list[list[float] | None] = []
+    indexing_warning = len(groups) > MAX_INDEX_CHUNKS
     if not indexing_warning:
+        for group in groups:
+            try:
+                embeddings.append(embed_or_fail(group["text"]))
+            except Exception:
+                # Transcription and keyword retrieval remain useful when the
+                # optional embedding model is unavailable.  Do not claim a
+                # semantic index for a chunk that has no vector.
+                embeddings.append(None)
+                indexing_warning = True
+
+    if not len(groups) > MAX_INDEX_CHUNKS:
         for group, embedding in zip(groups, embeddings):
             citation = {
                 "section": group.get("topic"),
@@ -2950,14 +2953,15 @@ def _persist_audio_upload(
         "transcription_model": model,
         "transcript_available": True,
         "transcript_segment_count": len(segments),
-        "indexed_status": "unindexed" if indexing_warning else "indexed",
-        "searchable": not indexing_warning,
+        "indexed_status": "keyword_indexed" if indexing_warning else "indexed",
+        "searchable": bool(groups) and len(groups) <= MAX_INDEX_CHUNKS,
+        "embedding_mode": "keyword" if indexing_warning else "semantic",
         "needs_review": indexing_warning,
     })
     note.metadata_json = note_metadata
     db.commit()
     if indexing_warning:
-        return _audio_response(note, note_metadata, "audio_warning", "The recording was saved and transcribed, but search indexing is waiting for the embedding service.", sharing=sharing)
+        return _audio_response(note, note_metadata, "audio_warning", "The recording was saved and transcribed. Keyword search is available while semantic embeddings are unavailable.", chunks=len(groups), sharing=sharing)
     return _audio_response(note, note_metadata, "success", "Audio recording transcribed and added to your workspace.", len(groups), sharing)
 
 
@@ -3449,6 +3453,7 @@ def upload_document(
         )
 
     reading_sections = split_into_sections(operational_text, extraction.get("page_texts"))
+    embedding_warning = False
     if metadata.get("document_type") != "past_question":
         note = models.LectureNote(
             course_id=course.id if course else None,
@@ -3479,7 +3484,11 @@ def upload_document(
             }
             citation = chunk_metadata["source_citation"] or {}
             coordinates = chunk_provenance_fields(metadata, citation)
-            embedding = embed_or_fail(chunk)
+            try:
+                embedding = embed_or_fail(chunk)
+            except Exception:
+                embedding = None
+                embedding_warning = True
             db.add(
                 models.LectureNoteChunk(
                     lecture_note_id=note.id,
@@ -3524,6 +3533,12 @@ def upload_document(
         indexed_chunks = chunks or [""]
         question_rows = []
         for index, chunk in enumerate(indexed_chunks):
+            embedding = None
+            if chunk.strip():
+                try:
+                    embedding = embed_or_fail(chunk)
+                except Exception:
+                    embedding_warning = True
             pq = models.PastQuestion(
                 course_id=course.id if course else None,
                 uploaded_by=current_user.id,
@@ -3531,7 +3546,7 @@ def upload_document(
                 semester=metadata.get("semester"),
                 difficulty="mixed",
                 content_text=chunk,
-                embedding=embed_or_fail(chunk) if chunk.strip() else None,
+                embedding=embedding,
                 file_url=file.filename,
                 file_data=extraction.get("file_bytes") if index == 0 else None,
                 file_name=extraction.get("file_name") if index == 0 else None,
@@ -3566,6 +3581,18 @@ def upload_document(
             )
 
         sharing = _apply_upload_sharing(db, question_rows, requested_visibility, requested_group_ids, current_user)
+
+    if chunks and embedding_warning:
+        metadata.update({
+            "indexed_status": "keyword_indexed",
+            "searchable": True,
+            "embedding_mode": "keyword",
+            "indexing_warning": "Semantic embeddings are unavailable; keyword search remains active.",
+        })
+        if metadata.get("document_type") != "past_question":
+            note.metadata_json = metadata
+    elif chunks:
+        metadata.setdefault("embedding_mode", "semantic")
 
     db.commit()
     return {

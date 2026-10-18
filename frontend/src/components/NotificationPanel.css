@@ -4,14 +4,22 @@
 .notif-panel{position:absolute;top:calc(100% + 10px);right:0;z-index:260;width:min(340px,calc(100vw - 24px));padding:var(--space-5);border:1px solid var(--border);border-radius:2px;background:var(--surface);box-shadow:0 20px 48px -28px rgba(9,10,10,.5);text-align:left}
 .notif-panel:focus-visible{outline:2px solid var(--text);outline-offset:3px}
 
-.notif-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3);padding-bottom:var(--space-3);border-bottom:1px solid var(--border)}
+.notif-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);padding-bottom:var(--space-3);border-bottom:1px solid var(--border)}
 .notif-label{margin:0;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text3)}
+.notif-head-actions{display:flex;align-items:flex-end;flex-direction:column;gap:5px;text-align:right}
+.notif-count{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);white-space:nowrap}
+.notif-mark-all,.notif-mark-read{padding:0;border:0;background:none;color:var(--highlighter);font-family:var(--font);font-size:11px;cursor:pointer}
+.notif-mark-all:hover,.notif-mark-read:hover{text-decoration:underline}
+.notif-mark-all:focus-visible,.notif-mark-read:focus-visible{outline:2px solid var(--text);outline-offset:3px}
 .notif-net{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
 .notif-net::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
 .notif-net.is-online{color:var(--teal)}
 .notif-net.is-offline{color:var(--correction)}
 
 .notif-empty{margin:var(--space-5) 0;color:var(--text3);font-size:12.5px;line-height:1.6}
+.notif-error{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:var(--space-3) 0 0;padding:10px 0;color:var(--correction);font-size:11.5px;line-height:1.5}
+.notif-retry{flex-shrink:0;padding:0;border:0;background:none;color:var(--highlighter);font-family:var(--font);font-size:11px;cursor:pointer;text-decoration:underline}
+.notif-retry:disabled,.notif-mark-all:disabled,.notif-mark-read:disabled,.notif-action:disabled{cursor:wait;opacity:.55}
 
 .notif-list{list-style:none;margin:0;padding:0}
 /* A left rule carries the state, so the row stays paper rather than becoming a
@@ -21,12 +29,18 @@
 .notif-item.tone-warn{border-left-color:var(--correction)}
 .notif-item.tone-pending{border-left-color:var(--highlighter)}
 .notif-item.tone-ok{border-left-color:var(--teal)}
+.notif-item.is-unread{background:color-mix(in srgb,var(--highlighter) 7%,transparent)}
+.notif-item.is-read{opacity:.78}
+
+.notif-item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.notif-unread-label{flex-shrink:0;color:var(--highlighter);font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase}
 
 .notif-title{margin:0;color:var(--text);font-size:13.5px;font-weight:600;line-height:1.4}
 .notif-body{margin:4px 0 0;color:var(--text3);font-size:12px;line-height:1.55}
 .notif-action{display:inline-flex;align-items:center;min-height:36px;margin-top:6px;padding:0;border:0;background:none;color:var(--highlighter);font-family:var(--font);font-size:12px;font-weight:500;cursor:pointer}
 .notif-action:hover{text-decoration:underline}
 .notif-action:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+.notif-item-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
 
 /* Says plainly what this does not cover yet, rather than implying silence
    means nothing happened. */

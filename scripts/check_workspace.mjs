@@ -24,7 +24,10 @@ const pending = new Map();
 const errors = [];
 ws.onmessage = e => {
   const msg = JSON.parse(typeof e.data === 'string' ? e.data : String(e.data));
-  if (msg.method === 'Runtime.exceptionThrown') errors.push(msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text);
+  if (msg.method === 'Runtime.exceptionThrown') {
+    const details = msg.params.exceptionDetails;
+    errors.push({ message: details.exception?.description || details.text, url: details.url || null, line: details.lineNumber, column: details.columnNumber, stack: details.exception?.stack || details.stackTrace || null });
+  }
   if (msg.id) { const promise = pending.get(msg.id); pending.delete(msg.id); if (msg.error) promise.reject(msg.error); else promise.resolve(msg.result); }
 };
 ws.onclose = () => {
@@ -54,7 +57,20 @@ const waitFor = async expression => {
     if (await evaluate('Boolean(' + expression + ')')) return;
     await new Promise(r => setTimeout(r, 100));
   }
-  throw new Error('Timed out: ' + expression);
+  let diagnostics = { href: 'unavailable', body: 'unavailable', token: false, fixture: 'unavailable', requests: [], errors: [] };
+  try {
+    diagnostics = await evaluate(`({
+      href: location.href,
+      body: document.body?.innerText?.slice(0, 600) || '',
+      token: Boolean(localStorage.getItem('token') || sessionStorage.getItem('token')),
+      fixture: window.__workspaceFixture,
+      requests: (window.__fixtureRequests || []).slice(-12),
+      errors: ${JSON.stringify(errors.slice(-5))}
+    })`);
+  } catch (error) {
+    diagnostics.body = String(error);
+  }
+  throw new Error('Timed out: ' + expression + ' | diagnostics=' + JSON.stringify(diagnostics));
 };
 try {
   await send('Page.enable');
@@ -79,10 +95,19 @@ window.__shareLinkId = 40;
 window.__copiedShareLink = '';
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedShareLink = text; } } });
 const originalFetch = window.fetch.bind(window);
+const fixtureApiPrefixes = ['/auth/', '/learning-spaces', '/learning/', '/community/', '/collaboration/', '/courses', '/lecture-notes', '/past-questions', '/study-groups', '/study-sessions', '/analytics/', '/maxe/', '/understand', '/materials/', '/rag/'];
+const isFixtureApiRequest = value => {
+  try {
+    const parsed = new URL(value, window.location.href);
+    return fixtureApiPrefixes.some(prefix => parsed.pathname === prefix || parsed.pathname.startsWith(prefix));
+  } catch {
+    return false;
+  }
+};
 window.fetch = async (...args) => {
   const url = String(args[0]);
   const method = String(args[1]?.method || 'GET').toUpperCase();
-  if (!url.includes(':8001')) return originalFetch(...args);
+  if (!isFixtureApiRequest(url)) return originalFetch(...args);
   window.__fixtureRequests.push(url);
   if (window.__workspaceFixture === 'error') return new Response(JSON.stringify({detail:'Test offline'}),{status:503,headers:{'Content-Type':'application/json'}});
   const populated = window.__workspaceFixture === 'populated';
@@ -90,12 +115,12 @@ window.fetch = async (...args) => {
   if (url.includes('/auth/me')) data = {id:1,name:'Test Student',username:'test_student',email:'test@example.com',role:'student',account_status:'active'};
   else if (url.includes('/collaboration/materials/') && url.includes('/export')) {
     const format = new URL(url).searchParams.get('format') || 'md';
-    return new Response('Test source\n\nExported ' + format + ' content.\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="test-source.' + format + '"'}});
+    return new Response('Test source\\n\\nExported ' + format + ' content.\\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="test-source.' + format + '"'}});
   }
   else if (url.endsWith('/collaboration/exports') && method === 'POST') {
     const request = JSON.parse(args[1]?.body || '{}');
     const format = request.format || 'md';
-    return new Response('ExamMind export\n\n' + (request.payload?.answer || request.payload?.body || '') + '\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="maxe-export.' + format + '"'}});
+    return new Response('ExamMind export\\n\\n' + (request.payload?.answer || request.payload?.body || '') + '\\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="maxe-export.' + format + '"'}});
   }
   else if (url.includes('/collaboration/share-links/') && method === 'DELETE') {
     const linkId = Number(url.split('/').pop());
@@ -151,12 +176,12 @@ window.fetch = async (...args) => {
   }
   else if (url.includes('/analytics/student/')) data = populated ? {readiness:[{id:1,topic:'Opportunity cost',score:62,course_id:1}],attempts:[{id:1,score:70,total_questions:10,topic:'Demand and supply',course_id:1,completed_at:'2026-09-15T14:00:00Z'}]} : {readiness:[],attempts:[]};
   else if (url.includes('/courses')) data = [{id:1,code:'ECO 101',name:'Introduction to Economics'},{id:2,code:'BIO 102',name:'Cell Biology'}];
-  else if (url.includes('/lecture-notes/1')) data = {id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'Market structures and competitive strategy.',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'},sections:[{id:11,heading:'Market structure',body:'Market structures describe how firms compete in an industry.',page_from:null,page_to:null}]};
-  else if (url.includes('/lecture-notes/2')) data = {id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'Opportunity cost explains the value of the next best alternative.',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'},sections:[{id:12,heading:'Opportunity cost',body:'Opportunity cost is the value of the next best alternative forgone.',page_from:4,page_to:4}]};
-  else if (url.includes('/lecture-notes/3')) data = {id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,uploaded_by:1,course_id:1,content_text:'The recording explains market structures.',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}};
-  else if (url.includes('/lecture-notes')) data = populated ? [{id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,uploaded_by:1,course_id:1,created_at:'2026-09-16T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'}},{id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,uploaded_by:1,course_id:1,created_at:'2026-09-15T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'}},{id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,uploaded_by:1,course_id:1,created_at:'2026-09-14T10:00:00Z',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}}] : [];
+  else if (url.includes('/lecture-notes/1')) data = {id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,uploaded_by:1,is_owner:true,course_id:1,content_text:'Market structures and competitive strategy.',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'},sections:[{id:11,heading:'Market structure',body:'Market structures describe how firms compete in an industry.',page_from:null,page_to:null}]};
+  else if (url.includes('/lecture-notes/2')) data = {id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,uploaded_by:1,is_owner:true,course_id:1,content_text:'Opportunity cost explains the value of the next best alternative.',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'},sections:[{id:12,heading:'Opportunity cost',body:'Opportunity cost is the value of the next best alternative forgone.',page_from:4,page_to:4}]};
+  else if (url.includes('/lecture-notes/3')) data = {id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,uploaded_by:1,is_owner:true,course_id:1,content_text:'The recording explains market structures.',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}};
+  else if (url.includes('/lecture-notes')) data = populated ? [{id:1,title:'Week 4 slides',file_name:'week-4-slides.pptx',has_file:true,file_size:123,uploaded_by:1,is_owner:true,course_id:1,created_at:'2026-09-16T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 4 slides',course_code:'ECO 101'}},{id:2,title:'Week 2 reading',file_name:'week-2-reading.pdf',has_file:true,file_size:123,uploaded_by:1,is_owner:true,course_id:1,created_at:'2026-09-15T10:00:00Z',metadata_json:{document_type:'lecture_note',document_title:'Week 2 reading',course_code:'ECO 101'}},{id:3,title:'Week 4 recording',file_name:'week-4-recording.mp3',has_file:true,file_size:123,uploaded_by:1,is_owner:true,course_id:1,created_at:'2026-09-14T10:00:00Z',metadata_json:{document_type:'audio',document_title:'Week 4 recording',course_code:'ECO 101'}}] : [];
   else if (url.includes('/materials/audio/3/transcript')) data = {resource_id:3,title:'Week 4 recording',transcription_status:'completed',segments:[{id:31,segment_index:0,start_time:842,end_time:906,text:'The recording explains market structures.',topic:'Market structures'}]};
-  else if (url.includes('/past-questions')) data = populated ? [{id:1,title:'First semester past questions',uploaded_by:2,course_id:2,year:2025,created_at:'2026-09-15T10:00:00Z'}] : [];
+  else if (url.includes('/past-questions')) data = populated ? [{id:1,title:'First semester past questions',uploaded_by:2,is_owner:false,course_id:2,year:2025,created_at:'2026-09-15T10:00:00Z'}] : [];
   else if (url.includes('/study-groups')) data = populated ? [{id:9,name:'Economics revision group',is_member:true,status:'active'}] : [];
   else if (url.includes('/study-sessions')) data = populated ? [{id:1,title:'Let’s work through economics',topic:'Demand and supply',starts_at:new Date(Date.now()+86400000).toISOString()}] : [];
   else if (url.endsWith(':8001/')) data = {status:'ok'};
@@ -248,7 +273,7 @@ assert.ok(await evaluate(`document.querySelector('.maxe-workspace-dialog [role="
 const maxeMessageCount = await evaluate(`document.querySelectorAll('.maxe-workspace-dialog .msg').length`);
 await captureViewport(1440,'maxe-workspace-desktop',1000);
 await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
-await waitFor(`!document.querySelector('.maxe-workspace-dialog')`);
+await waitFor(`!document.querySelector('.maxe-workspace-dialog') && document.activeElement?.getAttribute('aria-label') === 'Open Maxe'`);
 assert.equal(await evaluate(`document.activeElement?.getAttribute('aria-label')`),'Open Maxe','Escape did not return focus to Maxe');
 assert.equal(await evaluate(`document.activeElement instanceof HTMLButtonElement && !document.activeElement.disabled`),true,'Maxe trigger is not keyboard activatable');
 await evaluate(`document.activeElement.click()`);

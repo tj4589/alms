@@ -209,6 +209,37 @@ class UploadSerializationTests(unittest.TestCase):
         json.dumps(jsonable_encoder(response))
         assert_no_binary(response)
 
+    def test_confirmation_persists_keyword_chunks_when_embeddings_are_unavailable(self):
+        raw_bytes = b"%PDF\x00\xffkeyword-fallback"
+        db = DatabaseDouble()
+        extraction = successful_extraction(raw_bytes, "embedded_text")
+
+        with (
+            patch.object(ingest, "extract_pdf_text", return_value=extraction),
+            patch.object(ingest, "extract_metadata", return_value=metadata_result()),
+            patch.object(ingest, "find_duplicate", return_value=None),
+            patch.object(ingest, "match_course", return_value=None),
+            patch.object(ingest, "embed_or_fail", side_effect=RuntimeError("embedding model unavailable")),
+            patch.object(ingest, "split_into_sections", return_value=[]),
+        ):
+            response = ingest.upload_document(
+                file=upload("study-material.pdf", raw_bytes),
+                confirm=True,
+                confirmed_metadata=None,
+                db=db,
+                current_user=SimpleNamespace(id=7),
+            )
+
+        note = next(value for value in db.added if isinstance(value, models.LectureNote))
+        chunks = [value for value in db.added if isinstance(value, models.ResourceChunk)]
+        self.assertEqual(response["status"], "success")
+        self.assertTrue(response["searchable"])
+        self.assertEqual(response["metadata"]["embedding_mode"], "keyword")
+        self.assertEqual(note.file_data, raw_bytes)
+        self.assertTrue(chunks)
+        self.assertTrue(all(chunk.embedding is None for chunk in chunks))
+        self.assertEqual(note.metadata_json["indexed_status"], "keyword_indexed")
+
     def test_manual_metadata_required_response_contains_no_binary_data(self):
         response = self.analyze("unclear-scan.pdf", failed_extraction(b"\x89PNG\x00\xff"))
 

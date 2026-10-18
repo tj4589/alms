@@ -11,6 +11,7 @@ from learning_intelligence import ksa_learning_preferences  # noqa: E402
 from maxe_context import assemble_maxe_context, normalize_maxe_mode  # noqa: E402
 from maxe_provider import MaxeProvider  # noqa: E402
 from resource_index import citation_payload  # noqa: E402
+from public_schemas import PublicSourceCitation  # noqa: E402
 from routers.rag import AskQuestionRequest, _knowledge_gap_response  # noqa: E402
 
 
@@ -89,6 +90,22 @@ class MaxeTests(unittest.TestCase):
         )
         self.assertEqual(slide["label"], "Week 4 slides · Slide 8")
         self.assertEqual(slide["target"]["slide_from"], 8)
+
+    def test_public_citation_dto_accepts_all_stored_target_coordinates(self):
+        payload = citation_payload(
+            resource_type="lecture_note",
+            resource_id=4,
+            chunk_id=9,
+            metadata={"document_title": "Week 4 slides"},
+            page_from=2,
+            page_to=3,
+            section="Graph traversal",
+        )
+
+        validated = PublicSourceCitation.model_validate(payload)
+
+        self.assertEqual(validated.target.page_to, 3)
+        self.assertEqual(validated.target.section, "Graph traversal")
 
 
 if __name__ == "__main__":

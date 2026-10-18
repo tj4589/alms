@@ -436,6 +436,11 @@ def _lecture_note_chunk_filter(terms: list[str]):
     return or_(*_term_conditions(terms, models.LectureNoteChunk.chunk_text, models.LectureNoteChunk.topic_tag, models.LectureNoteChunk.metadata_json.cast(Text)))
 
 
+def _resource_chunk_filter(terms: list[str]):
+    """Build the keyword fallback predicate for canonical resource chunks."""
+    return or_(*_term_conditions(terms, models.ResourceChunk.chunk_text, models.ResourceChunk.topic, models.ResourceChunk.metadata_json.cast(Text)))
+
+
 def _thread_filter(terms: list[str]):
     return or_(*_term_conditions(terms, models.DiscussionThread.title))
 

@@ -16,6 +16,8 @@ type Props = {
   query: string;
   result: GlobalSearchResult | null;
   loading: boolean;
+  error?: string;
+  onRetry?: () => void;
   onAskAI: (q: string) => void;
   onUpload: () => void;
   onOpenResource: (kind: 'lecture_note' | 'past_question', id: number) => void;
@@ -51,7 +53,7 @@ function materialMetaLine(item: PastQuestion): string {
   return [documentType, year, semester, `${matches} matching section${matches === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
 }
 
-export default function SearchResults({ query, result, loading, onAskAI, onUpload, onOpenResource, onPractice, onCommunityAction, go }: Props) {
+export default function SearchResults({ query, result, loading, error, onRetry, onAskAI, onUpload, onOpenResource, onPractice, onCommunityAction, go }: Props) {
   const topic = result?.understanding?.interpreted_topic?.trim() || query;
   const relatedTerms = result?.understanding?.related_terms || [];
   const pastQuestions = result?.past_questions || [];
@@ -87,6 +89,14 @@ export default function SearchResults({ query, result, loading, onAskAI, onUploa
         </div>
       </div>
     );
+  }
+
+  if (error) {
+    return <div className="search-page">
+      <h1 className="search-page-title">Search could not be completed</h1>
+      <p role="alert">{error}</p>
+      {onRetry && <button type="button" className="search-primary-btn" onClick={onRetry}>Retry search</button>}
+    </div>;
   }
 
   return (

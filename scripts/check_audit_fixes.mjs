@@ -99,7 +99,7 @@ window.fetch=async (...args)=>{
   const metadata={document_title:'Queued slides',document_type:'lecture_note',course_code:'ECO 101',course_title:'Economics',topics_covered:['Market structure'],confidence_score:0.9,extraction_method:'embedded_text',extraction_confidence:0.95};
   return json(form.get('confirm')==='true'?{status:'success',document_id:17,document_type:'lecture_note',chunks_indexed:2,indexed:true,metadata,sharing:{visibility:'private',moderation_status:'not_submitted'}}:{status:'analyzed',metadata,preview:'Synthetic queue preview',extraction:{pages_read:2,extraction_method:'embedded_text'},preview_quality:'high'});
  }
- if(url.includes('/search?')) return json({query:'Audit source',past_questions:[{id:1,title:'First semester past questions',content_text:'Synthetic authorized question text'}],lecture_notes:[{id:2,title:'Week 2 reading'}],threads:[],related_topics:[],study_groups:[],study_sessions:[]});
+ if(url.includes('/search?')) { if(window.__auditSearchFailure) return json({detail:'Controlled search failure'},503); return json({query:'Audit source',past_questions:[{id:1,title:'First semester past questions',content_text:'Synthetic authorized question text'}],lecture_notes:[{id:2,title:'Week 2 reading'}],threads:[],related_topics:[],study_groups:[],study_sessions:[]}); }
  return fixtureFetch(...args);
 };`;
   const page = await context.newPage();
@@ -135,7 +135,16 @@ window.fetch=async (...args)=>{
   await page.locator('.search-page').waitFor();
   await page.getByRole('button', { name: 'Open First semester past questions', exact: true }).first().click();
   await page.locator('.ws-reader-header h1').filter({ hasText: 'First semester past questions' }).waitFor();
-  results.push({ search: 'note and past-question results open the correct canonical kind/ID in Reader' });
+  await page.evaluate(() => { window.__auditSearchFailure = true; });
+  await page.getByRole('button', { name: 'My desk', exact: true }).first().click();
+  await globalSearch.fill('Search failure');
+  await globalSearch.press('Enter');
+  await page.getByRole('alert').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Retry search', exact: true }).count(), 1);
+  await page.evaluate(() => { window.__auditSearchFailure = false; });
+  await page.getByRole('button', { name: 'Retry search', exact: true }).click();
+  await page.getByText('Search results for "Search failure"', { exact: true }).waitFor();
+  results.push({ search: 'note and past-question results open the correct canonical kind/ID in Reader; failure shows a retryable state' });
 
   await page.evaluate(() => new Promise((resolve, reject) => {
     const request = indexedDB.open('exammind-offline');
@@ -145,6 +154,7 @@ window.fetch=async (...args)=>{
       tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => reject(tx.error);
     }; request.onerror = () => reject(request.error);
   }));
+  await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
   await page.getByRole('button', { name: 'Saved library', exact: true }).click();
   await page.getByRole('button', { name: 'Review upload', exact: true }).click();
   assert.equal(await page.evaluate(() => window.__auditUploads.length), 0, 'Reconnection must not auto-upload');

@@ -180,6 +180,7 @@ recreated by this process.
    REMINDER_EMAIL_PROVIDER=none
    REMINDER_EMAIL_SMTP_HOST=<provider host>
    REMINDER_EMAIL_SMTP_PORT=587
+   REMINDER_EMAIL_SMTP_STARTTLS=true
    REMINDER_EMAIL_SMTP_USERNAME=<provider username>
    REMINDER_EMAIL_SMTP_PASSWORD=<provider password>
    REMINDER_EMAIL_FROM=<verified sender address>
@@ -187,7 +188,18 @@ recreated by this process.
    REMINDER_PUSH_VAPID_PRIVATE_KEY=<API secret>
    REMINDER_PUSH_VAPID_SUBJECT=mailto:<operator address>
    REMINDER_WORKER_ENABLED=false
+   REMINDER_WORKER_BATCH_SIZE=500
+   REMINDER_SUBJECT=A study check-in from ExamMind
+   REMINDER_BODY=Take a few minutes to review one useful section in your ExamMind workspace.
    ```
+
+   The local sandbox may set `REMINDER_EMAIL_SMTP_STARTTLS=false` for a
+   loopback SMTP sink such as Mailpit; production SMTP must keep STARTTLS
+   enabled unless the provider documents an equivalent secure transport. The
+   worker entry point is `backend/reminder_worker.py`; it accepts only
+   `daily` or `weekly` cadence values and remains disabled until an operator
+   chooses the cadence/trigger and configures the provider. No cadence is
+   selected by this repository.
 
    Set `VITE_VAPID_PUBLIC_KEY` on the frontend only after the matching VAPID
    key pair is configured on the API. It is public browser configuration; the
@@ -283,7 +295,7 @@ The API requires these deployment-time values:
 | Providers | `AI_PROVIDER`, `AI_MODEL`, `AI_PROVIDER_TIMEOUT_SECONDS`, `AI_FALLBACK_PROVIDER`, `COHERE_MODEL`, `DEEPSEEK_API_KEY`, `COHERE_API_KEY` | Provider keys are API-service secrets. Requests have bounded timeouts and no uncontrolled retries. |
 | Transcription | `TRANSCRIPTION_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `OPENAI_TRANSCRIPTION_BASE_URL`, `TRANSCRIPTION_TIMEOUT_SECONDS` | OpenAI transcription is optional; when unavailable, audio/video originals remain stored and are marked unavailable for transcription. |
 | Video processing | `FFMPEG_BINARY`, `VIDEO_EXTRACTION_TIMEOUT_SECONDS`, `VIDEO_MAX_DURATION_SECONDS`, `VIDEO_MAX_EXTRACTED_AUDIO_BYTES` | FFmpeg is installed in the Docker image; extraction is bounded and the derived WAV is temporary. |
-| Reminders | `REMINDER_DISPATCH_ENABLED`, `REMINDER_CADENCE`, SMTP values, VAPID values, `REMINDER_WORKER_ENABLED` | Disabled by default. Requires an approved cadence/trigger, external email/push providers and a separately scheduled worker. |
+| Reminders | `REMINDER_DISPATCH_ENABLED`, `REMINDER_CADENCE`, SMTP values including `REMINDER_EMAIL_SMTP_STARTTLS`, VAPID values, worker batch/copy values | Disabled by default. Requires an approved cadence/trigger, external email/push providers and a separately scheduled worker. |
 | Safety limits | `MAX_UPLOAD_BYTES`, `UPLOAD_READ_CHUNK_BYTES`, `MAX_INDEX_CHUNKS`, `MAX_RAG_QUESTION_CHARS`, `MAX_OCR_PAGES` | Keep upload, extraction and provider work bounded. |
 | Rate limiting | `RATE_LIMIT_ENABLED=true`, `RATE_LIMIT_FAILURE_MODE=closed`, `RATE_LIMIT_*` values | PostgreSQL is the shared backing store. The service does not fall back to process-local counters. |
 | Browser/API boundary | `CORS_ORIGINS` | Set to the exact frontend origin(s), with scheme and no wildcard. |

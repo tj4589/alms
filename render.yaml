@@ -118,6 +118,8 @@ services:
         sync: false
       - key: REMINDER_EMAIL_SMTP_PORT
         value: "587"
+      - key: REMINDER_EMAIL_SMTP_STARTTLS
+        value: "true"
       - key: REMINDER_EMAIL_SMTP_USERNAME
         sync: false
       - key: REMINDER_EMAIL_SMTP_PASSWORD
@@ -132,6 +134,12 @@ services:
         sync: false
       - key: REMINDER_WORKER_ENABLED
         value: "false"
+      - key: REMINDER_WORKER_BATCH_SIZE
+        value: "500"
+      - key: REMINDER_SUBJECT
+        value: A study check-in from ExamMind
+      - key: REMINDER_BODY
+        value: Take a few minutes to review one useful section in your ExamMind workspace.
       - key: MAX_UPLOAD_BYTES
         value: "10485760"
       - key: UPLOAD_READ_CHUNK_BYTES

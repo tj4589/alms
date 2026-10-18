@@ -366,6 +366,7 @@ export default function App() {
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [submittedResult, setSubmittedResult] = useState<GlobalSearchResult | null>(null);
   const [submittedLoading, setSubmittedLoading] = useState(false);
+  const [submittedError, setSubmittedError] = useState('');
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement>(null);
@@ -905,6 +906,7 @@ export default function App() {
     setSearchQuery(query);
     setSubmittedQuery(query);
     setSubmittedResult(null);
+    setSubmittedError('');
     setSubmittedLoading(true);
 
     try {
@@ -913,10 +915,11 @@ export default function App() {
         searchResult?.query?.trim().toLowerCase() === query.toLowerCase();
       const data: GlobalSearchResult | null = liveMatchesQuery
         ? searchResult
-        : await apiGet(`/search?q=${encodeURIComponent(query)}`) as GlobalSearchResult;
+        : await apiGet(`/search?q=${encodeURIComponent(query)}`, { timeoutMs: 10_000 }) as GlobalSearchResult;
       setSubmittedResult(data);
-    } catch {
+    } catch (failure) {
       setSubmittedResult(null);
+      setSubmittedError(failure instanceof Error ? failure.message : 'Search is temporarily unavailable. Please try again.');
     } finally {
       setSubmittedLoading(false);
     }
@@ -1424,6 +1427,8 @@ export default function App() {
             query={submittedQuery}
             result={submittedResult}
             loading={submittedLoading}
+            error={submittedError}
+            onRetry={() => { void openSearchResults(submittedQuery); }}
             onAskAI={askAIFromSearch}
             onUpload={() => go('upload')}
             onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }}

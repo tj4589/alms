@@ -149,6 +149,41 @@ class LearningSpaceMembership(Base):
     )
 
 
+class Notification(Base):
+    """An in-app event visible only to one user in one learning space."""
+
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    recipient_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    learning_space_id = Column(Integer, ForeignKey("learning_spaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String(48), nullable=False)
+    event_key = Column(String(160), nullable=False)
+    title = Column(String(180), nullable=False)
+    body = Column(Text, nullable=False)
+    target_screen = Column(String(48), nullable=False)
+    target_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    read_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "recipient_user_id",
+            "learning_space_id",
+            "event_type",
+            "event_key",
+            name="uq_notification_recipient_space_event",
+        ),
+        Index(
+            "ix_notifications_recipient_space_read_created",
+            "recipient_user_id",
+            "learning_space_id",
+            "read_at",
+            "created_at",
+        ),
+    )
+
+
 class KsaMember(Base):
     """KSA unique-claim table with optional legacy cohort metadata.
 
@@ -222,6 +257,13 @@ class Course(Base):
     description = Column(Text, nullable=True)
     department = Column(String, nullable=True, index=True)
     level = Column(String, nullable=True, index=True)
+    # NULL is a quarantined legacy state until an administrator assigns it.
+    learning_space_id = Column(
+        Integer,
+        ForeignKey("learning_spaces.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
 class Topic(Base):
     __tablename__ = "topics"
@@ -514,6 +556,14 @@ class DiscussionThread(Base):
     category = Column(String, nullable=True, index=True)
     mood = Column(String, nullable=True)
     group_id = Column(Integer, ForeignKey("study_groups.id"), nullable=True, index=True)
+    # NULL is a quarantined legacy state until an administrator assigns the
+    # discussion to a learning space.
+    learning_space_id = Column(
+        Integer,
+        ForeignKey("learning_spaces.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
     __table_args__ = (

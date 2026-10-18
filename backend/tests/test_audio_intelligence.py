@@ -158,8 +158,10 @@ class AudioIntelligenceTests(unittest.TestCase):
 
         self.assertEqual(response["status"], "audio_warning")
         self.assertEqual(len(segments), 1)
-        self.assertEqual(chunks, [])
-        self.assertFalse(response["searchable"])
+        self.assertEqual(len(chunks), 1)
+        self.assertIsNone(chunks[0].embedding)
+        self.assertTrue(response["searchable"])
+        self.assertEqual(response["metadata"]["embedding_mode"], "keyword")
 
     def test_audio_provider_segments_are_sorted_and_speakers_preserved(self):
         _, _, segments = ingest._normalise_audio_transcription({

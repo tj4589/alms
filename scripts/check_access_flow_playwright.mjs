@@ -56,7 +56,7 @@ await page.locator('.workspace-shell').waitFor();
 await navigate('multi_no_active');
 await page.locator('.account-bootstrap').waitFor();
 const recoveryText = await page.locator('.account-bootstrap').innerText();
-assert.match(recoveryText, /multiple verified school memberships/i);
+assert.match(recoveryText, /multiple verified (?:school|learning-space) memberships/i);
 assert.equal(await page.locator('#spaces-title').count(), 0);
 assert.equal(await page.getByText('Switch learning space', { exact: true }).count(), 0);
 assert.equal(await page.locator('.space-card').count(), 0);

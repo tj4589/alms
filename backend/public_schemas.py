@@ -204,7 +204,10 @@ class PublicCitationTarget(PublicDTO):
     start_time: float | None = None
     end_time: float | None = None
     page_from: int | None = None
+    page_to: int | None = None
     slide_from: int | None = None
+    slide_to: int | None = None
+    section: str | None = None
 
 
 class PublicSourceCitation(PublicDTO):

@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import Text, func, or_
+from sqlalchemy import Text, false, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,8 @@ from learning_intelligence import (
     readiness_payload,
     record_quiz_attempt,
 )
+from notifications import notify_discussion_reply
+from learning_spaces import authorized_active_space
 from storage_safety import defer_binary_column
 from rate_limiting import user_rate_limit
 
@@ -1206,7 +1208,16 @@ def _private_thread_filter(db: Session, current_user: models.User):
     )
 
 
+def _active_thread_space_filter(db: Session, current_user: models.User):
+    """Limit discussions to the caller's verified active learning space."""
+    space = authorized_active_space(db, current_user)
+    return models.DiscussionThread.learning_space_id == space.id if space is not None else false()
+
+
 def _can_view_thread(db: Session, thread: models.DiscussionThread, current_user: models.User) -> bool:
+    space = authorized_active_space(db, current_user)
+    if space is None or thread.learning_space_id != space.id:
+        return False
     if thread.group_id is None:
         return True
     group = db.query(models.StudyGroup).filter(models.StudyGroup.id == thread.group_id).first()
@@ -1297,7 +1308,10 @@ def list_threads(
         raise HTTPException(status_code=400, detail="That discussion feed is not available.")
     effective_feed = feed or "for-you"
     paginated = feed is not None or cursor is not None or limit != 50
-    query = db.query(models.DiscussionThread).filter(_private_thread_filter(db, current_user))
+    query = db.query(models.DiscussionThread).filter(
+        _active_thread_space_filter(db, current_user),
+        _private_thread_filter(db, current_user),
+    )
     if course_id is not None:
         query = query.filter(models.DiscussionThread.course_id == course_id)
     if effective_feed == "for-you":
@@ -1337,6 +1351,9 @@ def create_thread(
     content = (req.content or req.title or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="Write something to start the discussion.")
+    space = authorized_active_space(db, current_user)
+    if space is None:
+        raise HTTPException(status_code=403, detail="Choose an authorized active learning space first.")
     _validate_thread_context(db, req.course_id, req.past_question_id, req.group_id, current_user)
     title = content.splitlines()[0][:180]
     category, mood = classify_discussion(content)
@@ -1349,6 +1366,7 @@ def create_thread(
         category=category,
         mood=mood,
         created_by=current_user.id,
+        learning_space_id=space.id,
     )
     db.add(thread)
     db.commit()
@@ -1376,7 +1394,7 @@ def update_thread_context(
     current_user: models.User = Depends(auth.require_role("student")),
 ):
     thread = db.query(models.DiscussionThread).filter(models.DiscussionThread.id == thread_id).first()
-    if not thread:
+    if not thread or not _can_view_thread(db, thread, current_user):
         raise HTTPException(status_code=404, detail="Discussion not found.")
     if thread.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Only the discussion author can update its context.")
@@ -1458,6 +1476,8 @@ def post_thread_message(
         client_message_id=req.client_message_id,
     )
     db.add(message)
+    db.flush()
+    notify_discussion_reply(db, thread=thread, message=message, actor=current_user)
     maxe_mentioned = contains_maxe_mention(content)
     if maxe_mentioned:
         ai_question = strip_maxe_mentions(req.content)

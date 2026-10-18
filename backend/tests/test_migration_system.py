@@ -12,6 +12,7 @@ MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0001_initial_schema.py
 KSA_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0002_ksa_claim_audit.py"
 ROLE_AUDIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0003_learning_space_role_audit.py"
 RATE_LIMIT_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0004_rate_limit_buckets.py"
+COURSE_SPACE_MIGRATION_PATH = BACKEND_ROOT / "alembic" / "versions" / "0007_course_space_ownership.py"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -64,11 +65,13 @@ class MigrationSystemTests(unittest.TestCase):
                 "rate_limit_buckets",
                 "reminder_subscriptions",
                 "reminder_deliveries",
+                "notifications",
             }
         }
         self.assertEqual(set(baseline), set(models_by_name))
         for table_name, columns in models_by_name.items():
-            self.assertEqual(baseline[table_name], columns, table_name)
+            additional = {"learning_space_id"} if table_name in {"courses", "discussion_threads"} else set()
+            self.assertEqual(baseline[table_name] | additional, columns, table_name)
 
     def test_ksa_claim_audit_revision_is_additive_and_reversible(self):
         spec = importlib.util.spec_from_file_location("ksa_claim_audit_migration", KSA_AUDIT_MIGRATION_PATH)
@@ -213,6 +216,32 @@ class MigrationSystemTests(unittest.TestCase):
         self.assertIn("reminder_subscriptions", reminder_head["tables"])
         self.assertIn("reminder_deliveries", reminder_head["tables"])
         self.assertIn(("reminder_deliveries", ("dedupe_key",)), reminder_head["unique_constraints"])
+
+        course_head = revision_requirements("0007_course_space")
+        self.assertIn("learning_space_id", course_head["columns"]["courses"])
+        self.assertIn("ix_courses_learning_space_id", course_head["indexes"])
+        self.assertIn(("courses", "learning_space_id", "learning_spaces", "id", "RESTRICT"), course_head["foreign_keys"])
+
+        notification_head = revision_requirements("0008_notifications")
+        self.assertIn("notifications", notification_head["tables"])
+        self.assertIn("read_at", notification_head["columns"]["notifications"])
+        self.assertIn("ix_notifications_recipient_space_read_created", notification_head["indexes"])
+        self.assertIn(
+            ("notifications", "recipient_user_id", "users", "id", "CASCADE"),
+            notification_head["foreign_keys"],
+        )
+
+    def test_course_space_revision_is_additive_and_quarantines_unknown_rows(self):
+        spec = importlib.util.spec_from_file_location("course_space_migration", COURSE_SPACE_MIGRATION_PATH)
+        migration = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(migration)
+        self.assertEqual(migration.revision, "0007_course_space")
+        self.assertEqual(migration.down_revision, "0006_collaboration_space")
+        source = COURSE_SPACE_MIGRATION_PATH.read_text(encoding="utf-8")
+        self.assertIn('sa.Column("learning_space_id", sa.Integer(), nullable=True)', source)
+        self.assertIn('ondelete="RESTRICT"', source)
+        self.assertIn("course.code IN", source)
 
     def test_revision_inspection_reads_marker_and_flags_later_tables(self):
         from sqlalchemy import create_engine, text

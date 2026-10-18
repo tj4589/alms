@@ -322,6 +322,7 @@ class SmtpReminderSender:
         self.password = os.getenv("REMINDER_EMAIL_SMTP_PASSWORD", "")
         self.sender = os.getenv("REMINDER_EMAIL_FROM", "").strip()
         self.timeout = max(1, min(int(os.getenv("REMINDER_PROVIDER_TIMEOUT_SECONDS", "10")), 60))
+        self.starttls_enabled = os.getenv("REMINDER_EMAIL_SMTP_STARTTLS", "true").strip().lower() not in {"0", "false", "no", "off"}
         if not self.host or not self.sender:
             raise ReminderProviderUnavailable("email_provider_unconfigured")
 
@@ -335,7 +336,8 @@ class SmtpReminderSender:
         context = ssl.create_default_context()
         try:
             with smtplib.SMTP(self.host, self.port, timeout=self.timeout) as client:
-                client.starttls(context=context)
+                if self.starttls_enabled:
+                    client.starttls(context=context)
                 if self.username:
                     client.login(self.username, self.password)
                 client.send_message(message)
