@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  Eye,
+  EyeOff,
   Globe2,
   MailCheck,
   PencilLine,
@@ -56,6 +58,7 @@ type PendingProfile = { email: string; name: string; username: string };
 
 const PENDING_PROFILE_KEY = 'exammind-pending-firebase-profile';
 const VERIFICATION_COOLDOWN_SECONDS = 60;
+const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 const VERIFICATION_RESEND_KEY_PREFIX = 'exammind-verification-resend:';
 const ACCOUNT_DELETION_PENDING = 'ACCOUNT_DELETION_PENDING';
 const ACCOUNT_DEACTIVATED = 'ACCOUNT_DEACTIVATED';
@@ -65,6 +68,10 @@ const FIREBASE_CLEANUP_PENDING_MESSAGE = 'Your ExamMind data was removed, but Fi
 
 function normaliseEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function isStrongPassword(value: string): boolean {
+  return PASSWORD_PATTERN.test(value);
 }
 
 function authErrorCode(error: unknown): string {
@@ -83,7 +90,7 @@ function friendlyAuthError(error: unknown, fallback: string): string {
     case 'auth/email-already-in-use':
       return 'That email already has an account. Try signing in instead.';
     case 'auth/weak-password':
-      return 'Choose a password with at least 8 characters.';
+      return 'Choose a password with 8+ characters, including uppercase, lowercase, a number, and a special character.';
     case 'auth/too-many-requests':
       return 'Too many attempts. Wait a moment, then try again.';
     case 'auth/popup-closed-by-user':
@@ -98,7 +105,7 @@ function friendlyAuthError(error: unknown, fallback: string): string {
     case 'auth/configuration-not-found':
       return 'Firebase Authentication is not configured for this build.';
     default:
-      return error instanceof Error && error.message ? error.message : fallback;
+      return fallback;
   }
 }
 
@@ -233,6 +240,8 @@ export const Auth = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -373,8 +382,8 @@ export const Auth = ({
     if (!ensureFirebase()) return;
     const accountEmail = normaliseEmail(email);
     if (!isLogin) {
-      if (password.length < 8) {
-        setError('Choose a password with at least 8 characters.');
+      if (!isStrongPassword(password)) {
+        setError('Choose a password with 8+ characters, including uppercase, lowercase, a number, and a special character.');
         return;
       }
       if (password !== confirmPassword) {
@@ -535,10 +544,8 @@ export const Auth = ({
         setRecoveryError('Too many attempts. Wait a moment, then try again.');
       } else if (code === 'auth/requires-recent-login') {
         setRecoveryError('Please complete the sign-in confirmation, then retry account cleanup.');
-      } else if (err instanceof Error && err.message) {
-        setRecoveryError(err.message);
       } else {
-        setRecoveryError(FIREBASE_CLEANUP_PENDING_MESSAGE);
+        setRecoveryError(friendlyAuthError(err, FIREBASE_CLEANUP_PENDING_MESSAGE));
       }
     } finally {
       setRecoveryBusy(false);
@@ -591,6 +598,8 @@ export const Auth = ({
     setVerificationNotice('');
     setPassword('');
     setConfirmPassword('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     setError('');
     setIsLogin(false);
   };
@@ -601,6 +610,8 @@ export const Auth = ({
     setError('');
     setVerificationNotice('');
     setConfirmPassword('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
   };
 
   return (
@@ -690,8 +701,8 @@ export const Auth = ({
               <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
                 {!isLogin && <><label className="auth-field"><span>Full Name</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" autoComplete="name" required minLength={2} /></label><label className="auth-field"><span>Username</span><input type="text" value={username} onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} placeholder="e.g. vera_csc301" autoComplete="username" required minLength={3} maxLength={24} /><small>3-24 characters - lowercase letters, numbers, underscores</small></label></>}
                 <label className="auth-field"><span>Email Address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="your@email.com" autoComplete="email" required />{!isLogin && <small>Use an email address you can verify. Learning-space access is confirmed separately.</small>}</label>
-                <label className="auth-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'} autoComplete={isLogin ? 'current-password' : 'new-password'} required minLength={8} /></label>
-                {!isLogin && <label className="auth-field"><span>Confirm Password</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Re-enter your password" autoComplete="new-password" required minLength={8} /></label>}
+                <label className="auth-field"><span>Password</span><div className="auth-password-wrap"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'} autoComplete={isLogin ? 'current-password' : 'new-password'} required minLength={8} pattern={isLogin ? undefined : PASSWORD_PATTERN.source} /><button type="button" className="auth-password-toggle" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} title={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div>{!isLogin && <small>Use 8+ characters with an uppercase letter, lowercase letter, number, and special character.</small>}</label>
+                {!isLogin && <label className="auth-field"><span>Confirm Password</span><div className="auth-password-wrap"><input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Re-enter your password" autoComplete="new-password" required minLength={8} pattern={PASSWORD_PATTERN.source} /><button type="button" className="auth-password-toggle" onClick={() => setShowConfirmPassword((visible) => !visible)} aria-label={showConfirmPassword ? 'Hide confirmed password' : 'Show confirmed password'} aria-pressed={showConfirmPassword} title={showConfirmPassword ? 'Hide confirmed password' : 'Show confirmed password'}>{showConfirmPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div></label>}
                 {isLogin && <button type="button" className="auth-forgot" onClick={() => void handleForgotPassword()} disabled={loading}>Forgot password?</button>}
                 <button type="submit" className="auth-submit" disabled={loading}>{loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}</button>
               </form>

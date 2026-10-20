@@ -9,6 +9,7 @@ export const BACKEND_CONNECTION_ERROR = isProductionRenderSite
   : `Cannot connect to backend. Start FastAPI and confirm VITE_API_BASE_URL matches the running backend. Try ${LOCAL_API_BASE_URL}/docs.`;
 
 type RequestBody = Record<string, unknown> | unknown[];
+type JsonResponse = Awaited<ReturnType<Response['json']>>;
 
 export type ApiRequestOptions = {
   timeoutMs?: number;
@@ -39,11 +40,21 @@ export function apiUrl(path: string) {
 }
 
 async function readErrorMessage(response: Response, fallback: string) {
+  const data = await readJsonBody(response);
+  if (data && typeof data === 'object' && 'detail' in data) {
+    const detail = (data as { detail?: unknown }).detail;
+    return sanitizeErrorMessage(typeof detail === 'string' ? detail : fallback);
+  }
+  return fallback;
+}
+
+async function readJsonBody(response: Response): Promise<unknown | null> {
+  const body = await response.text();
+  if (!body.trim()) return null;
   try {
-    const data = await response.json();
-    return sanitizeErrorMessage(data.detail || fallback);
+    return JSON.parse(body) as unknown;
   } catch {
-    return fallback;
+    return null;
   }
 }
 
@@ -63,7 +74,12 @@ function sanitizeErrorMessage(message: string) {
   return text;
 }
 
-async function request(path: string, init: RequestInit, fallbackError: string, options: ApiRequestOptions = {}) {
+async function request(
+  path: string,
+  init: RequestInit,
+  fallbackError: string,
+  options: ApiRequestOptions = {},
+): Promise<JsonResponse | null> {
   const controller = options.timeoutMs ? new AbortController() : null;
   const timeoutId = controller ? window.setTimeout(() => controller.abort(), options.timeoutMs) : null;
   let response: Response;
@@ -89,7 +105,11 @@ async function request(path: string, init: RequestInit, fallbackError: string, o
     return null;
   }
 
-  return response.json();
+  const data = await readJsonBody(response);
+  if (data === null) {
+    throw new Error('ExamMind received an invalid response from the server. Please try again.');
+  }
+  return data as JsonResponse;
 }
 
 function authHeaders(extraHeaders: HeadersInit = {}) {
