@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext, SearchCommunityKind } from '../types';
+import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext, SearchCommunityKind, SearchSuggestedAction } from '../types';
 import { saveStudyPack } from '../offline';
 
 function preview(value: string | null | undefined, fallback: string, max = 132): string {
@@ -8,7 +8,7 @@ function preview(value: string | null | undefined, fallback: string, max = 132):
 }
 
 function noteSummary(topic: string): string {
-  return `No uploaded materials match this yet. ${topic} may depend on the course context, so uploaded notes or past questions will make future results more precise.`;
+  return `We’re using “${topic}” as a starting point. Explore the suggestions below, ask Maxe for context, or add a source to make this search more precise.`;
 }
 
 type Props = {
@@ -72,20 +72,23 @@ function SearchLoadingState({ query }: { query: string }) {
   );
 }
 
-function SearchErrorState({ message, onRetry, go }: { message: string; onRetry?: () => void; go: (screen: ScreenType) => void }) {
+function SearchErrorState({ query, message, onRetry, onAskAI, onUpload, onPractice, go }: { query: string; message: string; onRetry?: () => void; onAskAI: (question: string) => void; onUpload: () => void; onPractice: (topic: string) => void; go: (screen: ScreenType) => void }) {
   return (
     <div className="search-page search-state-page">
       <section className="search-state-card search-state-card--error" role="alert">
         <div className="search-state-icon" aria-hidden="true">!</div>
         <div className="search-state-copy">
-          <p className="search-page-kicker">Search unavailable</p>
-          <h1>We couldn’t finish that search.</h1>
-          <p>{message}</p>
+          <p className="search-page-kicker">Your search is still useful</p>
+          <h1>Let’s make “{query}” useful.</h1>
+          <p>{message} Your phrase is saved; try one of these ways to keep moving while we reconnect.</p>
           <div className="search-state-actions">
             {onRetry && <button type="button" className="search-primary-btn" aria-label="Retry search" onClick={onRetry}>Try again</button>}
+            <button type="button" className="search-secondary-btn" onClick={() => onAskAI(`Explain “${query}” and suggest related concepts.`)}>Ask Maxe for context</button>
+            <button type="button" className="search-secondary-btn" onClick={() => onPractice(query)}>Practice this topic</button>
+            <button type="button" className="search-secondary-btn" onClick={onUpload}>Add a source</button>
             <button type="button" className="search-secondary-btn" onClick={() => go('workspace')}>Back to study desk</button>
           </div>
-          <small>Try a shorter phrase or search again in a moment.</small>
+          <small>Search again in a moment to load your saved materials and community results.</small>
         </div>
       </section>
     </div>
@@ -104,6 +107,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   const relatedTopics = result?.related_topics || [];
   const hasUploaded = pastQuestions.length > 0 || lectureNotes.length > 0;
   const totalMatches = lectureNotes.length + pastQuestions.length + threads.length + groups.length + rooms.length;
+  const suggestedActions = (result?.suggested_actions || []).slice(0, 4);
+  const hasDirectResults = totalMatches > 0;
   const primaryMaterial = pastQuestions[0];
   const primaryContext: SearchActionContext = {
     query,
@@ -123,6 +128,26 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   const openCommunity = (kind: SearchCommunityKind, id: number) => {
     if (onOpenCommunity) onOpenCommunity(kind, id);
     else go(kind === 'discussion' ? 'collab' : 'groups');
+  };
+  const runSuggestedAction = (action: SearchSuggestedAction) => {
+    const payload = action.payload || {};
+    const suggestedTopic = typeof payload.topic === 'string' && payload.topic.trim() ? payload.topic : topic;
+    switch (action.action) {
+      case 'ask_ai':
+        onAskAI(typeof payload.question === 'string' && payload.question.trim() ? payload.question : `Explain “${suggestedTopic}” and suggest related concepts.`);
+        break;
+      case 'upload':
+        onUpload();
+        break;
+      case 'practice':
+        onPractice(suggestedTopic, { ...primaryContext, topic: suggestedTopic });
+        break;
+      case 'discussion':
+      case 'study_group':
+      case 'reading_room':
+        goCommunity(action.action);
+        break;
+    }
   };
   const saveQuestionsOffline = async () => {
     if (!pastQuestions.length || offlineState === 'saving') return;
@@ -150,7 +175,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   };
   if (loading) return <SearchLoadingState query={query} />;
 
-  if (error) return <SearchErrorState message={error} onRetry={onRetry} go={go} />;
+  if (error) return <SearchErrorState query={query} message={error} onRetry={onRetry} onAskAI={onAskAI} onUpload={onUpload} onPractice={(nextTopic) => onPractice(nextTopic, { ...primaryContext, topic: nextTopic })} go={go} />;
 
   return (
     <div className="search-page search-results-page">
@@ -172,7 +197,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             <div className="search-overview-main">
               <div className="search-overview-topline">
                 <div className="search-badge">
-                  {hasUploaded ? 'Grounded in uploaded materials' : 'No uploaded source found yet'}
+                  {hasUploaded ? 'Grounded in uploaded materials' : 'A useful starting point'}
                 </div>
                 <span className="search-overview-query">{hasUploaded ? 'Source-backed' : 'Broad search'}</span>
               </div>
@@ -193,6 +218,23 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             </div>
           </section>
 
+          {!hasDirectResults && suggestedActions.length > 0 && (
+            <section className="search-card search-card--recommendations" aria-label="Recommended next steps">
+              <div className="search-card-eyebrow">Keep exploring</div>
+              <div className="search-card-title">Useful next steps for this search</div>
+              <p className="search-recommendation-intro">We can take this phrase in a few helpful directions:</p>
+              <div className="search-recommendation-grid">
+                {suggestedActions.map((action, index) => (
+                  <button type="button" className="search-recommendation-btn" key={`${action.action}-${index}`} onClick={() => runSuggestedAction(action)}>
+                    <span className="search-recommendation-index">{String(index + 1).padStart(2, '0')}</span>
+                    <span>{action.label.replace(/^Ask AI\b/, 'Ask Maxe')}</span>
+                    <span aria-hidden="true">↗</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="search-card search-card--materials">
             <div className="search-card-head">
               <div><div className="search-card-eyebrow">Source library</div><div className="search-card-title">Uploaded materials</div></div>
@@ -212,7 +254,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
               </div>
             ) : (
               <div className="search-empty-row">
-                <span>No lecture notes found for this search.</span>
+                <span>Build this result by adding a lecture note for “{topic}”.</span>
                 <button className="search-link-btn" onClick={onUpload}>Upload notes</button>
               </div>
             )}
@@ -250,7 +292,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
               </div>
             ) : (
               <div className="search-empty-row">
-                <span>No past questions found yet.</span>
+                <span>Grow this result with a related phrase or an uploaded past question.</span>
                 <button className="search-link-btn" onClick={onUpload}>Upload past questions</button>
               </div>
             )}
@@ -262,7 +304,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
               <span className="search-practice-mark" aria-hidden="true">↗</span>
             </div>
             <div className="search-practice-body">
-              <span>No practice quiz has been created from this search yet.</span>
+              <span>Turn this search into a focused practice quiz.</span>
               <button className="search-link-btn" onClick={() => onPractice(topic, primaryContext)}>Create practice quiz</button>
             </div>
           </section>
@@ -288,7 +330,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 {relatedTopics.slice(0, 10).map(item => <span key={item}>{item}</span>)}
               </div>
             ) : (
-              <div className="search-empty-row">No related topics found yet.</div>
+              <div className="search-empty-row">Related ideas will appear here as your library grows.</div>
             )}
           </section>
 
@@ -303,7 +345,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
               ))
             ) : (
               <div className="search-empty-row">
-                <span>No discussions yet.</span>
+                <span>Start a conversation around this search.</span>
                 <button className="search-link-btn" onClick={() => goCommunity('discussion')}>Start one</button>
               </div>
             )}
@@ -320,7 +362,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
               ))
             ) : (
               <div className="search-empty-row">
-                <span>No groups yet.</span>
+                <span>Make this a shared study topic.</span>
                 <button className="search-link-btn" onClick={() => goCommunity('study_group')}>Create one</button>
               </div>
             )}
@@ -337,7 +379,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
               ))
             ) : (
               <div className="search-empty-row">
-                <span>No active rooms yet.</span>
+                <span>Open a room and study this topic together.</span>
                 <button className="search-link-btn" onClick={() => goCommunity('reading_room')}>Start reading room</button>
               </div>
             )}
