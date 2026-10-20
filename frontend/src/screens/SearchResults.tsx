@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileQuestion, FileText, MessagesSquare, Search, UsersRound, Video } from 'lucide-react';
+import { ArrowUpRight, FileQuestion, FileText, MessagesSquare, Search, Sparkles, UsersRound, Video } from 'lucide-react';
 import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext, SearchCommunityKind, SearchSuggestedAction } from '../types';
 import { saveStudyPack } from '../offline';
 
@@ -330,7 +330,11 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             <div className="search-card-title">Make this useful</div>
             <p className="search-side-intro">Turn this search into a study action or ask Maxe to explain the source context.</p>
             <div className="search-action-grid">
-              <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Ask Maxe about this</button>
+              <button className="search-primary-btn search-primary-btn--maxe" onClick={() => onAskAI(groundedAiPrompt)} aria-label="Ask Maxe about this">
+                <span className="search-primary-btn-icon" aria-hidden="true"><Sparkles size={17} strokeWidth={1.8} /></span>
+                <span className="search-primary-btn-copy"><strong>Ask Maxe</strong><small>{hasUploaded ? 'Explain this search using your sources.' : 'Turn this search into a useful explanation.'}</small></span>
+                <ArrowUpRight className="search-primary-btn-arrow" size={17} strokeWidth={1.8} aria-hidden="true" />
+              </button>
               <button className="search-action-btn" onClick={() => onPractice(topic, primaryContext)}>Create practice quiz</button>
               <button className="search-action-btn" onClick={onUpload}>Upload material</button>
               <button className="search-action-btn" onClick={() => goCommunity('discussion')}>Start discussion thread</button>

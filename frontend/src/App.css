@@ -2728,6 +2728,13 @@
 .search-results-page .search-card--practice .search-card-eyebrow{color:var(--brand-word);}
 .search-results-page .search-card--actions{position:sticky;top:84px;padding:23px;border:1px solid var(--border2);border-top:3px solid var(--gold);background:var(--surface);}
 .search-results-page .search-card--actions .search-card-title{font-size:24px;line-height:1.05;}
+.search-results-page .search-card--actions .search-primary-btn--maxe{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;height:auto;min-height:78px;padding:12px 13px;border:1px solid color-mix(in srgb,var(--teal) 35%,var(--border2));border-radius:12px;background:var(--teal2);color:var(--text);text-align:left;box-shadow:none;transition:background var(--fast),border-color var(--fast),transform var(--fast);}
+.search-results-page .search-card--actions .search-primary-btn--maxe:hover{border-color:var(--teal);background:color-mix(in srgb,var(--teal2) 72%,var(--surface));transform:translateY(-1px);}
+.search-primary-btn-icon{display:grid;width:34px;height:34px;place-items:center;border-radius:10px;background:var(--surface);color:var(--teal);}
+.search-primary-btn-copy{display:grid;min-width:0;gap:4px;}
+.search-primary-btn-copy strong{font-size:13px;line-height:1.2;}
+.search-primary-btn-copy small{color:var(--text2);font-size:10.5px;font-weight:400;line-height:1.4;}
+.search-primary-btn-arrow{align-self:start;margin-top:3px;color:var(--teal);}
 .search-results-page .search-action-grid{gap:8px;}
 .search-results-page .search-action-btn,.search-results-page .search-primary-btn{min-height:42px;border-radius:9px;}
 .search-results-page .search-action-btn{background:var(--bg3);}
