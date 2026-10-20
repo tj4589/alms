@@ -341,7 +341,7 @@ class AccountLifecycleTests(unittest.TestCase):
         claims = {"sub": current.firebase_uid, "email": current.email, "auth_time": int(time.time())}
         with patch.object(auth_router, "verify_firebase_id_token", return_value=claims):
             response = auth_router.reactivate_account(payload, db)
-        self.assertTrue(response["access_token"])
+        self.assertTrue(response.access_token)
         self.assertEqual(current.account_status, "active")
         self.assertIsNone(current.deactivated_at)
 

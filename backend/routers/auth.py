@@ -71,15 +71,29 @@ def _verify_recent_firebase_identity(firebase_id_token: str, current_user: model
     return claims
 
 
-def _issue_application_session(user: models.User, firebase_uid: str) -> dict:
-    return {
-        "access_token": auth.create_access_token(
+def _public_user_response(user: models.User) -> schemas.UserResponse:
+    email = str(user.email or "").strip().lower()
+    fallback_name = email.split("@", 1)[0].strip() or "ExamMind student"
+    return schemas.UserResponse(
+        id=int(user.id),
+        name=str(user.name or fallback_name),
+        username=user.username,
+        email=email,
+        role=str(user.role or "student"),
+        account_status=str(user.account_status or "active"),
+        admin_portal_access=bool(getattr(user, "admin_portal_access", False)),
+    )
+
+
+def _issue_application_session(user: models.User, firebase_uid: str) -> schemas.FirebaseSessionResponse:
+    return schemas.FirebaseSessionResponse(
+        access_token=auth.create_access_token(
             data={"sub": user.email, "firebase_uid": firebase_uid},
             expires_delta=auth.timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES),
         ),
-        "token_type": "bearer",
-        "user": user,
-    }
+        token_type="bearer",
+        user=_public_user_response(user),
+    )
 
 
 def _account_state_error(user: models.User) -> None:
@@ -104,7 +118,7 @@ def _development_environment() -> bool:
 
 @router.get("/me", response_model=schemas.UserResponse)
 def get_me(current_user: models.User = Depends(auth.get_current_user)):
-    return current_user
+    return _public_user_response(current_user)
 
 
 @router.get("/account/deletion-status")

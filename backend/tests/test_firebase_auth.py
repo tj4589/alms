@@ -323,9 +323,60 @@ class FirebaseTokenTests(unittest.TestCase):
                 with patch.object(auth, "get_or_create_firebase_user", return_value=user):
                     response = auth_router.firebase_session(payload, MagicMock())
 
-        self.assertEqual(response["token_type"], "bearer")
-        self.assertTrue(response["access_token"])
-        self.assertIs(response["user"], user)
+        self.assertEqual(response.token_type, "bearer")
+        self.assertTrue(response.access_token)
+        self.assertEqual(response.user.id, user.id)
+        self.assertEqual(response.user.email, user.email)
+
+    def test_password_login_returns_complete_application_session_contract(self) -> None:
+        firebase_claim = firebase_claims(
+            email="student@gmail.com",
+            firebase={"sign_in_provider": "password"},
+        )
+        user = models.User(
+            id=43,
+            name=None,
+            username="personal_student",
+            email="student@gmail.com",
+            firebase_uid="firebase-password-user",
+            role=None,
+            account_status=None,
+        )
+        payload = schemas.FirebaseSessionRequest(
+            firebase_id_token="firebase-token",
+            provider="password",
+            name="Personal Student",
+            username="personal_student",
+        )
+        with patch.object(auth_router, "verify_firebase_id_token", return_value=firebase_claim):
+            with patch.object(auth, "get_or_create_firebase_user", return_value=user):
+                response = auth_router.firebase_session(payload, MagicMock())
+
+        self.assertTrue(response.access_token)
+        self.assertEqual(response.token_type, "bearer")
+        self.assertEqual(response.user.id, user.id)
+        self.assertEqual(response.user.email, user.email)
+        self.assertEqual(response.user.username, user.username)
+        self.assertEqual(response.user.name, "student")
+        self.assertEqual(response.user.role, "student")
+        self.assertEqual(response.user.account_status, "active")
+
+    def test_password_login_verification_failure_is_safe_and_structured(self) -> None:
+        payload = schemas.FirebaseSessionRequest(
+            firebase_id_token="invalid-token",
+            provider="password",
+        )
+        with patch.object(
+            auth_router,
+            "verify_firebase_id_token",
+            side_effect=firebase_tokens.FirebaseTokenError("malformed provider response"),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                auth_router.firebase_session(payload, MagicMock())
+
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "We could not verify that sign-in. Please try again.")
+        self.assertNotIn("malformed provider response", str(raised.exception.detail))
 
     def test_personal_gmail_google_token_is_accepted_for_global_identity(self) -> None:
         google_claims = {
