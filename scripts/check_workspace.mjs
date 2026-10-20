@@ -95,7 +95,7 @@ window.__shareLinkId = 40;
 window.__copiedShareLink = '';
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedShareLink = text; } } });
 const originalFetch = window.fetch.bind(window);
-const fixtureApiPrefixes = ['/auth/', '/learning-spaces', '/learning/', '/community/', '/collaboration/', '/courses', '/lecture-notes', '/past-questions', '/study-groups', '/study-sessions', '/analytics/', '/maxe/', '/understand', '/materials/', '/rag/'];
+const fixtureApiPrefixes = ['/auth/', '/learning-spaces', '/learning/', '/community/', '/collaboration/', '/courses', '/lecture-notes', '/past-questions', '/study-groups', '/study-sessions', '/analytics/', '/maxe/', '/understand', '/materials/', '/rag/', '/search'];
 const isFixtureApiRequest = value => {
   try {
     const parsed = new URL(value, window.location.href);
@@ -113,6 +113,7 @@ window.fetch = async (...args) => {
   const populated = window.__workspaceFixture === 'populated';
   let data = [];
   if (url.includes('/auth/me')) data = {id:1,name:'Test Student',username:'test_student',email:'test@example.com',role:'student',account_status:'active'};
+  else if (url.includes('/search?')) data = {query:new URL(url).searchParams.get('q') || '',understanding:null,past_questions:[],lecture_notes:[],threads:[],related_topics:[],study_groups:[],study_sessions:[]};
   else if (url.includes('/collaboration/materials/') && url.includes('/export')) {
     const format = new URL(url).searchParams.get('format') || 'md';
     return new Response('Test source\\n\\nExported ' + format + ' content.\\n',{status:200,headers:{'Content-Type':format === 'md' ? 'text/markdown' : 'text/plain','Content-Disposition':'attachment; filename="test-source.' + format + '"'}});
@@ -473,7 +474,7 @@ await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceSc
 await evaluate(`window.__workspaceFixture='empty';document.querySelector('button[aria-label="My desk"]').click()`);
 await waitFor(`document.querySelectorAll('.desk-shortcuts button').length >= 2`);
 await evaluate(`document.querySelectorAll('.desk-shortcuts button')[1].click()`);
-await waitFor(`document.querySelector('#s-questions')`);
+await waitFor(`document.querySelector('.search-page')`);
 assert.ok(await evaluate(`document.querySelector('button[aria-label="Open Maxe"]') !== null`),'Maxe missing from list-heavy screen');
 await evaluate(`sessionStorage.setItem('exammind-workspace-public-check','true'); localStorage.removeItem('token'); location.hash=''; location.reload()`);
 await waitFor(`document.querySelector('.lp-nav')`);

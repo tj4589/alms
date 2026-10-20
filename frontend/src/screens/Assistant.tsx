@@ -951,7 +951,7 @@ function buildLocalReply(result: IntentResult, user: User | null, messages: Chat
   }
 
   if (intent === 'academic_search') {
-    return 'I can search for past questions and exam materials. Go to the Questions section to search uploaded materials, or upload new past questions first.';
+    return 'I can search for past questions and exam materials. Use the search field above to search uploaded materials, or upload new past questions first.';
   }
 
   if (intent === 'unclear') {
@@ -1167,6 +1167,7 @@ export default function Assistant({
   messages,
   onMessagesChange,
   user,
+  onOpenSearch,
   activeResource,
   selectedText,
   selectedTextSource,
@@ -1177,6 +1178,7 @@ export default function Assistant({
   messages: ChatMessage[];
   onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void;
   user: User | null;
+  onOpenSearch?: () => void;
   activeResource?: MaxeResourceContext | null;
   selectedText?: string;
   selectedTextSource?: string | null;
@@ -1718,7 +1720,7 @@ export default function Assistant({
               </div>
               <div className="assistant-action-list">
                 {[
-                  { label: 'Search uploaded materials', screen: 'questions' as ScreenType },
+                  { label: 'Search uploaded materials', screen: 'search' as ScreenType },
                   { label: 'Upload course material', screen: 'upload' as ScreenType },
                   { label: 'Generate practice', screen: 'practice' as ScreenType },
                   { label: 'Join a reading room', screen: 'groups' as ScreenType },
@@ -1726,7 +1728,7 @@ export default function Assistant({
                   <button
                     key={label}
                     className="cta cta-ghost"
-                    onClick={() => go(screen)}
+                    onClick={() => screen === 'search' ? onOpenSearch?.() : go(screen)}
                   >
                     {label}
                   </button>

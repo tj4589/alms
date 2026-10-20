@@ -1719,7 +1719,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
             {' '}Choose what to do with your copy.
           </div>
           <div className="confirm-actions">
-            {duplicateDocument?.id && <button type="button" className="cta cta-ghost" onClick={() => go('questions')}>View existing</button>}
+            {duplicateDocument?.id && <button type="button" className="cta cta-ghost" onClick={() => go('offline')}>Open My Materials</button>}
             <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(false, 'continue')}>Continue with this version</button>
             <button type="button" className="cta" onClick={() => void confirmUpload(false, 'newer_version')}>Submit as newer version</button>
             {hasQueue && <button type="button" className="cta" onClick={nextInQueue}>Next file ({queueIndex + 1}/{queue.length})</button>}
@@ -1740,7 +1740,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
           initialRequestedVisibility={lastRequestedVisibility}
           initialGroupIds={selectedShareGroupIds}
           groups={shareGroups}
-          onViewLibrary={() => go('questions')}
+          onViewLibrary={() => go('offline')}
           onDismiss={() => setState('idle')}
           onUploadAnother={() => {
             if (hasQueue && queueIndex + 1 < queue.length) {

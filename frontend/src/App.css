@@ -198,6 +198,7 @@
 .search-layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,.85fr);gap:20px;align-items:start;}
 .search-main,.search-side{display:flex;flex-direction:column;gap:16px;min-width:0;}
 .search-card,.search-overview,.search-learn-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:17px 18px;}
+.search-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.search-card-head .search-card-title{margin-bottom:0}.search-card-head .search-link-btn:disabled{cursor:default;opacity:.65}
 .search-overview{position:relative;border-color:rgba(62,207,178,0.22);background:linear-gradient(180deg,rgba(62,207,178,0.035),var(--bg2) 42%);}
 .search-overview.is-general{border-color:rgba(232,162,58,0.26);background:linear-gradient(180deg,rgba(232,162,58,0.045),var(--bg2) 46%);}
 .search-overview h2{margin:10px 0 7px;font-family:var(--serif);font-size:23px;font-weight:500;letter-spacing:0;color:var(--text);}
@@ -2622,14 +2623,14 @@
   .wb-course-main small{white-space:normal;}
 }
 
-/* The workspace search is a small command drawer rather than a dropdown. It
-   keeps the feed visible while giving results enough room to breathe. */
-.workspace-shell .global-search-panel.gs-preview-panel{position:fixed;top:74px;right:auto;bottom:0;left:var(--sidebar-collapsed-width);width:min(360px,calc(100vw - var(--sidebar-collapsed-width)));max-height:none;overflow:auto;padding:16px;border-radius:0 16px 0 0;background:var(--bg2);box-shadow:16px 0 36px rgba(37,43,36,.12);animation:searchDrawerIn .18s cubic-bezier(.23,1,.32,1)}
-@keyframes searchDrawerIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
-.gsp-drawer-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:var(--text);font-size:14px}
-.gsp-drawer-input{display:block;width:100%;min-height:40px;margin-bottom:14px;padding:0 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:13px var(--font);outline:none}
-.gsp-drawer-input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(172,64,30,.1)}
-.gsp-drawer-top .gs-close-btn{width:30px;height:30px}
-@media(max-width:768px){.workspace-shell .global-search-panel.gs-preview-panel{top:62px;left:0;width:100vw;border-radius:0;bottom:78px}.gsp-drawer-input{font-size:16px}}
+/* Search previews stay anchored to the search field. They never become a
+   second full-height navigation surface or compete with the mobile menu. */
+.workspace-shell .global-search-panel.gs-preview-panel{position:absolute;top:calc(100% + 10px);right:0;left:auto;width:min(420px,calc(100vw - 32px));max-height:min(68vh,560px);overflow:auto;padding:14px;border-radius:14px;background:#faf8f3;box-shadow:0 18px 42px rgba(37,43,36,.16);animation:searchPreviewIn .18s cubic-bezier(.22,1,.36,1)}
+@keyframes searchPreviewIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.gsp-drawer-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;color:var(--text);font-size:14px}
+.gsp-drawer-top .gs-close-btn{width:32px;height:32px}
+.gsp-footer{display:flex;align-items:center;justify-content:space-between;width:100%;border:0;border-top:1px solid var(--border);padding:10px 4px 2px;background:transparent;color:var(--text3);font:11.5px var(--font);text-align:left;cursor:pointer}
+.gsp-footer:hover{color:var(--gold)}
+@media(max-width:768px){.workspace-shell .global-search-panel.gs-preview-panel{position:fixed;top:70px;right:12px;left:12px;width:auto;max-height:min(58dvh,520px);border-radius:16px;padding:14px;box-shadow:0 18px 42px rgba(37,43,36,.2)}}
 @media(prefers-reduced-motion:reduce){.workspace-shell .global-search-panel.gs-preview-panel{animation:none}}
 .profile-nudge{display:flex;max-width:78ch;margin:0 auto var(--space-5);padding:13px 15px;align-items:center;gap:14px;border:1px solid color-mix(in srgb,var(--teal) 28%,var(--border));border-radius:12px;background:var(--teal2);color:var(--text2);font-size:12px}.profile-nudge span{display:grid;min-width:0;flex:1;gap:3px}.profile-nudge strong{color:var(--text);font-size:12.5px}.profile-nudge small{font-size:11px;line-height:1.45}.profile-nudge button:not(.profile-nudge-dismiss){min-height:34px;padding:0 12px;border:1px solid var(--text);border-radius:999px;background:var(--text);color:var(--surface);cursor:pointer;font:inherit;font-size:11px;font-weight:600}.profile-nudge-dismiss{display:grid;width:32px;height:32px;padding:0;place-items:center;border:0;background:transparent;color:var(--text3);cursor:pointer;font-size:20px}.profile-nudge button:focus-visible{outline:2px solid var(--text);outline-offset:3px}@media(max-width:560px){.profile-nudge{align-items:flex-start;flex-wrap:wrap}.profile-nudge span{flex-basis:calc(100% - 46px)}.profile-nudge button:not(.profile-nudge-dismiss){margin-left:0}}

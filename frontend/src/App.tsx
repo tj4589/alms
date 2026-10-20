@@ -37,7 +37,6 @@ const INITIAL_CHAT: ChatMessage[] = [
 const AUTH_RESET_KEY = 'exammind-first-upload-auth-reset-v1';
 const NAV_COLLAPSE_TIMER_MS = 240;
 const Dashboard = lazy(() => import('./screens/Dashboard'));
-const Questions = lazy(() => import('./screens/Questions'));
 const Assistant = lazy(() => import('./screens/Assistant'));
 const Upload = lazy(() => import('./screens/Upload'));
 const Offline = lazy(() => import('./screens/Offline'));
@@ -838,6 +837,10 @@ export default function App() {
 
   useEffect(() => {
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    if (activeScreen === 'search') {
+      setSearchOpen(false);
+      return;
+    }
     if (searchQuery.trim().length < 2) {
       setSearchResult(null);
       setSearchOpen(false);
@@ -849,7 +852,7 @@ export default function App() {
       void runGlobalSearch(searchQuery, true);
     }, 420);
     return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current); };
-  }, [searchQuery]);
+  }, [activeScreen, searchQuery]);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -885,6 +888,14 @@ export default function App() {
     setSearchOpen(false);
     setSearchQuery('');
     scheduleNavCollapse();
+  };
+
+  const focusGlobalSearch = () => {
+    setSidebarOpen(false);
+    setSearchOpen(false);
+    window.requestAnimationFrame(() => {
+      searchBoxRef.current?.querySelector<HTMLInputElement>('input')?.focus();
+    });
   };
 
   const askAIFromSearch = (question: string) => {
@@ -1222,7 +1233,7 @@ export default function App() {
             type="button"
             className="mob-menu"
             ref={mobileMenuButtonRef}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => { setSearchOpen(false); setSidebarOpen(!sidebarOpen); }}
             aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
             aria-controls="mobile-nav-sheet"
             aria-expanded={sidebarOpen}
@@ -1238,7 +1249,10 @@ export default function App() {
               placeholder="Find a note, topic, or study group…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => setSearchOpen(true)}
+              onFocus={() => {
+                setSidebarOpen(false);
+                if (searchQuery.trim().length >= 2) setSearchOpen(true);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -1250,14 +1264,13 @@ export default function App() {
                 }
               }}
             />
-            {searchOpen && (
+            {searchOpen && activeScreen !== 'search' && searchQuery.trim().length >= 2 && (
               <div className="global-search-panel gs-preview-panel" aria-live="polite">
                 <div className="global-search-preview">
                   <div className="gsp-drawer-top"><strong>Search ExamMind</strong><button type="button" className="gs-close-btn" onClick={closeSearch} aria-label="Close search" title="Close search"><XIcon aria-hidden="true" weight="regular" /></button></div>
-                  <input className="gsp-drawer-input" type="text" aria-label="Search all ExamMind content" placeholder="Search notes, questions, groups..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleGlobalSearchEnter(); } }} />
                   <div className="gsp-header">
                     <div>
-                      <div className="gsp-title">Search ExamMind for "{searchQuery.trim()}"</div>
+                      <div className="gsp-title">Results for “{searchQuery.trim()}”</div>
                       <div className="gsp-subtitle">Materials · Past questions · Notes · Groups · Discussions · Rooms</div>
                     </div>
                     <span className="gsp-kbd">Enter</span>
@@ -1343,7 +1356,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className="gsp-footer">Press Enter to see full results</div>
+                  <button type="button" className="gsp-footer" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>Press Enter to see full results <span aria-hidden="true">↵</span></button>
                 </div>
               </div>
             )}
@@ -1386,12 +1399,12 @@ export default function App() {
             onOpenSearch={(query) => { void openSearchResults(query); }}
           />
         )}
-        {activeScreen === 'questions' && <Questions go={go} onAskQuestion={askQuestion} user={user} onGoToPractice={handleGoToPractice} />}
-        {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} messages={chatMessages} onMessagesChange={updatePrivateMessages} user={user} />}
+        {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} messages={chatMessages} onMessagesChange={updatePrivateMessages} user={user} onOpenSearch={focusGlobalSearch} />}
         {activeScreen === 'upload' && <Upload go={go} user={user} archiveName={verifiedSpace?.slug === 'ksa' ? 'KSA' : verifiedSpace?.slug === 'cu' ? 'CU' : verifiedSpace?.name || 'your learning space'} queuedUpload={queuedUpload} onQueuedUploadStored={() => setQueuedUpload(null)} />}
         {activeScreen === 'offline' && (
           <Offline
             go={go}
+             onOpenSearch={(query) => { void openSearchResults(query); }}
             onOpenConversation={(saved) => { setChatMessages(saved); setMaxeOpen(true); }}
             onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }}
             onReviewUpload={upload => { setQueuedUpload(upload); go('upload'); }}

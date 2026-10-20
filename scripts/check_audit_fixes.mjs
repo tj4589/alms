@@ -178,12 +178,10 @@ window.fetch=async (...args)=>{
 
   await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
   await page.getByRole('button', { name: 'Find more past questions' }).click();
-  const search = page.locator('#s-questions input').first();
-  await search.fill('Audit source');
-  await search.press('Enter');
+  await page.locator('.search-page').waitFor();
   await page.getByRole('button', { name: 'Save offline', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Save offline', exact: true }).click();
-  await page.getByText(/saved for offline study/).waitFor();
+  await page.getByText(/Saved for offline study/).waitFor();
   await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
   await page.locator('#s-offline').getByRole('button', { name: 'Open', exact: true }).first().click();
   await page.getByText('Synthetic authorized question text', { exact: false }).waitFor();

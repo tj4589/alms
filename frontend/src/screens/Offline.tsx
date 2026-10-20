@@ -7,6 +7,7 @@ import './WorkspacePage.css';
 
 type MaterialsProps = {
   go: (s: ScreenType, arg?: string | number | null) => void;
+  onOpenSearch?: (query: string) => void;
   onOpenConversation?: (messages: ChatMessage[]) => void;
   onOpenResource: (kind: 'lecture_note' | 'past_question', id: number) => void;
   onReviewUpload: (upload: PendingUpload) => void;
@@ -55,7 +56,7 @@ function cachedText(item: SavedItem): string {
   return 'No readable text was cached for this item.';
 }
 
-export default function Materials({ go, onOpenConversation, onOpenResource, onReviewUpload }: MaterialsProps) {
+export default function Materials({ go, onOpenSearch, onOpenConversation, onOpenResource, onReviewUpload }: MaterialsProps) {
   const [saved, setSaved] = useState<SavedItem[]>([]);
   const [packs, setPacks] = useState<OfflineStudyPack[]>([]);
   const [collections, setCollections] = useState<SavedCollection[]>([]);
@@ -399,7 +400,7 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
           </div>
           <h2 className="shelf-title" id="mat-past-title">Past questions</h2>
           {renderSavedRows(pastQuestions, 'Nothing saved yet. Save a past question and it will stay here, ready to open again.')}
-          <button className="shelf-action" onClick={() => go('questions')}>Find more past questions</button>
+          <button className="shelf-action" onClick={() => onOpenSearch?.('past questions')}>Find more past questions</button>
         </section>}
 
         {!isCollectionView && (folderView === 'all' || folderView === 'lecture_notes') && <section className="shelf materials-system-folder" aria-labelledby="mat-notes-title">
@@ -428,7 +429,7 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
           <h2 className="shelf-title" id="mat-practice-title">Practice offline questions</h2>
           {renderSavedRows(results, 'No saved practice results yet. Save a result after a practice run to keep the debrief here.')}
           <div className="materials-subsection"><p className="shelf-label">Question packs</p>{renderPackRows(visiblePacks)}</div>
-          <button className="shelf-action" onClick={() => go('questions')}>Save more questions</button>
+          <button className="shelf-action" onClick={() => onOpenSearch?.('past questions')}>Save more questions</button>
         </section>}
 
         {isCollectionView && selectedCollection && <section className="shelf materials-custom-folder" aria-labelledby="mat-custom-title">

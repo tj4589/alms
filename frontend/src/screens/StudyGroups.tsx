@@ -1343,7 +1343,7 @@ export default function StudyGroups({
             )}
 
             {groupTab === 'materials' && (
-              <section className="gs-section"><p className="gs-section-label">Course materials</p><p className="margin-note">{groupHome?.tabs.materials ?? 0} materials are anchored to this group’s course. Open My Materials to read and practice from them.</p><button type="button" className="gs-link" onClick={() => go('questions')}>Open course materials <span>→</span></button></section>
+              <section className="gs-section"><p className="gs-section-label">Course materials</p><p className="margin-note">{groupHome?.tabs.materials ?? 0} materials are anchored to this group’s course. Open My Materials to read and practice from them.</p><button type="button" className="gs-link" onClick={() => go('offline')}>Open My Materials <span>→</span></button></section>
             )}
 
             {groupTab === 'rooms' && (

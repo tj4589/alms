@@ -466,7 +466,7 @@ export default function Dashboard({
 
           {!hasUploads && !loading && !loadError && <section className="desk-shortcuts" aria-label="Other ways to get started">
             <button type="button" onClick={() => go('assistant')}><MessageCircle size={21} strokeWidth={1.5} aria-hidden="true" /><span><strong>Stuck on a topic?</strong><small>Talk it through with your study assistant.</small></span><ArrowRight size={17} aria-hidden="true" /></button>
-            <button type="button" onClick={() => go('questions')}><FileQuestion size={21} strokeWidth={1.5} aria-hidden="true" /><span><strong>See what’s been asked</strong><small>Explore the past question library.</small></span><ArrowRight size={17} aria-hidden="true" /></button>
+            <button type="button" onClick={() => onOpenSearch('past questions')}><FileQuestion size={21} strokeWidth={1.5} aria-hidden="true" /><span><strong>See what’s been asked</strong><small>Search the past question library.</small></span><ArrowRight size={17} aria-hidden="true" /></button>
           </section>}
         </div>
 

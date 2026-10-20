@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext } from '../types';
+import { saveStudyPack } from '../offline';
 
 function preview(value: string | null | undefined, fallback: string, max = 132): string {
   const text = (value || fallback).replace(/\s+/g, ' ').trim();
@@ -54,6 +56,7 @@ function materialMetaLine(item: PastQuestion): string {
 }
 
 export default function SearchResults({ query, result, loading, error, onRetry, onAskAI, onUpload, onOpenResource, onPractice, onCommunityAction, go }: Props) {
+  const [offlineState, setOfflineState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const topic = result?.understanding?.interpreted_topic?.trim() || query;
   const relatedTerms = result?.understanding?.related_terms || [];
   const pastQuestions = result?.past_questions || [];
@@ -79,6 +82,30 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   const goCommunity = (action: 'discussion' | 'study_group' | 'reading_room') => {
     if (onCommunityAction) onCommunityAction(action, primaryContext);
     else go(action === 'discussion' ? 'collab' : 'groups');
+  };
+  const saveQuestionsOffline = async () => {
+    if (!pastQuestions.length || offlineState === 'saving') return;
+    setOfflineState('saving');
+    try {
+      await saveStudyPack({
+        id: `search-${crypto.randomUUID()}`,
+        courseCode: metadataValue(pastQuestions[0]?.metadata_json, 'course_code') || 'All',
+        title: `“${query}” study pack`,
+        savedAt: new Date().toISOString(),
+        questions: pastQuestions.map(item => ({
+          year: String(item.year || 'Unknown'),
+          topic: Array.isArray((item.metadata_json as Record<string, unknown> | null)?.topics_covered)
+            ? String(((item.metadata_json as Record<string, unknown>).topics_covered as unknown[])[0] || 'General')
+            : 'General',
+          difficulty: item.difficulty || 'Mixed',
+          text: item.content_text || materialTitle(item),
+        })),
+      });
+      window.dispatchEvent(new Event('exammind-offline-updated'));
+      setOfflineState('saved');
+    } catch {
+      setOfflineState('error');
+    }
   };
   if (loading) {
     return (
@@ -190,7 +217,12 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
           </section>
 
           <section className="search-card">
-            <div className="search-card-title">Past Questions</div>
+            <div className="search-card-head">
+              <div className="search-card-title">Past Questions</div>
+              {pastQuestions.length > 0 && <button type="button" className="search-link-btn" onClick={() => void saveQuestionsOffline()} disabled={offlineState === 'saving' || offlineState === 'saved'}>{offlineState === 'saving' ? 'Saving…' : offlineState === 'saved' ? 'Saved offline' : 'Save offline'}</button>}
+            </div>
+            {offlineState === 'saved' && <p className="search-muted" role="status">Saved for offline study.</p>}
+            {offlineState === 'error' && <p className="search-muted" role="alert">This study pack could not be saved on this device. Try again.</p>}
             {pastQuestions.length > 0 ? (
               <div className="search-result-list">
                 {pastQuestions.slice(0, 6).map(item => {
