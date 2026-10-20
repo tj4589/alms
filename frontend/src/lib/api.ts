@@ -1,4 +1,5 @@
 import { getToken, clearToken } from './session';
+import { parseJsonBody, sanitizeErrorMessage } from './apiResponse';
 const LOCAL_API_BASE_URL = 'http://127.0.0.1:8001';
 const PRODUCTION_API_BASE_URL = 'https://exammind-api.onrender.com';
 const isProductionRenderSite = typeof window !== 'undefined' && window.location.hostname === 'exammind-web.onrender.com';
@@ -16,6 +17,7 @@ export type ApiRequestOptions = {
 };
 
 export const API_REQUEST_TIMEOUT_ERROR = 'ExamMind is taking too long to respond. Please try again.';
+export const API_INVALID_RESPONSE_ERROR = 'ExamMind received an invalid response from the server. Please try again.';
 
 export class ApiHttpError extends Error {
   readonly status: number;
@@ -49,29 +51,7 @@ async function readErrorMessage(response: Response, fallback: string) {
 }
 
 async function readJsonBody(response: Response): Promise<unknown | null> {
-  const body = await response.text();
-  if (!body.trim()) return null;
-  try {
-    return JSON.parse(body) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-function sanitizeErrorMessage(message: string) {
-  const text = String(message || '');
-  const lowered = text.toLowerCase();
-  if (lowered.includes('402') || lowered.includes('insufficient balance')) {
-    return 'AI provider balance is currently unavailable. Search and uploaded materials are still working, but live AI answers require a valid API balance.';
-  }
-  if (
-    lowered.includes('deepseek') ||
-    lowered.includes('cohere') ||
-    lowered.includes('provider error')
-  ) {
-    return 'The primary AI provider is temporarily unavailable. ExamMind tried the fallback provider.';
-  }
-  return text;
+  return parseJsonBody(await response.text());
 }
 
 async function request(
@@ -107,7 +87,7 @@ async function request(
 
   const data = await readJsonBody(response);
   if (data === null) {
-    throw new Error('ExamMind received an invalid response from the server. Please try again.');
+    throw new Error(API_INVALID_RESPONSE_ERROR);
   }
   return data as JsonResponse;
 }

@@ -34,7 +34,7 @@ import { firebaseAuth, firebaseConfigError, googleProvider } from '../lib/fireba
 import { forgotPasswordErrorMessage, PASSWORD_RESET_GENERIC_MESSAGE } from '../lib/authErrors';
 import { clearLocalAccountState } from '../lib/session';
 import { attemptDeviceCleanup } from '../lib/deviceCleanup';
-import { API_REQUEST_TIMEOUT_ERROR, ApiHttpError, BACKEND_CONNECTION_ERROR, apiPost } from '../lib/api';
+import { API_INVALID_RESPONSE_ERROR, API_REQUEST_TIMEOUT_ERROR, ApiHttpError, BACKEND_CONNECTION_ERROR, apiPost } from '../lib/api';
 import type { User } from '../types';
 
 type AuthProps = {
@@ -91,6 +91,9 @@ function friendlyAuthError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message === API_REQUEST_TIMEOUT_ERROR) {
     return 'ExamMind is taking longer than expected to respond. Please try again shortly.';
   }
+  if (error instanceof Error && error.message === API_INVALID_RESPONSE_ERROR) {
+    return 'ExamMind received an incomplete response while starting your session. Please try again shortly.';
+  }
   if (error instanceof Error && error.message === BACKEND_CONNECTION_ERROR) {
     return BACKEND_CONNECTION_ERROR;
   }
@@ -113,6 +116,14 @@ function friendlyAuthError(error: unknown, fallback: string): string {
       return 'Google sign-in was cancelled. Try again when you are ready.';
     case 'auth/network-request-failed':
       return 'The authentication service could not be reached. Check your connection and try again.';
+    case 'auth/invalid-email':
+      return 'Enter a valid email address.';
+    case 'auth/user-disabled':
+      return 'This account is unavailable. Contact ExamMind support if you need help.';
+    case 'auth/operation-not-allowed':
+      return 'Email and password sign-in is not enabled for this ExamMind environment yet.';
+    case 'auth/unauthorized-domain':
+      return 'This ExamMind site is not approved for Firebase sign-in yet. Use the approved staging URL or contact support.';
     case 'auth/invalid-api-key':
     case 'auth/configuration-not-found':
       return 'Firebase Authentication is not configured for this build.';
