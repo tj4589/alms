@@ -251,7 +251,36 @@ async function removeRecord(storeName: StoreName, id: string) {
 export const removePracticeAttempt = (id: string) => removeRecord('practiceAttempts', id);
 export const removeStudyPack = (id: string) => removeRecord('studyPacks', id);
 export const removePendingUpload = (id: string) => removeRecord('pendingUploads', id);
-export const removeCollection = (id: string) => removeRecord('savedCollections', id);
+
+/** Delete a custom folder without leaving dangling memberships on its items. */
+export async function removeCollection(id: string): Promise<void> {
+  const scope = requireScope();
+  const db = await openDb();
+  try { checkScope(scope); } catch (error) { closeDb(db); throw error; }
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(['savedCollections', 'savedItems', 'studyPacks'], 'readwrite');
+    const finish = (error?: unknown) => { closeDb(db); if (error) reject(error); else resolve(); };
+    const unlink = (storeName: 'savedItems' | 'studyPacks') => {
+      const request = tx.objectStore(storeName).index('scope').openCursor(scope);
+      request.onsuccess = () => {
+        if (activeScope !== scope) { tx.abort(); return; }
+        const cursor = request.result;
+        if (!cursor) return;
+        const value = cursor.value as ScopedRecord & { collectionIds?: string[] };
+        if (value._scope === scope && value.collectionIds?.includes(id)) {
+          cursor.update({ ...value, collectionIds: value.collectionIds.filter(collectionId => collectionId !== id) });
+        }
+        cursor.continue();
+      };
+    };
+    tx.objectStore('savedCollections').delete(`${scope}|${id}`);
+    unlink('savedItems');
+    unlink('studyPacks');
+    tx.oncomplete = () => finish();
+    tx.onerror = () => finish(tx.error || new Error('Offline folder could not be deleted.'));
+    tx.onabort = () => finish(tx.error || new Error('Offline folder deletion was interrupted.'));
+  });
+}
 
 export async function countRecords(storeName: StoreName) {
   const scope = activeScope;

@@ -180,11 +180,12 @@
 /* The four system folders are the primary objects on this screen. Keep the
    queue separate, but give each folder a clear card boundary. */
 #s-offline .materials-system-folder,#s-offline .materials-custom-folder{display:flex;flex-direction:column;min-height:250px;padding:24px;border:1px solid var(--border2);border-radius:16px;background:var(--surface);box-shadow:0 16px 34px -30px rgba(9,10,10,.75)}
+#s-offline .shelf-grid .materials-system-folder,#s-offline .shelf-grid .materials-custom-folder{margin:0;padding:24px;border:1px solid var(--border2)}
 #s-offline .materials-system-folder .shelf-head,#s-offline .materials-custom-folder .shelf-head{margin-bottom:12px}
 #s-offline .materials-system-folder .shelf-title,#s-offline .materials-custom-folder .shelf-title{margin-bottom:16px}
 #s-offline .materials-system-folder .shelf-empty,#s-offline .materials-custom-folder .shelf-empty{flex:1}
 #s-offline .materials-system-folder .shelf-action{margin-top:auto}
 
 @media(max-width:560px){
-  #s-offline .materials-system-folder,#s-offline .materials-custom-folder{min-height:0;padding:18px}
+  #s-offline .materials-system-folder,#s-offline .materials-custom-folder,#s-offline .shelf-grid .materials-system-folder,#s-offline .shelf-grid .materials-custom-folder{min-height:0;padding:18px}
 }
