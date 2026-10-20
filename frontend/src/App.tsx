@@ -50,6 +50,7 @@ const SearchResults = lazy(() => import('./screens/SearchResults'));
 const Settings = lazy(() => import('./screens/Settings'));
 const Profile = lazy(() => import('./screens/Profile'));
 const Reader = lazy(() => import('./screens/Reader'));
+const Materials = lazy(() => import('./screens/Materials'));
 const Workspace = lazy(() => import('./screens/Workspace'));
 const Onboarding = lazy(() => import('./screens/Onboarding'));
 const LearningSpaces = lazy(() => import('./screens/LearningSpaces'));
@@ -190,7 +191,7 @@ const NAV_GROUPS: { label: string; items: NavigationItem[] }[] = [
     items: [
       { label: 'My desk', screen: 'dashboard', icon: SquaresFourIcon },
       { label: 'Add material', screen: 'upload', icon: UploadSimpleIcon },
-      { label: 'My Materials', screen: 'workspace', icon: BooksIcon },
+      { label: 'My Materials', screen: 'materials', icon: BooksIcon },
       { label: 'Practice', screen: 'practice', icon: ExamIcon },
     ],
   },
@@ -1229,7 +1230,7 @@ export default function App() {
           >
             {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
           </button>
-          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{visibleNavGroups.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'reader' ? 'Reading' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
+          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{visibleNavGroups.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'reader' ? 'Reading' : activeScreen === 'workspace' ? 'Study desk' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
           <div className="search global-search" ref={searchBoxRef}>
             <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
@@ -1406,6 +1407,7 @@ export default function App() {
         {activeScreen === 'settings' && <Settings go={go} user={user} profileEditLabel={verifiedSpace?.slug === 'ksa' ? 'Edit KSA learning preferences →' : undefined} onEditProfile={() => { setOnboardingSpace(verifiedSpace?.slug === 'ksa' ? verifiedSpace : null); setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} learningSpaceSlug={verifiedSpace?.slug} />}
         {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
+        {activeScreen === 'materials' && <Materials go={go} onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }} />}
         {activeScreen === 'workspace' && <Workspace go={go} initialResource={workspaceTarget} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
         {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={hasAdminPortalAccess} />}
         {activeScreen === 'admin' && hasAdminPortalAccess && <AdminDashboard go={go} user={user} />}

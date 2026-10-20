@@ -46,8 +46,11 @@
 /* Focus mode: inside a tab the rail becomes a slim icon dock. Hovering the
    dock brings the labels back without making the student leave the page. */
 @media(min-width:769px){
-  .workspace-shell.is-compact-nav .sidebar{width:var(--sidebar-collapsed-width);overflow:visible;transition:width var(--rail-motion-duration) var(--rail-motion-easing) var(--rail-collapse-delay);z-index:240}
+  /* Keep the collapsed rail a real clipping boundary. Without this, label
+     transitions can paint over the workspace while the rail is narrow. */
+  .workspace-shell.is-compact-nav .sidebar{width:var(--sidebar-collapsed-width);overflow:hidden;transition:width var(--rail-motion-duration) var(--rail-motion-easing) var(--rail-collapse-delay);z-index:240}
   .workspace-shell.is-compact-nav:not(.nav-window-blurred):is(.is-nav-expanded, :has(.sidebar:hover), :has(.sidebar:focus-within)) .sidebar{width:var(--sidebar-expanded-width);box-shadow:14px 0 32px rgba(37,43,36,.08);transition-delay:0ms}
+  .workspace-shell.is-compact-nav:not(.nav-window-blurred).is-nav-expanded .sidebar{overflow:auto}
   .workspace-shell.is-compact-nav .main{margin-left:var(--sidebar-collapsed-width);transition:margin-left var(--rail-motion-duration) var(--rail-motion-easing) var(--rail-collapse-delay)}
   .workspace-shell.is-compact-nav:not(.nav-window-blurred):is(.is-nav-expanded, :has(.sidebar:hover), :has(.sidebar:focus-within)) .main{margin-left:var(--sidebar-expanded-width);transition-delay:0ms}
   .workspace-shell.is-compact-nav .logo{padding:0 24px;justify-content:flex-start}
@@ -59,12 +62,21 @@
   .workspace-shell.is-compact-nav .rail-item-label{flex:0 0 0;max-width:0;overflow:hidden;transition:opacity var(--rail-label-duration) ease,transform var(--rail-label-duration) var(--rail-motion-easing),max-width var(--rail-label-duration) var(--rail-motion-easing),visibility 0s linear var(--rail-label-duration)}
   .workspace-shell.is-compact-nav .rail-account-copy{max-width:0;overflow:hidden;transition:opacity var(--rail-label-duration) ease,transform var(--rail-label-duration) var(--rail-motion-easing),max-width var(--rail-label-duration) var(--rail-motion-easing),visibility 0s linear var(--rail-label-duration)}
   .workspace-shell.is-compact-nav.is-nav-expanded .logo{padding:0 24px}
-  .workspace-shell.is-compact-nav.is-nav-expanded .logo-name,
-  .workspace-shell.is-compact-nav.is-nav-expanded .nav-section,
-  .workspace-shell.is-compact-nav.is-nav-expanded .rail-item-label,
-  .workspace-shell.is-compact-nav.is-nav-expanded .rail-account-copy{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition:opacity var(--rail-label-duration) ease var(--rail-label-reveal-delay),transform var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),visibility 0s linear var(--rail-label-reveal-delay)}
+  .workspace-shell.is-compact-nav:not(.nav-window-blurred).is-nav-expanded .logo-name,
+  .workspace-shell.is-compact-nav:not(.nav-window-blurred).is-nav-expanded .nav-section,
+  .workspace-shell.is-compact-nav:not(.nav-window-blurred).is-nav-expanded .rail-item-label,
+  .workspace-shell.is-compact-nav:not(.nav-window-blurred).is-nav-expanded .rail-account-copy{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition:opacity var(--rail-label-duration) ease var(--rail-label-reveal-delay),transform var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),visibility 0s linear var(--rail-label-reveal-delay)}
   .workspace-shell.is-compact-nav.is-nav-expanded .rail-item-label{flex:0 1 auto;max-width:180px;overflow:visible;transition:opacity var(--rail-label-duration) ease var(--rail-label-reveal-delay),transform var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),max-width var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),visibility 0s linear var(--rail-label-reveal-delay)}
   .workspace-shell.is-compact-nav.is-nav-expanded .rail-account-copy{max-width:180px;overflow:visible;transition:opacity var(--rail-label-duration) ease var(--rail-motion-easing) var(--rail-label-reveal-delay),transform var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),max-width var(--rail-label-duration) var(--rail-motion-easing) var(--rail-label-reveal-delay),visibility 0s linear var(--rail-label-reveal-delay)}
+  /* Window blur can leave the expansion class in the middle of a transition.
+     Keep the effective blurred state collapsed so labels cannot escape the
+     rail or cover the content column. */
+  .workspace-shell.is-compact-nav.nav-window-blurred .logo-name,
+  .workspace-shell.is-compact-nav.nav-window-blurred .nav-section,
+  .workspace-shell.is-compact-nav.nav-window-blurred .rail-item-label,
+  .workspace-shell.is-compact-nav.nav-window-blurred .rail-account-copy{opacity:0;visibility:hidden;pointer-events:none;transform:translateX(-5px)}
+  .workspace-shell.is-compact-nav.nav-window-blurred .rail-item-label{flex:0 0 0;max-width:0;overflow:hidden}
+  .workspace-shell.is-compact-nav.nav-window-blurred .rail-account-copy{max-width:0;overflow:hidden}
   .workspace-shell.is-compact-nav .nav{padding-left:14px;padding-right:14px}
   .workspace-shell.is-compact-nav .rail-item-surface{justify-content:flex-start;padding:0 12px}
   .workspace-shell.is-compact-nav:not(.is-nav-expanded) .sidebar .rail-item-surface{justify-content:center;padding:0}
