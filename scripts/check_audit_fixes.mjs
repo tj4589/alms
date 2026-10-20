@@ -125,6 +125,10 @@ window.fetch=async (...args)=>{
 
   // Exercise the expanded search view through the real Enter/navigation flow.
   const globalSearch = page.locator('.global-search > input');
+  await globalSearch.fill('Audit');
+  await page.locator('.search-preview').waitFor();
+  await page.locator('.search-preview-row').first().waitFor();
+  assert.equal(await page.getByRole('button', { name: /Search for/ }).count(), 1);
   await globalSearch.fill('Audit source');
   await globalSearch.press('Enter');
   await page.locator('.search-page').waitFor();

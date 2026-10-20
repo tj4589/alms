@@ -53,6 +53,45 @@ function materialMetaLine(item: PastQuestion): string {
   return [documentType, year, semester, `${matches} matching section${matches === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
 }
 
+function SearchLoadingState({ query }: { query: string }) {
+  return (
+    <div className="search-page search-state-page">
+      <section className="search-state-card search-state-card--loading" role="status" aria-live="polite">
+        <div className="search-state-orb" aria-hidden="true"><span /></div>
+        <div className="search-state-copy">
+          <p className="search-page-kicker">ExamMind Search</p>
+          <h1>Finding the right study context for <span>“{query}”</span></h1>
+          <p>Checking your materials, past questions and study spaces.</p>
+          <div className="search-state-track" aria-hidden="true"><span /></div>
+        </div>
+        <div className="search-state-sources" aria-hidden="true">
+          <span>Materials</span><span>Questions</span><span>Study spaces</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SearchErrorState({ message, onRetry, go }: { message: string; onRetry?: () => void; go: (screen: ScreenType) => void }) {
+  return (
+    <div className="search-page search-state-page">
+      <section className="search-state-card search-state-card--error" role="alert">
+        <div className="search-state-icon" aria-hidden="true">!</div>
+        <div className="search-state-copy">
+          <p className="search-page-kicker">Search unavailable</p>
+          <h1>We couldn’t finish that search.</h1>
+          <p>{message}</p>
+          <div className="search-state-actions">
+            {onRetry && <button type="button" className="search-primary-btn" aria-label="Retry search" onClick={onRetry}>Try again</button>}
+            <button type="button" className="search-secondary-btn" onClick={() => go('workspace')}>Back to study desk</button>
+          </div>
+          <small>Try a shorter phrase or search again in a moment.</small>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function SearchResults({ query, result, loading, error, onRetry, onAskAI, onUpload, onOpenResource, onPractice, onCommunityAction, onOpenCommunity, go }: Props) {
   const [offlineState, setOfflineState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const topic = result?.understanding?.interpreted_topic?.trim() || query;
@@ -108,24 +147,9 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
       setOfflineState('error');
     }
   };
-  if (loading) {
-    return (
-      <div className="search-page">
-        <div className="search-loading">
-          <span className="ai-dot"></span>
-          Searching ExamMind for "{query}"...
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <SearchLoadingState query={query} />;
 
-  if (error) {
-    return <div className="search-page">
-      <h1 className="search-page-title">Search could not be completed</h1>
-      <p role="alert">{error}</p>
-      {onRetry && <button type="button" className="search-primary-btn" onClick={onRetry}>Retry search</button>}
-    </div>;
-  }
+  if (error) return <SearchErrorState message={error} onRetry={onRetry} go={go} />;
 
   return (
     <div className="search-page">

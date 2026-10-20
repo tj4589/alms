@@ -226,6 +226,22 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+function searchPreviewText(value: string | null | undefined, fallback: string, max = 74): string {
+  const text = (value || fallback).replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max).trim()}…` : text;
+}
+
+function safeSearchFailure(failure: unknown): string {
+  const message = failure instanceof Error ? failure.message.toLowerCase() : '';
+  if (message.includes('timeout') || message.includes('taking too long')) {
+    return 'Search is taking longer than expected. Try again in a moment.';
+  }
+  if (message.includes('network') || message.includes('fetch') || message.includes('connect')) {
+    return 'Search is temporarily unavailable. Check your connection and try again.';
+  }
+  return 'We could not complete that search. Try again in a moment.';
+}
+
 export default function App() {
   const [token, setToken] = useState(() => {
     if (!localStorage.getItem(AUTH_RESET_KEY)) {
@@ -268,6 +284,10 @@ export default function App() {
   const [communityContext, setCommunityContext] = useState<(SearchActionContext & { action: 'discussion' | 'study_group' | 'reading_room' }) | null>(null);
   const [communityTarget, setCommunityTarget] = useState<{ kind: 'study_group' | 'reading_room'; id: number } | null>(null);
   const [settingsFocus, setSettingsFocus] = useState<'feedback' | null>(null);
+  const [searchPreviewOpen, setSearchPreviewOpen] = useState(false);
+  const [searchPreviewResult, setSearchPreviewResult] = useState<GlobalSearchResult | null>(null);
+  const [searchPreviewLoading, setSearchPreviewLoading] = useState(false);
+  const [searchPreviewError, setSearchPreviewError] = useState('');
 
   const verifiedSpace = learningSpaces?.active_space;
   const verifiedSpaceId = verifiedSpace?.id ?? null;
@@ -286,6 +306,8 @@ export default function App() {
     setCommunityTarget(null);
     setSettingsFocus(null);
     setSearchQuery('');
+    setSearchPreviewOpen(false);
+    setSearchPreviewResult(null);
     setSubmittedResult(null);
     setMaxeOpen(false);
     setNotificationsOpen(false);
@@ -324,6 +346,8 @@ export default function App() {
   const [submittedLoading, setSubmittedLoading] = useState(false);
   const [submittedError, setSubmittedError] = useState('');
   const searchBoxRef = useRef<HTMLDivElement>(null);
+  const searchPreviewDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchPreviewSequence = useRef(0);
   const navCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navPointerInside = useRef(false);
   const navFocusInside = useRef(false);
@@ -368,6 +392,47 @@ export default function App() {
       if (!navPointerInside.current && !navFocusInside.current) setNavExpanded(false);
     }, NAV_COLLAPSE_TIMER_MS);
   };
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!searchBoxRef.current?.contains(event.target as Node)) setSearchPreviewOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, []);
+
+  useEffect(() => {
+    if (searchPreviewDebounce.current) clearTimeout(searchPreviewDebounce.current);
+    const query = searchQuery.trim();
+    const sequence = ++searchPreviewSequence.current;
+    if (!searchPreviewOpen || activeScreen === 'search' || query.length < 2) {
+      setSearchPreviewLoading(false);
+      setSearchPreviewResult(null);
+      setSearchPreviewError('');
+      return;
+    }
+
+    setSearchPreviewLoading(true);
+    setSearchPreviewError('');
+    searchPreviewDebounce.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const data = await apiGet(`/search?q=${encodeURIComponent(query)}`, { timeoutMs: 6_000 }) as GlobalSearchResult;
+          if (sequence !== searchPreviewSequence.current) return;
+          setSearchPreviewResult(data);
+        } catch {
+          if (sequence !== searchPreviewSequence.current) return;
+          setSearchPreviewResult(null);
+          setSearchPreviewError('Suggestions are unavailable. Press Enter to open full results.');
+        } finally {
+          if (sequence === searchPreviewSequence.current) setSearchPreviewLoading(false);
+        }
+      })();
+    }, 280);
+    return () => {
+      if (searchPreviewDebounce.current) clearTimeout(searchPreviewDebounce.current);
+    };
+  }, [activeScreen, searchPreviewOpen, searchQuery]);
 
   const handleNavPointerEnter = () => {
     navPointerInside.current = true;
@@ -725,6 +790,7 @@ export default function App() {
     }
     setActiveScreen(screen);
     setSidebarOpen(false);
+    setSearchPreviewOpen(false);
     setToast('');
     if (screen === 'admin') window.history.pushState({}, '', '/admin');
     else if (window.location.pathname.replace(/\/+$/, '') === '/admin') window.history.pushState({}, '', '/');
@@ -801,7 +867,7 @@ export default function App() {
       setSubmittedResult(data);
     } catch (failure) {
       setSubmittedResult(null);
-      setSubmittedError(failure instanceof Error ? failure.message : 'Search is temporarily unavailable. Please try again.');
+      setSubmittedError(safeSearchFailure(failure));
     } finally {
       setSubmittedLoading(false);
     }
@@ -1119,8 +1185,15 @@ export default function App() {
               aria-label="Search ExamMind"
               placeholder="Find a note, topic, or study group…"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => setSidebarOpen(false)}
+              onChange={(e) => {
+                const nextQuery = e.target.value;
+                setSearchQuery(nextQuery);
+                setSearchPreviewOpen(nextQuery.trim().length >= 2);
+              }}
+              onFocus={() => {
+                setSidebarOpen(false);
+                if (searchQuery.trim().length >= 2) setSearchPreviewOpen(true);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -1129,10 +1202,110 @@ export default function App() {
                 if (e.key === 'Escape') {
                   e.preventDefault();
                   setSearchQuery('');
+                  setSearchPreviewOpen(false);
                   scheduleNavCollapse();
                 }
               }}
             />
+            {searchPreviewOpen && activeScreen !== 'search' && searchQuery.trim().length >= 2 && (
+              <div className="search-preview" role="region" aria-label="Search suggestions">
+                <button
+                  type="button"
+                  className="search-preview-query"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    void handleGlobalSearchEnter();
+                  }}
+                >
+                  <MagnifyingGlassIcon aria-hidden="true" weight="regular" />
+                  <span>Search for <strong>“{searchQuery.trim()}”</strong></span>
+                  <kbd>Enter</kbd>
+                </button>
+
+                {searchPreviewLoading && (
+                  <div className="search-preview-loading" role="status" aria-live="polite">
+                    <span className="search-preview-spinner" aria-hidden="true" />
+                    <span>
+                      <strong>Searching your study library</strong>
+                      <small>Checking materials, questions and study spaces</small>
+                    </span>
+                  </div>
+                )}
+
+                {!searchPreviewLoading && searchPreviewError && (
+                  <div className="search-preview-message" role="status">
+                    <span>{searchPreviewError}</span>
+                  </div>
+                )}
+
+                {!searchPreviewLoading && !searchPreviewError && searchPreviewResult && (
+                  <div className="search-preview-results">
+                    <div className="search-preview-label">Top matches</div>
+                    {searchPreviewResult.lecture_notes.slice(0, 2).map(note => (
+                      <button
+                        type="button"
+                        className="search-preview-row"
+                        key={`preview-note-${note.id}`}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          void handleGlobalSearchEnter();
+                        }}
+                      >
+                        <span className="search-preview-icon"><BooksIcon aria-hidden="true" weight="regular" /></span>
+                        <span><strong>{searchPreviewText(note.title, 'Lecture note')}</strong><small>{note.topic || 'Lecture note'}</small></span>
+                      </button>
+                    ))}
+                    {searchPreviewResult.past_questions.slice(0, 2).map(item => (
+                      <button
+                        type="button"
+                        className="search-preview-row"
+                        key={`preview-question-${item.id}`}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          void handleGlobalSearchEnter();
+                        }}
+                      >
+                        <span className="search-preview-icon is-question"><ExamIcon aria-hidden="true" weight="regular" /></span>
+                        <span><strong>{searchPreviewText(item.title || item.content_text, 'Past question')}</strong><small>Past question</small></span>
+                      </button>
+                    ))}
+                    {searchPreviewResult.threads.slice(0, 1).map(thread => (
+                      <button
+                        type="button"
+                        className="search-preview-row"
+                        key={`preview-thread-${thread.id}`}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          void handleGlobalSearchEnter();
+                        }}
+                      >
+                        <span className="search-preview-icon is-community"><ChatsCircleIcon aria-hidden="true" weight="regular" /></span>
+                        <span><strong>{searchPreviewText(thread.title, 'Discussion')}</strong><small>Discussion</small></span>
+                      </button>
+                    ))}
+                    {searchPreviewResult.lecture_notes.length === 0 &&
+                      searchPreviewResult.past_questions.length === 0 &&
+                      searchPreviewResult.threads.length === 0 && (
+                        <div className="search-preview-message">
+                          <span>No direct matches yet.</span>
+                          <small>Press Enter to search all of ExamMind.</small>
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="search-preview-footer"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    void handleGlobalSearchEnter();
+                  }}
+                >
+                  See all results <span aria-hidden="true">↵</span>
+                </button>
+              </div>
+            )}
           </div>
           <div className="tb-right">
             <OfflineStatus />
