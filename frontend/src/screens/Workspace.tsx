@@ -159,7 +159,7 @@ function ResourceSidebar({ resources, activeKey, search, onSearch, onSelect, onU
   </div>;
 }
 
-function AudioTranscriptReader({ resource, sourceUrl, seekTo }: { resource: Resource; sourceUrl: string | null; seekTo?: number }) {
+function AudioTranscriptReader({ resource, sourceUrl, seekTo, onTranscriptLoaded }: { resource: Resource; sourceUrl: string | null; seekTo?: number; onTranscriptLoaded: (segments: TranscriptSegment[]) => void }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
@@ -176,14 +176,18 @@ function AudioTranscriptReader({ resource, sourceUrl, seekTo }: { resource: Reso
   useEffect(() => {
     let cancelled = false;
     apiGet(`/materials/audio/${resource.id}/transcript`).then(value => {
-      if (!cancelled) setPayload(value as AudioTranscriptPayload);
+      if (!cancelled) {
+        const next = value as AudioTranscriptPayload;
+        setPayload(next);
+        onTranscriptLoaded(Array.isArray(next.segments) ? next.segments : []);
+      }
     }).catch(failure => {
       if (!cancelled) setError(failure instanceof Error ? failure.message : 'The transcript could not be opened.');
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [resource.id]);
+  }, [onTranscriptLoaded, resource.id]);
 
   const segments = useMemo(() => payload?.segments || [], [payload?.segments]);
   const filteredSegments = useMemo(() => {
@@ -445,6 +449,7 @@ function ResourceReader({ resource, go, onSelection, citationTarget, user }: { r
   const [error, setError] = useState(''); const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false); const [downloadError, setDownloadError] = useState(''); const [previewError, setPreviewError] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
   const canManageSharing = Boolean(user && resource.isOwner);
   useEffect(() => {
     let cancelled = false; setError(''); setPreviewError(false); setSourceUrl(null);
@@ -468,7 +473,8 @@ function ResourceReader({ resource, go, onSelection, citationTarget, user }: { r
       });
     };
   }, [canNativePreview, resource]);
-  useEffect(() => { setShareOpen(false); }, [resource.key]);
+  useEffect(() => { setShareOpen(false); setTranscript([]); }, [resource.key]);
+  const onTranscriptLoaded = useCallback((segments: TranscriptSegment[]) => setTranscript(segments), []);
   const download = async () => { setDownloading(true); setDownloadError(''); try { await apiDownload(resourceDownloadPath(resource), resource.fileName || `${resource.title}.${extension || 'pdf'}`); } catch (failure) { setDownloadError(failure instanceof Error ? failure.message : 'That file could not be downloaded.'); } finally { setDownloading(false); } };
   const exportSource = (format: 'md' | 'txt') => apiDownload(
     `/collaboration/materials/${resource.kind}/${resource.id}/export?format=${format}`,
@@ -485,9 +491,9 @@ function ResourceReader({ resource, go, onSelection, citationTarget, user }: { r
     {citationTargetLabel && <p className="ws-citation-target" role="status">{citationTargetLabel}</p>}
     {canManageSharing && <div className="ws-share-strip"><button type="button" className="ws-share-button" onClick={() => setShareOpen(value => !value)} aria-expanded={shareOpen} aria-controls="ws-share-title"><Link2 size={15} aria-hidden="true" />{shareOpen ? 'Close sharing' : 'Share this source'}</button></div>}
     {shareOpen && <ShareLinksPanel key={resource.key} resource={resource} onClose={() => setShareOpen(false)} />}
-    <header className="ws-reader-header"><div className="ws-reader-kicker"><span>{resource.courseCode || 'Archive'}</span><span>{typeLabel(resource)}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div><h1>{resource.title}</h1><p>{[resource.courseTitle, resource.year && String(resource.year), resource.semester, visibilityLabel(resource.visibility)].filter(Boolean).join(' · ')}</p><div className="ws-reader-actions">{resource.hasFile && <button type="button" className="ws-download-button" onClick={() => void download()} disabled={downloading}><ArrowDownToLine size={15} aria-hidden="true" />{downloading ? 'Preparing...' : 'Download original'}</button>}<SaveButton compact triggerLabel="Export" menuLabel="Export" hideSaveActions target={{ itemType: resource.kind, refId: resource.id, title: resource.title, meta: typeLabel(resource), exports: [{ label: 'Export Markdown', description: 'Download the authorized reading as Markdown', run: () => exportSource('md') }, { label: 'Export plain text', description: 'Download the authorized reading as text', run: () => exportSource('txt') }] }} /><button type="button" className="ws-text-action" onClick={() => go('upload')}>Add another source <Plus size={15} aria-hidden="true" /></button></div>{downloadError && <p className="ws-reader-error" role="alert">{downloadError}</p>}</header>
+    <header className="ws-reader-header"><div className="ws-reader-kicker"><span>{resource.courseCode || 'Archive'}</span><span>{typeLabel(resource)}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div><h1>{resource.title}</h1><p>{[resource.courseTitle, resource.year && String(resource.year), resource.semester, visibilityLabel(resource.visibility)].filter(Boolean).join(' · ')}</p><div className="ws-reader-actions">{resource.hasFile && <button type="button" className="ws-download-button" onClick={() => void download()} disabled={downloading}><ArrowDownToLine size={15} aria-hidden="true" />{downloading ? 'Preparing...' : 'Download original'}</button>}<SaveButton compact triggerLabel="Save" menuLabel="Save" target={{ itemType: resource.kind, refId: resource.id, title: resource.title, meta: typeLabel(resource), snapshot: async () => { const snapshot = detail || resource; const sections = 'sections' in snapshot && Array.isArray(snapshot.sections) ? snapshot.sections : []; const contentText = snapshot.contentText || body || sections.map(section => section.body).join('\n\n'); const savedTranscript = transcript.length > 0 ? { segments: transcript } : {}; return sections.length > 0 || contentText || transcript.length > 0 ? { ...snapshot, content_text: contentText, sections, ...savedTranscript } : null; }, exports: [{ label: 'Export Markdown', description: 'Download the authorized reading as Markdown', run: () => exportSource('md') }, { label: 'Export plain text', description: 'Download the authorized reading as text', run: () => exportSource('txt') }] }} /><button type="button" className="ws-text-action" onClick={() => go('upload')}>Add another source <Plus size={15} aria-hidden="true" /></button></div>{downloadError && <p className="ws-reader-error" role="alert">{downloadError}</p>}</header>
     {loading && <div className="ws-reader-state"><LoaderCircle size={19} className="ws-spin" aria-hidden="true" /> Opening source...</div>}{error && <div className="ws-reader-state is-error" role="alert">{error}</div>}
-    {!loading && !error && <>{resource.isAudio ? <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} /> : <>{canNativePreview && sourceUrl && extension === 'pdf' && <iframe className="ws-native-preview" title={`Preview of ${resource.title}`} src={`${sourceUrl}${selectedCitationPage ? `#page=${selectedCitationPage}` : ''}`} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section> : <div className="ws-reader-state">No readable text was kept for this source.</div>}</>}</>}
+    {!loading && !error && <>{resource.isAudio ? <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} onTranscriptLoaded={onTranscriptLoaded} /> : <>{canNativePreview && sourceUrl && extension === 'pdf' && <iframe className="ws-native-preview" title={`Preview of ${resource.title}`} src={`${sourceUrl}${selectedCitationPage ? `#page=${selectedCitationPage}` : ''}`} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section> : <div className="ws-reader-state">No readable text was kept for this source.</div>}</>}</>}
   </div>;
 }
 

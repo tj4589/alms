@@ -28,6 +28,25 @@ function messagesOf(item: SavedItem): ChatMessage[] | null {
   return snapshot as ChatMessage[];
 }
 
+function cachedText(item: SavedItem): string {
+  if (!item.snapshot || typeof item.snapshot !== 'object') return 'No readable text was cached for this item.';
+  const snapshot = item.snapshot as Record<string, unknown>;
+  const content = snapshot.content_text || snapshot.contentText;
+  if (typeof content === 'string' && content.trim()) return content;
+  if (Array.isArray(snapshot.segments)) {
+    return snapshot.segments
+      .map(segment => {
+        if (!segment || typeof segment !== 'object') return '';
+        const value = segment as Record<string, unknown>;
+        const start = typeof value.start_time === 'number' ? `${Math.floor(value.start_time / 60)}:${String(Math.floor(value.start_time % 60)).padStart(2, '0')} ` : '';
+        return `${start}${typeof value.text === 'string' ? value.text : ''}`.trim();
+      })
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  return 'No readable text was cached for this item.';
+}
+
 export default function Materials({ go, onOpenConversation, onOpenResource, onReviewUpload }: MaterialsProps) {
   const [saved, setSaved] = useState<SavedItem[]>([]);
   const [packs, setPacks] = useState<OfflineStudyPack[]>([]);
@@ -99,14 +118,14 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
   return (
     <div className="page workspace-page" id="s-offline">
       <div className="pg-head">
-        <div className="pg-title">Saved <em>library</em></div>
-        <div className="pg-sub">Everything you have saved, in one place. Anything marked offline opens with no connection.</div>
+        <div className="pg-title">My <em>materials</em></div>
+        <div className="pg-sub">Your saved notes, past questions, Maxe conversations and study packs, in one place. Anything marked offline opens with no connection.</div>
       </div>
 
-      <button type="button" className="shelf-action" onClick={() => go('workspace')}>Back to study materials</button>
+      <button type="button" className="shelf-action" onClick={() => go('workspace')}>Back to study desk</button>
       {libraryError && <p role="alert">{libraryError}</p>}
       {legacyData && <p role="status">Older offline data has no verified account owner. It remains stored on this device, but cannot be opened or synced safely. Contact support for recovery; it has not been deleted.</p>}
-      {cachedDocument && <section className="shelf" aria-label="Cached document"><h2>{cachedDocument.title}</h2><p>Offline snapshot saved {savedDate(cachedDocument.savedAt)}. Reconnect to check current access and updates.</p><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{String((cachedDocument.snapshot as Record<string, unknown>).content_text || (cachedDocument.snapshot as Record<string, unknown>).contentText || 'No reading text was cached for this item.')}</p><button type="button" onClick={() => setCachedDocument(null)}>Close cached document</button></section>}
+      {cachedDocument && <section className="shelf" aria-label="Cached document"><h2>{cachedDocument.title}</h2><p>Offline snapshot saved {savedDate(cachedDocument.savedAt)}. Reconnect to check current access and updates.</p><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{cachedText(cachedDocument)}</p><button type="button" onClick={() => setCachedDocument(null)}>Close cached document</button></section>}
       {oldAttempts.length > 0 && <section className="shelf"><h2>Older quiz records need review</h2><p>Direct scores cannot be counted as readiness evidence. Reconnect and complete a new quiz; these records will not be submitted automatically.</p>{oldAttempts.map(attempt => <div key={attempt.id}><span>{attempt.topic || 'Older practice result'}</span><button type="button" onClick={() => void removePracticeAttempt(attempt.id).then(load).catch(() => setLibraryError('The older record could not be removed. Try again.'))}>Discard older record</button></div>)}</section>}
 
       <div className="materials-toolbar" role="search" aria-label="Material filters">

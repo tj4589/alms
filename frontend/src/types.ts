@@ -1,4 +1,4 @@
-export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'materials' | 'workspace' | 'moderation' | 'admin';
+export type ScreenType = 'dashboard' | 'questions' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'workspace' | 'moderation' | 'admin';
 
 export type Course = {
   id: number;

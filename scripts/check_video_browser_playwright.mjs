@@ -75,7 +75,8 @@ const waitForFunction = async (expression, timeout = 20000) => page.waitForFunct
 
 try {
   await page.goto(`${baseUrl}/#home`, { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'My Materials', exact: true }).click();
+  await page.getByRole('button', { name: 'My desk', exact: true }).click();
+  await page.getByRole('button', { name: 'Open workspace', exact: true }).click();
   await waitFor('#s-workspace .ws-source-list');
   await page.locator('#s-workspace .ws-source-search input').fill('recording');
   assert.equal(await page.locator('#s-workspace .ws-source-row').count(), 1, 'video was not searchable in the source list');

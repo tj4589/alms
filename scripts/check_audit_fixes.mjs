@@ -155,7 +155,6 @@ window.fetch=async (...args)=>{
     }; request.onerror = () => reject(request.error);
   }));
   await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Saved library', exact: true }).click();
   await page.getByRole('button', { name: 'Review upload', exact: true }).click();
   assert.equal(await page.evaluate(() => window.__auditUploads.length), 0, 'Reconnection must not auto-upload');
   await page.getByRole('button', { name: 'Review queued file', exact: true }).evaluate(el => { el.click(); el.click(); });
@@ -174,12 +173,10 @@ window.fetch=async (...args)=>{
   assert.equal(uploads.at(-1).visibility, 'private');
   await page.getByRole('button', { name: 'Keep visible only to me' }).click();
   await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Saved library', exact: true }).click();
   await page.getByText('Nothing queued.', { exact: false }).waitFor();
   results.push({ queuedUpload: 'no automatic submission; analysis failure retains bytes; retry preserves PPTX MIME; explicit private confirmation; duplicates prevented; stored queue entry removed' });
 
   await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Saved library', exact: true }).click();
   await page.getByRole('button', { name: 'Find more materials' }).click();
   const search = page.locator('#s-questions input').first();
   await search.fill('Audit source');
@@ -188,7 +185,6 @@ window.fetch=async (...args)=>{
   await page.getByRole('button', { name: 'Save offline', exact: true }).click();
   await page.getByText(/saved for offline study/).waitFor();
   await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Saved library', exact: true }).click();
   await page.locator('#s-offline').getByRole('button', { name: 'Open', exact: true }).first().click();
   await page.getByText('Synthetic authorized question text', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
@@ -199,13 +195,12 @@ window.fetch=async (...args)=>{
   await second.goto('http://127.0.0.1:4175/');
   await second.locator('#s-dashboard').waitFor();
   await second.getByRole('button', { name: 'My Materials', exact: true }).first().click();
-  await second.getByRole('button', { name: 'Saved library', exact: true }).click();
   await second.locator('#mat-docs-title').locator('..').getByText('Nothing saved yet.', { exact: false }).waitFor();
   assert.ok(!(await second.locator('#s-offline').innerText()).includes('Synthetic authorized question text'));
   assert.equal(await second.locator('#s-offline .shelf-list li').count(), 0);
   results.push({ accountSwitch: 'actual UI-saved private pack remains invisible to second account after normal logout' });
 
-  await second.getByRole('button', { name: 'Back to study materials' }).click();
+  await second.getByRole('button', { name: 'Back to study desk' }).click();
   for (const width of [1366, 390, 320]) {
     await second.setViewportSize({ width, height: width === 1366 ? 768 : 844 });
     await second.locator('.ws-source-row').first().waitFor();
