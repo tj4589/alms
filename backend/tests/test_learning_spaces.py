@@ -241,6 +241,32 @@ class LearningSpaceTests(unittest.TestCase):
         self.assertEqual(payload["memberships"], [])
         self.assertEqual({space["slug"] for space in payload["available_spaces"]}, {"cu", "ksa"})
 
+    def test_space_listing_bootstraps_catalog_without_granting_membership(self) -> None:
+        non_cu = models.User(
+            id=16,
+            name="New KSA Applicant",
+            username="new_ksa_applicant",
+            email="new.ksa.applicant@gmail.com",
+            firebase_uid="firebase-16",
+            role="student",
+        )
+        self.session.add(non_cu)
+        self.session.commit()
+
+        self.session.query(models.LearningSpaceMembership).delete()
+        self.session.query(models.LearningSpace).delete()
+        self.session.commit()
+
+        payload = list_spaces(self.session, non_cu)
+
+        self.assertEqual({space["slug"] for space in payload["available_spaces"]}, {"cu", "ksa"})
+        self.assertEqual(payload["memberships"], [])
+        self.assertIsNone(payload["active_space"])
+        self.assertEqual(
+            self.session.query(models.LearningSpaceMembership).filter_by(user_id=non_cu.id).count(),
+            0,
+        )
+
     def test_eligible_cu_identity_receives_membership_at_explicit_space_entry(self) -> None:
         new_cu_user = models.User(
             id=10,

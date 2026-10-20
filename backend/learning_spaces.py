@@ -253,6 +253,12 @@ def space_payload(space: models.LearningSpace, membership: models.LearningSpaceM
 
 
 def list_spaces(db: Session, user: models.User) -> dict:
+    # Keep the configured space catalogue available to every authenticated
+    # identity. This creates only the CU/KSA space records; it never creates
+    # a membership or grants access. CU eligibility remains enforced by the
+    # explicit membership boundary below, while KSA users need the claim
+    # form to be visible before they can create a KSA membership.
+    seed_learning_spaces(db)
     # This is the explicit CU authorization boundary. Identity creation and
     # normal application startup do not grant a learning-space membership.
     ensure_cu_membership(db, user)
