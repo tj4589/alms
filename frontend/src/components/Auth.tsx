@@ -34,7 +34,7 @@ import { firebaseAuth, firebaseConfigError, googleProvider } from '../lib/fireba
 import { forgotPasswordErrorMessage, PASSWORD_RESET_GENERIC_MESSAGE } from '../lib/authErrors';
 import { clearLocalAccountState } from '../lib/session';
 import { attemptDeviceCleanup } from '../lib/deviceCleanup';
-import { apiPost } from '../lib/api';
+import { API_REQUEST_TIMEOUT_ERROR, ApiHttpError, BACKEND_CONNECTION_ERROR, apiPost } from '../lib/api';
 import type { User } from '../types';
 
 type AuthProps = {
@@ -82,6 +82,18 @@ function authErrorCode(error: unknown): string {
 }
 
 function friendlyAuthError(error: unknown, fallback: string): string {
+  if (error instanceof ApiHttpError) {
+    if (error.status === 429) return 'Too many sign-in attempts. Wait a moment, then try again.';
+    if ([401, 403, 409].includes(error.status) && error.message) return error.message;
+    if (error.status >= 500) return 'ExamMind is having trouble starting your session. Please try again shortly.';
+    return fallback;
+  }
+  if (error instanceof Error && error.message === API_REQUEST_TIMEOUT_ERROR) {
+    return 'ExamMind is taking longer than expected to respond. Please try again shortly.';
+  }
+  if (error instanceof Error && error.message === BACKEND_CONNECTION_ERROR) {
+    return BACKEND_CONNECTION_ERROR;
+  }
   const code = authErrorCode(error);
   switch (code) {
     case 'auth/invalid-credential':
@@ -249,6 +261,7 @@ export const Auth = ({
   const [verificationNotice, setVerificationNotice] = useState('');
   const [cooldown, setCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingSeconds, setLoadingSeconds] = useState(0);
   const [error, setError] = useState('');
   const [recoveryPassword, setRecoveryPassword] = useState('');
   const [recoveryError, setRecoveryError] = useState('');
@@ -367,6 +380,18 @@ export const Auth = ({
     const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
     return () => window.clearInterval(timer);
   }, [cooldown]);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingSeconds(0);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setLoadingSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   useEffect(() => {
     if (verificationOpen && email) setCooldown(readVerificationCooldown(email));
@@ -704,7 +729,7 @@ export const Auth = ({
                 <label className="auth-field"><span>Password</span><div className="auth-password-wrap"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isLogin ? 'Your password' : 'Minimum 8 characters'} autoComplete={isLogin ? 'current-password' : 'new-password'} required minLength={8} pattern={isLogin ? undefined : PASSWORD_PATTERN.source} /><button type="button" className="auth-password-toggle" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} title={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div>{!isLogin && <small>Use 8+ characters with an uppercase letter, lowercase letter, number, and special character.</small>}</label>
                 {!isLogin && <label className="auth-field"><span>Confirm Password</span><div className="auth-password-wrap"><input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Re-enter your password" autoComplete="new-password" required minLength={8} pattern={PASSWORD_PATTERN.source} /><button type="button" className="auth-password-toggle" onClick={() => setShowConfirmPassword((visible) => !visible)} aria-label={showConfirmPassword ? 'Hide confirmed password' : 'Show confirmed password'} aria-pressed={showConfirmPassword} title={showConfirmPassword ? 'Hide confirmed password' : 'Show confirmed password'}>{showConfirmPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button></div></label>}
                 {isLogin && <button type="button" className="auth-forgot" onClick={() => void handleForgotPassword()} disabled={loading}>Forgot password?</button>}
-                <button type="submit" className="auth-submit" disabled={loading}>{loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}</button>
+                <button type="submit" className="auth-submit" disabled={loading}>{loading ? (isLogin && loadingSeconds >= 8 ? 'Waking your desk...' : isLogin ? 'Signing in...' : 'Creating account...') : isLogin ? 'Sign In' : 'Create Account'}</button>
               </form>
               <div className="auth-divider"><span>or</span></div>
               <button type="button" className="auth-google" onClick={() => void handleGoogleSignIn()} disabled={loading}><Globe2 size={17} aria-hidden="true" /> Continue with Google</button>
