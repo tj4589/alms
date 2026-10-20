@@ -82,8 +82,8 @@ function serverItemsFromPayload(payload: unknown): ServerNotification[] {
 
 function isKnownScreen(value: string): value is ScreenType {
   return [
-    'dashboard', 'questions', 'assistant', 'upload', 'offline', 'practice', 'collab',
-    'empty', 'progress', 'groups', 'search', 'settings', 'profile', 'reader',
+    'dashboard', 'assistant', 'upload', 'offline', 'practice', 'collab',
+    'progress', 'groups', 'search', 'settings', 'profile',
     'onboarding', 'workspace', 'moderation', 'admin',
   ].includes(value);
 }

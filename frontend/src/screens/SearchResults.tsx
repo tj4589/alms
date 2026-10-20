@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext } from '../types';
+import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext, SearchCommunityKind } from '../types';
 import { saveStudyPack } from '../offline';
 
 function preview(value: string | null | undefined, fallback: string, max = 132): string {
@@ -7,10 +7,7 @@ function preview(value: string | null | undefined, fallback: string, max = 132):
   return text.length > max ? `${text.slice(0, max).trim()}...` : text;
 }
 
-function noteSummary(query: string, topic: string): string {
-  if (query.trim().toLowerCase() === 'knowledge') {
-    return 'No uploaded materials match this yet. This may relate to knowledge management, learning theory, information systems, or knowledge representation depending on the course context.';
-  }
+function noteSummary(topic: string): string {
   return `No uploaded materials match this yet. ${topic} may depend on the course context, so uploaded notes or past questions will make future results more precise.`;
 }
 
@@ -25,6 +22,7 @@ type Props = {
   onOpenResource: (kind: 'lecture_note' | 'past_question', id: number) => void;
   onPractice: (topic: string, context?: SearchActionContext) => void;
   onCommunityAction?: (action: 'discussion' | 'study_group' | 'reading_room', context: SearchActionContext) => void;
+  onOpenCommunity?: (kind: SearchCommunityKind, id: number) => void;
   onMaterialDeleted?: () => void;
   go: (screen: ScreenType) => void;
 };
@@ -55,7 +53,7 @@ function materialMetaLine(item: PastQuestion): string {
   return [documentType, year, semester, `${matches} matching section${matches === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
 }
 
-export default function SearchResults({ query, result, loading, error, onRetry, onAskAI, onUpload, onOpenResource, onPractice, onCommunityAction, go }: Props) {
+export default function SearchResults({ query, result, loading, error, onRetry, onAskAI, onUpload, onOpenResource, onPractice, onCommunityAction, onOpenCommunity, go }: Props) {
   const [offlineState, setOfflineState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const topic = result?.understanding?.interpreted_topic?.trim() || query;
   const relatedTerms = result?.understanding?.related_terms || [];
@@ -66,7 +64,6 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   const rooms = result?.study_sessions || [];
   const relatedTopics = result?.related_topics || [];
   const hasUploaded = pastQuestions.length > 0 || lectureNotes.length > 0;
-  const hasBestMatches = lectureNotes.length > 0 || pastQuestions.length > 0;
   const primaryMaterial = pastQuestions[0];
   const primaryContext: SearchActionContext = {
     query,
@@ -82,6 +79,10 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   const goCommunity = (action: 'discussion' | 'study_group' | 'reading_room') => {
     if (onCommunityAction) onCommunityAction(action, primaryContext);
     else go(action === 'discussion' ? 'collab' : 'groups');
+  };
+  const openCommunity = (kind: SearchCommunityKind, id: number) => {
+    if (onOpenCommunity) onOpenCommunity(kind, id);
+    else go(kind === 'discussion' ? 'collab' : 'groups');
   };
   const saveQuestionsOffline = async () => {
     if (!pastQuestions.length || offlineState === 'saving') return;
@@ -148,49 +149,10 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             <p>
               {hasUploaded
                 ? `Found ${lectureNotes.length} lecture note${lectureNotes.length === 1 ? '' : 's'} and ${pastQuestions.length} past question${pastQuestions.length === 1 ? '' : 's'} connected to this search.`
-                : noteSummary(query, topic)}
+                : noteSummary(topic)}
             </p>
             {relatedTerms.length > 0 && (
               <div className="search-muted">Also considered: {relatedTerms.slice(0, 4).join(', ')}</div>
-            )}
-          </section>
-
-          <section className="search-card">
-            <div className="search-card-title">Best Matches</div>
-            {hasBestMatches ? (
-              <div className="search-result-list">
-                {lectureNotes.slice(0, 2).map(note => (
-                  <div className="search-result-row" key={`best-note-${note.id}`}>
-                    <div>
-                      <div className="search-result-title">{note.title}</div>
-                      <div className="search-muted">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</div>
-                    </div>
-                    <span className="search-result-type">Note</span>
-                    <button type="button" className="search-link-btn" onClick={() => onOpenResource('lecture_note', note.id)} aria-label={`Open ${note.title}`}>Open</button>
-                  </div>
-                ))}
-                {pastQuestions.slice(0, 2).map((item: PastQuestion) => {
-                  const meta = item.metadata_json as { course_code?: string; topics_covered?: string[] } | null;
-                  return (
-                    <div className="search-result-row" key={`best-pq-${item.id}`}>
-                      <div>
-                        <div className="search-result-title">{materialTitle(item)}</div>
-                        {(item.snippets || []).slice(0, 2).map(snippet => (
-                          <div className="search-muted" key={snippet}>{preview(snippet, '', 150)}</div>
-                        ))}
-                        <div className="search-muted">
-                          {meta?.course_code ? `${meta.course_code} · ` : ''}{materialMetaLine(item)}
-                          {meta?.topics_covered?.[0] ? ` · ${meta.topics_covered[0]}` : ''}
-                        </div>
-                      </div>
-                      <span className="search-result-type">Question</span>
-                      <button type="button" className="search-link-btn" onClick={() => onOpenResource('past_question', item.id)} aria-label={`Open ${materialTitle(item)}`}>Open</button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="search-empty-row">No best matches yet.</div>
             )}
           </section>
 
@@ -255,8 +217,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
           <section className="search-card">
             <div className="search-card-title">Practice</div>
             <div className="search-empty-row">
-              <span>No shared practice sets yet.</span>
-              <button className="search-link-btn" onClick={() => onPractice(topic, primaryContext)}>Generate practice</button>
+              <span>No practice quiz has been created from this search yet.</span>
+              <button className="search-link-btn" onClick={() => onPractice(topic, primaryContext)}>Create practice quiz</button>
             </div>
           </section>
         </div>
@@ -265,20 +227,18 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
           <section className="search-card">
             <div className="search-card-title">Quick Actions</div>
             <div className="search-action-grid">
-              <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Learn more with AI</button>
-              <button className="search-action-btn" onClick={() => onPractice(topic, primaryContext)}>Generate practice</button>
+              <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Ask Maxe about this</button>
+              <button className="search-action-btn" onClick={() => onPractice(topic, primaryContext)}>Create practice quiz</button>
               <button className="search-action-btn" onClick={onUpload}>Upload material</button>
               <button className="search-action-btn" onClick={() => goCommunity('discussion')}>Start discussion thread</button>
-              <button className="search-action-btn" onClick={() => goCommunity('study_group')}>Create study group</button>
-              <button className="search-action-btn" onClick={() => goCommunity('reading_room')}>Start reading room</button>
             </div>
           </section>
 
           <section className="search-card">
             <div className="search-card-title">Related Topics</div>
             {relatedTopics.length > 0 ? (
-              <div className="search-chip-row">
-                {relatedTopics.slice(0, 10).map(item => <span className="search-chip" key={item}>{item}</span>)}
+              <div className="search-related-list">
+                {relatedTopics.slice(0, 10).map(item => <span key={item}>{item}</span>)}
               </div>
             ) : (
               <div className="search-empty-row">No related topics found yet.</div>
@@ -289,7 +249,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             <div className="search-card-title">Discussions</div>
             {threads.length > 0 ? (
               threads.slice(0, 3).map(thread => (
-                <button className="search-link-row" key={thread.id} onClick={() => go('collab')}>
+                <button className="search-link-row" key={thread.id} onClick={() => openCommunity('discussion', thread.id)}>
                   <span>{thread.title}</span>
                   <small>{thread.created_by_username ? `@${thread.created_by_username}` : 'Discussion'}</small>
                 </button>
@@ -306,7 +266,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             <div className="search-card-title">Study Groups</div>
             {groups.length > 0 ? (
               groups.slice(0, 3).map(group => (
-                <button className="search-link-row" key={group.id} onClick={() => go('groups')}>
+                <button className="search-link-row" key={group.id} onClick={() => openCommunity('study_group', group.id)}>
                   <span>{group.name}</span>
                   <small>{group.topic || 'Study group'} · {group.member_count || 0} members</small>
                 </button>
@@ -323,7 +283,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             <div className="search-card-title">Reading Rooms</div>
             {rooms.length > 0 ? (
               rooms.slice(0, 3).map(room => (
-                <button className="search-link-row" key={room.id} onClick={() => go('groups')}>
+                <button className="search-link-row" key={room.id} onClick={() => openCommunity('reading_room', room.id)}>
                   <span>{room.title}</span>
                   <small>{room.topic || room.exam_goal || 'Active room'} · {room.participant_count || 0} active</small>
                 </button>
@@ -336,13 +296,6 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             )}
           </section>
 
-          <section className="search-learn-card">
-            <div>
-              <div className="search-card-title">Learn more with ExamMind AI</div>
-              <p>Ask Maxe to explain this step-by-step using uploaded materials where available.</p>
-            </div>
-            <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Learn more with AI</button>
-          </section>
         </aside>
       </div>
     </div>

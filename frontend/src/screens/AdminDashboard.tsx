@@ -27,6 +27,7 @@ type FeedbackItem = {
 type AdminDashboardProps = {
   go: (screen: ScreenType) => void;
   user: User;
+  onOpenFeedback: () => void;
 };
 
 type PanelError = {
@@ -113,7 +114,7 @@ function formatCheckedTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? 'Not checked yet' : date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 }
 
-export default function AdminDashboard({ go, user }: AdminDashboardProps) {
+export default function AdminDashboard({ go, user, onOpenFeedback }: AdminDashboardProps) {
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -266,7 +267,7 @@ export default function AdminDashboard({ go, user }: AdminDashboardProps) {
         <section className="admin-dashboard-panel" aria-labelledby="admin-feedback-title">
           <div className="admin-dashboard-panel-heading">
             <div><p className="admin-dashboard-label">Product signal</p><h2 id="admin-feedback-title">Recent feedback</h2></div>
-            <button type="button" className="admin-dashboard-text-button" onClick={() => go('settings')}>Open inbox <ArrowUpRight size={15} aria-hidden="true" /></button>
+            <button type="button" className="admin-dashboard-text-button" onClick={onOpenFeedback}>Open inbox <ArrowUpRight size={15} aria-hidden="true" /></button>
           </div>
           {loading && <p className="admin-dashboard-state">Checking the feedback inbox...</p>}
           {!loading && !errors.feedback && !feedback.length && <div className="admin-dashboard-empty"><Inbox size={21} aria-hidden="true" /><p><strong>No feedback yet.</strong><span>Notes from students and visitors will appear here.</span></p></div>}
@@ -289,7 +290,7 @@ export default function AdminDashboard({ go, user }: AdminDashboardProps) {
         <div><p className="admin-dashboard-label">Admin tools</p><h2 id="admin-tools-title">Move from signal to action</h2><p>Review contributions, inspect KSA access, or read the full feedback inbox using the existing permission-aware screens.</p></div>
         <div className="admin-dashboard-tool-actions">
           <button type="button" className="admin-dashboard-action is-primary" onClick={() => go('moderation')}>Review contributions <ArrowUpRight size={15} aria-hidden="true" /></button>
-          <button type="button" className="admin-dashboard-action" onClick={() => go('settings')}>Open feedback inbox <ArrowUpRight size={15} aria-hidden="true" /></button>
+          <button type="button" className="admin-dashboard-action" onClick={onOpenFeedback}>Open feedback inbox <ArrowUpRight size={15} aria-hidden="true" /></button>
         </div>
       </section>
 

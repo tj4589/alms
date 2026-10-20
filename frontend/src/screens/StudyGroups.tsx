@@ -175,8 +175,8 @@ function RoomDetail({
       setMsgs(m as RoomMessage[]);
       setBoard(b as AICard[]);
       apiPost(`/study-sessions/${session.id}/heartbeat`, {}).catch(() => {});
-    } catch {
-      // silent — stale data is fine
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'This reading room could not be refreshed. Try again.');
     }
   }, [session.id]);
 
@@ -187,7 +187,7 @@ function RoomDetail({
     } else {
       apiPost(`/study-sessions/${session.id}/join`, {})
         .then(() => refresh())
-        .catch(() => refresh());
+        .catch((err) => setLoadError(err instanceof Error ? err.message : 'This reading room could not be joined. Try again.'));
     }
 
     const interval = setInterval(() => void refresh(), 10000);
@@ -213,6 +213,8 @@ function RoomDetail({
       setDetail((d) => ({ ...d, my_status: 'on_break' }));
       setBreakMenuOpen(false);
       void refresh();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Your break could not be started. Try again.');
     } finally { setActionLoading(false); }
   };
 
@@ -223,15 +225,20 @@ function RoomDetail({
       await apiPost(`/study-sessions/${session.id}/back`, {});
       setDetail((d) => ({ ...d, my_status: 'studying' }));
       void refresh();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'You could not return to studying. Try again.');
     } finally { setActionLoading(false); }
   };
 
   const leaveRoom = async () => {
     if (actionLoading) return;
     setActionLoading(true);
-    try { await apiPost(`/study-sessions/${session.id}/leave`, {}); }
-    finally { setActionLoading(false); }
-    onBack();
+    try {
+      await apiPost(`/study-sessions/${session.id}/leave`, {});
+      onBack();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'You could not leave this room. Try again.');
+    } finally { setActionLoading(false); }
   };
 
   const shareRoom = async () => {
@@ -258,7 +265,10 @@ function RoomDetail({
       await apiPost(`/study-sessions/${session.id}/messages`, { content });
       const newMsgs = await apiGet(`/study-sessions/${session.id}/messages`) as RoomMessage[];
       setMsgs(newMsgs);
-    } catch { setChatInput(content); }
+    } catch (err) {
+      setChatInput(content);
+      setLoadError(err instanceof Error ? err.message : 'Your message was not sent. Try again; your text is still here.');
+    }
     finally { setSending(false); }
   };
 
@@ -750,11 +760,17 @@ export default function StudyGroups({
   notifyUnavailable,
   user,
   initialContext = null,
+  initialGroupId = null,
+  initialSessionId = null,
+  onCommunityTargetHandled,
 }: {
   go: (s: ScreenType, username?: string | null) => void;
   notifyUnavailable: (feature: string) => void;
   user: User | null;
   initialContext?: (SearchActionContext & { action?: 'study_group' | 'reading_room' }) | null;
+  initialGroupId?: number | null;
+  initialSessionId?: number | null;
+  onCommunityTargetHandled?: () => void;
 }) {
   void notifyUnavailable;
   const [mainTab, setMainTab] = useState<'groups' | 'rooms'>('groups');
@@ -778,6 +794,7 @@ export default function StudyGroups({
   const [shareNote, setShareNote] = useState('');
   const [shareUrl, setShareUrl] = useState('');
   const [groupActionPending, setGroupActionPending] = useState<number | null>(null);
+  const [groupActionError, setGroupActionError] = useState('');
   const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
   const [openGroup, setOpenGroup] = useState<StudyGroup | null>(null);
   const [groupMembers, setGroupMembers] = useState<Record<number, GroupMember[]>>({});
@@ -795,10 +812,12 @@ export default function StudyGroups({
   const [groupPostInput, setGroupPostInput] = useState('');
   const [groupPostType, setGroupPostType] = useState<'discussion' | 'lounge'>('discussion');
   const [groupPosting, setGroupPosting] = useState(false);
+  const [groupPostError, setGroupPostError] = useState('');
 
   // ── Reading Rooms state ───────────────────────────────────────────────────
   const [sessions, setSessions] = useState<StudySession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [sessionsError, setSessionsError] = useState('');
   const [showRoomForm, setShowRoomForm] = useState(false);
   const [roomTitle, setRoomTitle] = useState('');
@@ -831,6 +850,7 @@ export default function StudyGroups({
   // ── Load sessions ─────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
+    setSessionsLoaded(false);
     setSessionsError('');
     try {
       const data = await apiGet('/study-sessions') as StudySession[];
@@ -839,6 +859,7 @@ export default function StudyGroups({
       setSessionsError(err instanceof Error ? err.message : 'Could not load reading rooms.');
     } finally {
       setSessionsLoading(false);
+      setSessionsLoaded(true);
     }
   }, []);
 
@@ -924,22 +945,28 @@ export default function StudyGroups({
   const joinGroup = async (groupId: number) => {
     if (groupActionPending !== null) return;
     setGroupActionPending(groupId);
+    setGroupActionError('');
     try {
       const res = await apiPost(`/study-groups/${groupId}/join`, {}) as { member_count: number };
       const joined = groups.find((group) => group.id === groupId);
       setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, is_member: true, member_count: res.member_count } : g));
       if (joined) setOpenGroup({ ...joined, is_member: true, member_count: res.member_count });
-    } catch { /* Keep the current membership state when the service is unavailable. */ }
+    } catch (err) {
+      setGroupActionError(err instanceof Error ? err.message : 'We could not join that study group. Try again.');
+    }
     finally { setGroupActionPending(null); }
   };
 
   const leaveGroup = async (groupId: number) => {
     if (groupActionPending !== null) return;
     setGroupActionPending(groupId);
+    setGroupActionError('');
     try {
       const res = await apiPost(`/study-groups/${groupId}/leave`, {}) as { member_count: number };
       setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, is_member: false, member_count: res.member_count } : g));
-    } catch { /* Keep the current membership state when the service is unavailable. */ }
+    } catch (err) {
+      setGroupActionError(err instanceof Error ? err.message : 'We could not leave that study group. Try again.');
+    }
     finally { setGroupActionPending(null); }
   };
 
@@ -1018,6 +1045,7 @@ export default function StudyGroups({
   const createGroupPost = async () => {
     if (!openGroup || !groupPostInput.trim() || groupPosting) return;
     setGroupPosting(true);
+    setGroupPostError('');
     try {
       const post = await apiPost(`/community/groups/${openGroup.id}/posts`, {
         content: groupPostInput.trim(),
@@ -1025,8 +1053,9 @@ export default function StudyGroups({
       }) as GroupPost;
       setGroupPosts((current) => [post, ...current]);
       setGroupPostInput('');
-    } catch {
+    } catch (err) {
       // Keep the draft visible so a transient connection problem is recoverable.
+      setGroupPostError(err instanceof Error ? err.message : 'We could not post that message. Try again.');
     } finally {
       setGroupPosting(false);
     }
@@ -1039,9 +1068,37 @@ export default function StudyGroups({
       try {
         const members = await apiGet(`/study-groups/${groupId}/members`) as GroupMember[];
         setGroupMembers(prev => ({ ...prev, [groupId]: members }));
-      } catch { setGroupMembers(prev => ({ ...prev, [groupId]: [] })); }
+      } catch (err) {
+        setGroupActionError(err instanceof Error ? err.message : 'Group members could not be loaded. Try again.');
+      }
     }
   };
+
+  useEffect(() => {
+    if (initialGroupId === null || initialGroupId === undefined || groupsLoading) return;
+    const target = groups.find((group) => group.id === initialGroupId);
+    if (target) {
+      setMainTab('groups');
+      setOpenGroup(target);
+    } else {
+      setGroupsError('That study group is not available in your learning space.');
+    }
+    onCommunityTargetHandled?.();
+  }, [groups, groupsLoading, initialGroupId, onCommunityTargetHandled]);
+
+  useEffect(() => {
+    if (initialSessionId === null || initialSessionId === undefined) return;
+    setMainTab('rooms');
+    if (!sessionsLoaded && !sessionsLoading) void loadSessions();
+  }, [initialSessionId, loadSessions, sessionsLoaded, sessionsLoading]);
+
+  useEffect(() => {
+    if (initialSessionId === null || initialSessionId === undefined || sessionsLoading || !sessionsLoaded) return;
+    const target = sessions.find((session) => session.id === initialSessionId);
+    if (target) setSelectedSession(target);
+    else setSessionsError('That reading room is not available in your learning space.');
+    onCommunityTargetHandled?.();
+  }, [initialSessionId, onCommunityTargetHandled, sessions, sessionsLoaded, sessionsLoading]);
 
   const myGroups = groups.filter((g) => g.is_member);
   const liveRooms = sessions.filter((room) => room.status === 'active');
@@ -1177,7 +1234,7 @@ export default function StudyGroups({
                 const course = group.course_id ? courseMap.get(group.course_id) : null;
                 return (
                   <li key={group.id}>
-                    <button type="button" className="gs-row" onClick={() => { setOpenGroup(group); void toggleGroupDetail(group.id); }}>
+                    <button type="button" className="gs-row" onClick={() => { setGroupActionError(''); setOpenGroup(group); void toggleGroupDetail(group.id); }}>
                       <span className={`gs-avatar ${tintClass(group.id)}`} aria-hidden="true">{groupInitials(group.name)}</span>
                       <span>
                         <span className="gs-name">{group.name}</span>
@@ -1209,7 +1266,7 @@ export default function StudyGroups({
       {mainTab === 'groups' && openGroup && (
         <div className="gs-layout">
           <div>
-            <button className="gs-back" onClick={() => setOpenGroup(null)}>&larr; All groups</button>
+            <button className="gs-back" onClick={() => { setGroupActionError(''); setOpenGroup(null); }}>&larr; All groups</button>
 
             <header className="gs-detail-head">
               <span className={`gs-avatar ${tintClass(openGroup.id)}`} aria-hidden="true">{groupInitials(openGroup.name)}</span>
@@ -1236,6 +1293,7 @@ export default function StudyGroups({
               <button className="gs-ghost" onClick={() => { setRoomGroupId(openGroup.id); setMainTab('rooms'); setOpenGroup(null); setShowRoomForm(true); }}><Video size={16} aria-hidden="true" /> Start a reading room</button>
               {groupHome?.my_role && ['owner', 'admin'].includes(groupHome.my_role) && <button className="gs-ghost" onClick={() => void shareGroup(openGroup)}><Share2 size={16} aria-hidden="true" /> Invite classmates</button>}
             </div>
+            {groupActionError && <div className="upload-alert" role="alert">{groupActionError}</div>}
             {shareNote && <div className="gs-share-note" role="status"><Link2 size={15} aria-hidden="true" /> {shareNote}</div>}
             {shareUrl && <div className="gs-share-actions" aria-label="Share invite link"><a href={`https://wa.me/?text=${encodeURIComponent(`Join ${openGroup.name} on ExamMind: ${shareUrl}`)}`} target="_blank" rel="noreferrer">WhatsApp</a><a href={`mailto:?subject=${encodeURIComponent(`Join ${openGroup.name} on ExamMind`)}&body=${encodeURIComponent(shareUrl)}`}>Email</a><button type="button" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setShareNote('Invite link copied.'); }}>Copy again</button><button type="button" onClick={() => void revokeShare()}>Revoke</button></div>}
 
@@ -1327,7 +1385,8 @@ export default function StudyGroups({
             {(groupTab === 'discussions' || groupTab === 'lounge') && (
               <section className="group-community-panel">
                 <div className="group-post-compose">
-                  <textarea value={groupPostInput} onChange={(event) => setGroupPostInput(event.target.value)} placeholder={groupTab === 'lounge' ? 'Say something to the lounge…' : 'Start the group discussion…'} rows={3} />
+                  <textarea value={groupPostInput} onChange={(event) => { setGroupPostInput(event.target.value); if (groupPostError) setGroupPostError(''); }} placeholder={groupTab === 'lounge' ? 'Say something to the lounge…' : 'Start the group discussion…'} rows={3} />
+                  {groupPostError && <p className="gs-field-note gs-join-link-error" role="alert">{groupPostError}</p>}
                   <div className="group-post-actions">
                     <span>{groupPosts.filter((post) => post.post_type === groupTab || (groupTab === 'discussions' && post.post_type === 'announcement')).length} posts</span>
                     <button type="button" className="gs-primary" onClick={() => void createGroupPost()} disabled={groupPosting || !groupPostInput.trim()}>{groupPosting ? 'Posting…' : 'Post'}</button>
@@ -1343,7 +1402,7 @@ export default function StudyGroups({
             )}
 
             {groupTab === 'materials' && (
-              <section className="gs-section"><p className="gs-section-label">Course materials</p><p className="margin-note">{groupHome?.tabs.materials ?? 0} materials are anchored to this group’s course. Open My Materials to read and practice from them.</p><button type="button" className="gs-link" onClick={() => go('offline')}>Open My Materials <span>→</span></button></section>
+              <section className="gs-section"><p className="gs-section-label">Course materials</p><p className="margin-note">{groupHome?.tabs.materials ?? 0} materials are anchored to this group’s course. Open the study desk to read and practice from them.</p><button type="button" className="gs-link" onClick={() => go('workspace')}>Open study desk <span>→</span></button></section>
             )}
 
             {groupTab === 'rooms' && (

@@ -21,6 +21,7 @@ import type {
   ChatMessage,
   GlobalSearchResult,
   SearchActionContext,
+  SearchCommunityKind,
   ScreenType,
   LearningSpace,
   LearningSpacesResponse,
@@ -44,11 +45,9 @@ const Collab = lazy(() => import('./screens/Collab'));
 const Practice = lazy(() => import('./screens/Practice'));
 const Progress = lazy(() => import('./screens/Progress'));
 const StudyGroups = lazy(() => import('./screens/StudyGroups'));
-const Empty = lazy(() => import('./screens/Empty'));
 const SearchResults = lazy(() => import('./screens/SearchResults'));
 const Settings = lazy(() => import('./screens/Settings'));
 const Profile = lazy(() => import('./screens/Profile'));
-const Reader = lazy(() => import('./screens/Reader'));
 const Workspace = lazy(() => import('./screens/Workspace'));
 const Onboarding = lazy(() => import('./screens/Onboarding'));
 const LearningSpaces = lazy(() => import('./screens/LearningSpaces'));
@@ -227,43 +226,6 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-const SEARCH_GUIDANCE = 'Try searching for a course, topic, past question, note, or exam phrase.';
-const SEARCH_NONTOPICS = new Set([
-  'hey', 'hi', 'hello', 'okay', 'ok', 'sure', 'yes', 'yeah', 'yep', 'no', 'nah',
-  'lost', 'tired', 'confused', 'meant', 'thanks', 'thank', 'hmm', 'hm',
-]);
-
-function isConversationOnlySearch(query: string): boolean {
-  const words = query.toLowerCase().match(/[a-z]+/g) || [];
-  return words.length > 0 && words.every(word => SEARCH_NONTOPICS.has(word));
-}
-
-
-function resultCount(result: GlobalSearchResult | null): number {
-  if (!result) return 0;
-  return (
-    result.past_questions.length +
-    result.lecture_notes.length +
-    result.threads.length +
-    result.study_groups.length +
-    result.study_sessions.length +
-    result.related_topics.length
-  );
-}
-
-function hasUsefulSearchInterpretation(result: GlobalSearchResult | null): boolean {
-  const topic = result?.understanding?.interpreted_topic?.trim();
-  if (!topic) return false;
-  const query = (result?.query || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  const normalizedTopic = topic.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  return Boolean(normalizedTopic && normalizedTopic !== query && !query.includes(normalizedTopic));
-}
-
-function textPreview(value: string | null | undefined, fallback: string, max = 92): string {
-  const text = (value || fallback).replace(/\s+/g, ' ').trim();
-  return text.length > max ? `${text.slice(0, max).trim()}...` : text;
-}
-
 export default function App() {
   const [token, setToken] = useState(() => {
     if (!localStorage.getItem(AUTH_RESET_KEY)) {
@@ -291,7 +253,6 @@ export default function App() {
   const [accountLifecycleRecovery, setAccountLifecycleRecovery] = useState<AccountLifecycleRecovery | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenType>(() => adminPathRequested() ? 'admin' : sharedThreadIdFromPath() ? 'collab' : 'dashboard');
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
-  const [readerNoteId, setReaderNoteId] = useState<number | null>(null);
   const [workspaceTarget, setWorkspaceTarget] = useState<{ kind: 'lecture_note' | 'past_question'; id: number } | null>(null);
   const [queuedUpload, setQueuedUpload] = useState<PendingUpload | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -305,6 +266,8 @@ export default function App() {
   const [practiceInitialTopic, setPracticeInitialTopic] = useState('');
   const [practiceContext, setPracticeContext] = useState<SearchActionContext | null>(null);
   const [communityContext, setCommunityContext] = useState<(SearchActionContext & { action: 'discussion' | 'study_group' | 'reading_room' }) | null>(null);
+  const [communityTarget, setCommunityTarget] = useState<{ kind: 'study_group' | 'reading_room'; id: number } | null>(null);
+  const [settingsFocus, setSettingsFocus] = useState<'feedback' | null>(null);
 
   const verifiedSpace = learningSpaces?.active_space;
   const verifiedSpaceId = verifiedSpace?.id ?? null;
@@ -315,13 +278,14 @@ export default function App() {
     // Private in-memory context must never follow an identity/space switch.
     setChatMessages(INITIAL_CHAT);
     setSelectedQuestion('');
-    setReaderNoteId(null);
     setWorkspaceTarget(null);
     setQueuedUpload(null);
     setPracticeContext(null);
     setPracticeInitialTopic('');
     setCommunityContext(null);
-    setSearchResult(null);
+    setCommunityTarget(null);
+    setSettingsFocus(null);
+    setSearchQuery('');
     setSubmittedResult(null);
     setMaxeOpen(false);
     setNotificationsOpen(false);
@@ -354,20 +318,11 @@ export default function App() {
   }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResult, setSearchResult] = useState<GlobalSearchResult | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchOpenRef = useRef(false);
-  searchOpenRef.current = searchOpen;
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState('');
-  const [searchGuidance, setSearchGuidance] = useState('');
-  // State for the full Search Results screen (set on Enter, stable while user continues typing)
+  // State for the full Search Results screen (set on Enter).
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [submittedResult, setSubmittedResult] = useState<GlobalSearchResult | null>(null);
   const [submittedLoading, setSubmittedLoading] = useState(false);
   const [submittedError, setSubmittedError] = useState('');
-  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchSeq = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const navCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navPointerInside = useRef(false);
@@ -410,7 +365,7 @@ export default function App() {
     if (navCollapseTimer.current) clearTimeout(navCollapseTimer.current);
     navCollapseTimer.current = setTimeout(() => {
       navCollapseTimer.current = null;
-      if (!navPointerInside.current && !navFocusInside.current && !searchOpenRef.current) setNavExpanded(false);
+      if (!navPointerInside.current && !navFocusInside.current) setNavExpanded(false);
     }, NAV_COLLAPSE_TIMER_MS);
   };
 
@@ -759,21 +714,17 @@ export default function App() {
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
   };
 
-  // A second argument names what the screen should open: whose profile, or
-  // which material to read. Every existing call site passes one argument and
-  // means "mine" or "none", so they keep working untouched.
+  // A second argument names which profile or community result to open.
   const go = (screen: ScreenType, arg?: string | number | null) => {
     setProfileUsername(screen === 'profile' && typeof arg === 'string' ? arg : null);
-    if (screen === 'reader') setReaderNoteId(typeof arg === 'number' ? arg : null);
+    if (screen !== 'settings') setSettingsFocus(null);
     if (screen === 'assistant') {
       setSidebarOpen(false);
-      setSearchOpen(false);
       setMaxeOpen(true);
       return;
     }
     setActiveScreen(screen);
     setSidebarOpen(false);
-    setSearchOpen(false);
     setToast('');
     if (screen === 'admin') window.history.pushState({}, '', '/admin');
     else if (window.location.pathname.replace(/\/+$/, '') === '/admin') window.history.pushState({}, '', '/');
@@ -791,88 +742,6 @@ export default function App() {
     window.setTimeout(() => setToast(''), 3600);
   };
 
-  const runGlobalSearch = async (query: string, forceOpen = true): Promise<GlobalSearchResult | null> => {
-    const trimmed = query.trim();
-    const seq = ++searchSeq.current;
-    if (searchDebounce.current) clearTimeout(searchDebounce.current);
-
-    if (trimmed.length < 2) {
-      setSearchResult(null);
-      setSearchError('');
-      setSearchGuidance('');
-      setSearchLoading(false);
-      setSearchOpen(false);
-      return null;
-    }
-
-    if (isConversationOnlySearch(trimmed)) {
-      setSearchResult(null);
-      setSearchError('');
-      setSearchGuidance(SEARCH_GUIDANCE);
-      setSearchLoading(false);
-      setSearchOpen(true);
-      return null;
-    }
-
-    setSearchLoading(true);
-    setSearchError('');
-    setSearchGuidance('');
-    if (forceOpen) setSearchOpen(true);
-    try {
-      const data = await apiGet(`/search?q=${encodeURIComponent(trimmed)}`) as GlobalSearchResult;
-      if (seq !== searchSeq.current) return null;
-      setSearchResult(data);
-      setSearchOpen(true);
-      return data;
-    } catch {
-      if (seq !== searchSeq.current) return null;
-      setSearchResult(null);
-      setSearchError('Cannot reach ExamMind search. Check that the backend is running and VITE_API_BASE_URL matches the backend port.');
-      setSearchOpen(true);
-      return null;
-    } finally {
-      if (seq === searchSeq.current) setSearchLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (searchDebounce.current) clearTimeout(searchDebounce.current);
-    if (activeScreen === 'search') {
-      setSearchOpen(false);
-      return;
-    }
-    if (searchQuery.trim().length < 2) {
-      setSearchResult(null);
-      setSearchOpen(false);
-      setSearchGuidance('');
-      setSearchError('');
-      return;
-    }
-    searchDebounce.current = setTimeout(() => {
-      void runGlobalSearch(searchQuery, true);
-    }, 420);
-    return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current); };
-  }, [activeScreen, searchQuery]);
-
-  useEffect(() => {
-    const onPointerDown = (event: MouseEvent) => {
-      if (!searchBoxRef.current?.contains(event.target as Node)) setSearchOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setSearchOpen(false);
-        setSearchQuery('');
-        scheduleNavCollapse();
-      }
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, []);
-
   const askQuestion = (questionText: string) => {
     setSelectedQuestion(questionText);
     go('assistant');
@@ -884,15 +753,8 @@ export default function App() {
     go('practice');
   };
 
-  const closeSearch = () => {
-    setSearchOpen(false);
-    setSearchQuery('');
-    scheduleNavCollapse();
-  };
-
   const focusGlobalSearch = () => {
     setSidebarOpen(false);
-    setSearchOpen(false);
     window.requestAnimationFrame(() => {
       searchBoxRef.current?.querySelector<HTMLInputElement>('input')?.focus();
     });
@@ -900,7 +762,6 @@ export default function App() {
 
   const askAIFromSearch = (question: string) => {
     askQuestion(question);
-    closeSearch();
   };
 
   const handleCommunityAction = (action: 'discussion' | 'study_group' | 'reading_room', context: SearchActionContext) => {
@@ -908,12 +769,27 @@ export default function App() {
     go(action === 'discussion' ? 'collab' : 'groups');
   };
 
+  const openCommunityResult = (kind: SearchCommunityKind, id: number) => {
+    setCommunityContext(null);
+    if (kind === 'discussion') {
+      window.history.pushState({}, '', `/?screen=discussions&thread=${id}`);
+      go('collab');
+      return;
+    }
+    setCommunityTarget({ kind, id });
+    go('groups');
+  };
+
+  const openAdminFeedback = () => {
+    setSettingsFocus('feedback');
+    go('settings');
+  };
+
   const openSearchResults = async (rawQuery: string) => {
     const query = rawQuery.trim();
     if (!query) return;
 
     go('search');
-    setSearchOpen(false);
     setSearchQuery(query);
     setSubmittedQuery(query);
     setSubmittedResult(null);
@@ -921,12 +797,7 @@ export default function App() {
     setSubmittedLoading(true);
 
     try {
-      // Reuse live dropdown result if it already matched this exact query.
-      const liveMatchesQuery =
-        searchResult?.query?.trim().toLowerCase() === query.toLowerCase();
-      const data: GlobalSearchResult | null = liveMatchesQuery
-        ? searchResult
-        : await apiGet(`/search?q=${encodeURIComponent(query)}`, { timeoutMs: 10_000 }) as GlobalSearchResult;
+      const data = await apiGet(`/search?q=${encodeURIComponent(query)}`, { timeoutMs: 10_000 }) as GlobalSearchResult;
       setSubmittedResult(data);
     } catch (failure) {
       setSubmittedResult(null);
@@ -1233,14 +1104,14 @@ export default function App() {
             type="button"
             className="mob-menu"
             ref={mobileMenuButtonRef}
-            onClick={() => { setSearchOpen(false); setSidebarOpen(!sidebarOpen); }}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
             aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
             aria-controls="mobile-nav-sheet"
             aria-expanded={sidebarOpen}
           >
             {sidebarOpen ? <XIcon aria-hidden="true" weight="regular" /> : <ListIcon aria-hidden="true" weight="regular" />}
           </button>
-          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{visibleNavGroups.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'reader' ? 'Reading' : activeScreen === 'workspace' ? 'Study desk' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
+          <div className="workspace-location"><span>Your workspace</span><span aria-hidden="true">/</span><strong>{visibleNavGroups.flatMap(group => group.items).find(item => item.screen === activeScreen)?.label || (activeScreen === 'settings' ? 'Settings' : activeScreen === 'profile' ? (profileUsername ? `@${profileUsername}` : 'Profile') : activeScreen === 'workspace' ? 'Study desk' : activeScreen === 'search' ? 'Search' : 'Library')}</strong></div>
           <div className="search global-search" ref={searchBoxRef}>
             <MagnifyingGlassIcon className="search-ico" aria-hidden="true" weight="regular" />
             <input
@@ -1249,10 +1120,7 @@ export default function App() {
               placeholder="Find a note, topic, or study group…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => {
-                setSidebarOpen(false);
-                if (searchQuery.trim().length >= 2) setSearchOpen(true);
-              }}
+              onFocus={() => setSidebarOpen(false)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -1260,106 +1128,11 @@ export default function App() {
                 }
                 if (e.key === 'Escape') {
                   e.preventDefault();
-                  closeSearch();
+                  setSearchQuery('');
+                  scheduleNavCollapse();
                 }
               }}
             />
-            {searchOpen && activeScreen !== 'search' && searchQuery.trim().length >= 2 && (
-              <div className="global-search-panel gs-preview-panel" aria-live="polite">
-                <div className="global-search-preview">
-                  <div className="gsp-drawer-top"><strong>Search ExamMind</strong><button type="button" className="gs-close-btn" onClick={closeSearch} aria-label="Close search" title="Close search"><XIcon aria-hidden="true" weight="regular" /></button></div>
-                  <div className="gsp-header">
-                    <div>
-                      <div className="gsp-title">Results for “{searchQuery.trim()}”</div>
-                      <div className="gsp-subtitle">Materials · Past questions · Notes · Groups · Discussions · Rooms</div>
-                    </div>
-                    <span className="gsp-kbd">Enter</span>
-                  </div>
-
-                  {searchLoading && (
-                    <div className="gsp-card">
-                      <div className="gsp-card-title"><span className="ai-dot"></span>Searching ExamMind...</div>
-                    </div>
-                  )}
-
-                  {!searchLoading && searchGuidance && (
-                    <div className="gsp-card">
-                      <div className="gsp-card-title">Search needs an academic clue</div>
-                      <div className="gsp-card-body">Try a course, topic, past question, note, or exam phrase.</div>
-                    </div>
-                  )}
-
-                  {!searchLoading && searchError && (
-                    <>
-                      <div className="gsp-card">
-                        <div className="gsp-card-title">Search is offline</div>
-                        <div className="gsp-card-body">Cannot reach ExamMind search. Check the backend and try again.</div>
-                      </div>
-                      <div className="gsp-actions">
-                        <button className="gsp-chip" onMouseDown={(e) => { e.preventDefault(); void runGlobalSearch(searchQuery, true); }}>Retry</button>
-                      </div>
-                    </>
-                  )}
-
-                  {!searchLoading && !searchGuidance && !searchError && searchResult && (
-                    <>
-                      {hasUsefulSearchInterpretation(searchResult) && (
-                        <div className="gsp-card is-accent">
-                          <div className="gsp-card-title">{searchResult.understanding?.interpreted_topic}</div>
-                          {(searchResult.understanding?.related_terms || []).length > 0 && (
-                            <div className="gsp-card-body">Also searched {(searchResult.understanding?.related_terms || []).slice(0, 3).join(', ')}</div>
-                          )}
-                        </div>
-                      )}
-
-                      {resultCount(searchResult) > 0 ? (
-                        <div className="gsp-results">
-                          {searchResult.lecture_notes.slice(0, 1).map(note => (
-                            <button type="button" key={`prev-note-${note.id}`} className="gsp-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
-                              <span className="gsp-row-type">Note</span>
-                              <span>
-                                <span className="gsp-row-title">{note.title}</span>
-                                <span className="gsp-row-meta">{note.topic || 'Lecture note'}</span>
-                              </span>
-                            </button>
-                          ))}
-                          {searchResult.past_questions.slice(0, 1).map(item => (
-                            <button type="button" key={`prev-pq-${item.id}`} className="gsp-row" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>
-                              <span className="gsp-row-type">Question</span>
-                              <span>
-                                <span className="gsp-row-title">{textPreview(item.content_text, 'Past question', 78)}</span>
-                                <span className="gsp-row-meta">Past question preview</span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <>
-                          <div className="gsp-card">
-                            <div className="gsp-card-title">No uploaded matches yet</div>
-                            <div className="gsp-card-body">Open full results to see related actions, AI overview, practice, groups and discussions.</div>
-                          </div>
-                          <div className="gsp-actions">
-                            <button className="gsp-chip" onMouseDown={(e) => { e.preventDefault(); go('upload'); closeSearch(); }}>Upload material</button>
-                            <button className="gsp-chip" onMouseDown={(e) => { e.preventDefault(); handleGoToPractice(searchQuery.trim()); closeSearch(); }}>Generate practice</button>
-                            <button className="gsp-chip" onMouseDown={(e) => { e.preventDefault(); go('collab'); closeSearch(); }}>Start discussion</button>
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )}
-
-                  {!searchLoading && !searchGuidance && !searchError && !searchResult && (
-                    <div className="gsp-card">
-                      <div className="gsp-card-title">Ready to search</div>
-                      <div className="gsp-card-body">Press Enter to open all ExamMind results.</div>
-                    </div>
-                  )}
-
-                  <button type="button" className="gsp-footer" onMouseDown={(e) => { e.preventDefault(); void handleGlobalSearchEnter(); }}>Press Enter to see full results <span aria-hidden="true">↵</span></button>
-                </div>
-              </div>
-            )}
           </div>
           <div className="tb-right">
             <OfflineStatus />
@@ -1413,15 +1186,13 @@ export default function App() {
         {activeScreen === 'collab' && <Collab go={go} user={user} initialContext={discussionContext} initialThreadId={sharedThreadIdFromPath()} onClearSharedThread={clearSharedThreadUrl} />}
         {activeScreen === 'practice' && <Practice initialTopic={practiceInitialTopic} initialContext={practiceContext} />}
         {activeScreen === 'progress' && <Progress go={go} userId={user?.id ?? null} onPracticeTopic={topic => handleGoToPractice(topic, { query: topic, topic })} />}
-        {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} />}
-        {activeScreen === 'empty' && <Empty go={go} />}
+        {activeScreen === 'groups' && <StudyGroups go={go} notifyUnavailable={notifyUnavailable} user={user} initialContext={groupContext} initialGroupId={communityTarget?.kind === 'study_group' ? communityTarget.id : null} initialSessionId={communityTarget?.kind === 'reading_room' ? communityTarget.id : null} onCommunityTargetHandled={() => setCommunityTarget(null)} />}
         {profileNudgeVisible && <div className="profile-nudge" role="status"><span><strong>Your desk can know you better.</strong><small>Add your department, level or courses for more useful recommendations.</small></span><button type="button" onClick={() => { setOnboardingReturnScreen('dashboard'); setEditingProfile(true); setProfileNudgeVisible(false); setActiveScreen('onboarding'); }}>Finish profile</button><button type="button" className="profile-nudge-dismiss" aria-label="Dismiss profile reminder" onClick={() => { localStorage.setItem('exammind-profile-nudge-dismissed', 'true'); setProfileNudgeVisible(false); }}>×</button></div>}
-        {activeScreen === 'settings' && <Settings go={go} user={user} profileEditLabel={verifiedSpace?.slug === 'ksa' ? 'Edit KSA learning preferences →' : undefined} onEditProfile={() => { setOnboardingSpace(verifiedSpace?.slug === 'ksa' ? verifiedSpace : null); setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
+        {activeScreen === 'settings' && <Settings go={go} user={user} focusFeedback={settingsFocus === 'feedback'} profileEditLabel={verifiedSpace?.slug === 'ksa' ? 'Edit KSA learning preferences →' : undefined} onEditProfile={() => { setOnboardingSpace(verifiedSpace?.slug === 'ksa' ? verifiedSpace : null); setOnboardingReturnScreen('settings'); setEditingProfile(true); setActiveScreen('onboarding'); }} onAccountDeactivated={handleAccountDeactivated} onAccountDeletionScheduled={handleAccountDeletionScheduled} onAccountLifecycleCleanupPending={handleAccountLifecycleCleanupPending} onRestartOnboarding={() => void handleRestartOnboarding()} />}
         {activeScreen === 'profile' && <Profile go={go} user={user} username={profileUsername} learningSpaceSlug={verifiedSpace?.slug} />}
-        {activeScreen === 'reader' && <Reader go={go} noteId={readerNoteId} />}
         {activeScreen === 'workspace' && <Workspace go={go} initialResource={workspaceTarget} notifyUnavailable={notifyUnavailable} messages={chatMessages} onMessagesChange={updatePrivateMessages} onNewThread={() => { setChatMessages(INITIAL_CHAT); setSelectedQuestion(''); }} user={user} />}
         {activeScreen === 'moderation' && canModerate && <Moderation go={go} isGlobalAdmin={hasAdminPortalAccess} />}
-        {activeScreen === 'admin' && hasAdminPortalAccess && <AdminDashboard go={go} user={user} />}
+        {activeScreen === 'admin' && hasAdminPortalAccess && <AdminDashboard go={go} user={user} onOpenFeedback={openAdminFeedback} />}
         {activeScreen === 'admin' && !hasAdminPortalAccess && (
           <div className="account-bootstrap" role="alert">
             <div className="account-bootstrap-card">
@@ -1447,13 +1218,14 @@ export default function App() {
             onOpenResource={(kind, id) => { setWorkspaceTarget({ kind, id }); go('workspace'); }}
             onPractice={(topic, context) => { handleGoToPractice(topic, context); }}
             onCommunityAction={handleCommunityAction}
+            onOpenCommunity={openCommunityResult}
             go={go}
           />
         )}
         </LazyRoute>
       </main>
 
-      <MaxeTrigger ref={maxeTriggerRef} open={maxeOpen} onOpen={() => { setSearchOpen(false); setSidebarOpen(false); setMaxeOpen(true); }} />
+      <MaxeTrigger ref={maxeTriggerRef} open={maxeOpen} onOpen={() => { setSidebarOpen(false); setMaxeOpen(true); }} />
       {maxeOpen && (
         <LazyRoute>
           <MaxeWorkspace

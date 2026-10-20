@@ -26,6 +26,7 @@ type SettingsProps = {
   onAccountDeletionScheduled?: (dueAt: string) => void;
   onAccountLifecycleCleanupPending?: (kind: 'deactivated' | 'pending_deletion', deletionDueAt?: string) => void;
   onRestartOnboarding?: () => void;
+  focusFeedback?: boolean;
 };
 
 // The three cards that used to sit under "Privacy summary" restated the same
@@ -48,7 +49,7 @@ const DATA_NOTES = [
 
 const ACCOUNT_DELETION_UNAVAILABLE_MESSAGE = 'Account deletion is temporarily unavailable. Contact support for assistance.';
 
-export default function Settings({ go, user, onEditProfile, profileEditLabel, onAccountDeactivated, onAccountDeletionScheduled, onAccountLifecycleCleanupPending, onRestartOnboarding }: SettingsProps) {
+export default function Settings({ go, user, onEditProfile, profileEditLabel, onAccountDeactivated, onAccountDeletionScheduled, onAccountLifecycleCleanupPending, onRestartOnboarding, focusFeedback = false }: SettingsProps) {
   const username = user?.username ? `@${user.username}` : 'Not set';
   const isKsaProfile = profileEditLabel?.toLowerCase().includes('ksa') === true;
   const [sessionPref, setPref] = useState<SessionPreference>(() => getSessionPreference());
@@ -69,6 +70,14 @@ export default function Settings({ go, user, onEditProfile, profileEditLabel, on
   const deleteInputRef = useRef<HTMLInputElement | null>(null);
 
   const isGoogleAccount = Boolean(firebaseAuth?.currentUser?.providerData.some((item) => item.providerId === 'google.com'));
+
+  useEffect(() => {
+    if (!focusFeedback) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('settings-feedback-inbox')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusFeedback]);
 
   useEffect(() => {
     let active = true;
@@ -234,7 +243,7 @@ export default function Settings({ go, user, onEditProfile, profileEditLabel, on
         <div className="settings-feedback-panel"><FeedbackPanel mode="authenticated" /></div>
       </section>
 
-      {user?.admin_portal_access === true && <FeedbackInbox />}
+      {user?.admin_portal_access === true && <div id="settings-feedback-inbox"><FeedbackInbox /></div>}
 
       <section className="setting-block" aria-labelledby="settings-deactivate-title">
         <p className="notes-label">Account</p>

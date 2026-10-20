@@ -1,4 +1,4 @@
-export type ScreenType = 'dashboard' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'empty' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'reader' | 'onboarding' | 'workspace' | 'moderation' | 'admin';
+export type ScreenType = 'dashboard' | 'assistant' | 'upload' | 'offline' | 'practice' | 'collab' | 'progress' | 'groups' | 'search' | 'settings' | 'profile' | 'onboarding' | 'workspace' | 'moderation' | 'admin';
 
 export type Course = {
   id: number;
@@ -116,6 +116,8 @@ export type SearchActionContext = {
   course_title?: string;
   material_title?: string;
 };
+
+export type SearchCommunityKind = 'discussion' | 'study_group' | 'reading_room';
 
 export type LectureNote = {
   id: number;

@@ -411,7 +411,7 @@ export default function Dashboard({
                   <FileText size={23} strokeWidth={1.5} aria-hidden="true" />
                   <span>Last added to your desk</span>
                   <strong>{shorten(latestMaterial!.title, 62)}</strong>
-                  <button type="button" onClick={() => onOpenSearch(latestMaterial!.courseCode)}>Open materials <ArrowRight size={16} aria-hidden="true" /></button>
+                  <button type="button" onClick={onOpenWorkspace}>Open study desk <ArrowRight size={16} aria-hidden="true" /></button>
                 </div>
               ) : (
                 <ol className="desk-start-steps" aria-label="How to get started">
@@ -434,7 +434,7 @@ export default function Dashboard({
             <header className="desk-section-head"><h2 id="desk-courses-title">Your courses</h2><button type="button" className="desk-text-button" onClick={() => go('upload')}><Plus size={16} aria-hidden="true" />Add material</button></header>
             {loading ? <div className="desk-loading" role="status">Loading your courses…</div> : courseWorkspaces.length ? (
               <div className="desk-course-grid">{courseWorkspaces.map((course) => (
-                <button type="button" className="desk-course" key={course.id} onClick={() => onOpenSearch(course.code === 'Archive' ? course.name : course.code)}>
+                  <button type="button" className="desk-course" key={course.id} onClick={onOpenWorkspace}>
                   <span className="desk-course-top"><span>{course.code}</span><ArrowRight size={18} aria-hidden="true" /></span>
                   <strong>{course.name}</strong>
                   <small>{course.materialCount} material{course.materialCount === 1 ? '' : 's'} · {course.questionCount} past question{course.questionCount === 1 ? '' : 's'}</small>
@@ -451,13 +451,13 @@ export default function Dashboard({
           </section>
 
           {hasUploads && <section className="desk-section" aria-labelledby="desk-materials-title">
-            <header className="desk-section-head"><h2 id="desk-materials-title">On your desk</h2><button type="button" className="desk-text-button" onClick={() => go('search')}>View all <ArrowRight size={16} aria-hidden="true" /></button></header>
+            <header className="desk-section-head"><h2 id="desk-materials-title">On your desk</h2><button type="button" className="desk-text-button" onClick={onOpenWorkspace}>Open study desk <ArrowRight size={16} aria-hidden="true" /></button></header>
             <div className="desk-filters" role="group" aria-label="Filter materials">
               <button type="button" aria-pressed={archiveView === 'materials'} onClick={() => setArchiveView('materials')}>All materials <span>{archiveItems.length}</span></button>
               <button type="button" aria-pressed={archiveView === 'questions'} onClick={() => setArchiveView('questions')}>Past questions <span>{pastQuestions.length}</span></button>
             </div>
             <div className="desk-materials">
-              {visibleArchiveItems.length ? visibleArchiveItems.map(item => <button type="button" className="desk-material" key={item.id} onClick={() => onOpenSearch(item.courseCode)}>
+              {visibleArchiveItems.length ? visibleArchiveItems.map(item => <button type="button" className="desk-material" key={item.id} onClick={onOpenWorkspace}>
                 {item.kind === 'Past question' ? <FileQuestion size={21} strokeWidth={1.5} aria-hidden="true" /> : <FileText size={21} strokeWidth={1.5} aria-hidden="true" />}
                 <span><strong>{item.title}</strong><small>{item.courseCode} · {item.kind}</small></span><time>{formatShortDate(item.createdAt)}</time><ArrowRight size={16} aria-hidden="true" />
               </button>) : <p className="desk-muted">No past questions yet. Add one when you’re ready to practise.</p>}
