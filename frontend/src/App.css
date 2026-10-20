@@ -2745,6 +2745,14 @@
 .search-results-page .search-card--recommendations{border:1px solid var(--border2);border-top:3px solid var(--teal);border-left:1px solid var(--border2);background:var(--teal2);box-shadow:none;}
 .search-results-page .search-recommendation-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
 .search-results-page .search-recommendation-btn{min-height:58px;border:1px solid color-mix(in srgb,var(--teal) 24%,var(--border2));background:var(--surface);}
+.search-results-page .search-empty-row::before{content:none;}
+.search-card-title-with-icon,.search-community-title{display:flex;align-items:center;gap:8px;}
+.search-card-title-with-icon svg,.search-community-title svg{flex:0 0 auto;color:var(--teal);}
+.search-card--questions .search-card-title-with-icon svg{color:var(--gold);}
+.search-community-title svg{color:var(--brand-word);}
+.search-results-page .search-result-mark{color:var(--teal);}
+.search-results-page .search-result-mark--question{color:var(--gold);}
+.search-results-page .search-result-mark svg{display:block;}
 @media(max-width:768px){
   .search-results-page{padding-top:24px;}
   .search-results-page .search-page-title{max-width:20ch;font-size:38px;}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FileQuestion, FileText, MessagesSquare, UsersRound, Video } from 'lucide-react';
 import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext, SearchCommunityKind, SearchSuggestedAction } from '../types';
 import { saveStudyPack } from '../offline';
 
@@ -246,14 +247,14 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             <div className="search-evidence-grid">
           <section className="search-card search-card--materials">
             <div className="search-card-head">
-              <div><div className="search-card-title">Uploaded materials</div><div className="search-card-caption">Lecture notes and source files</div></div>
+              <div><div className="search-card-title search-card-title-with-icon"><FileText size={17} strokeWidth={1.8} aria-hidden="true" /><span>Uploaded materials</span></div><div className="search-card-caption">Lecture notes and source files</div></div>
               <span className="search-count-pill">{lectureNotes.length}</span>
             </div>
             {lectureNotes.length > 0 ? (
               <div className="search-result-list">
                 {lectureNotes.slice(0, 6).map(note => (
                   <div className="search-result-row" key={note.id}>
-                    <div className="search-result-leading"><span className="search-result-mark search-result-mark--note">N</span><div>
+                    <div className="search-result-leading"><span className="search-result-mark search-result-mark--note" aria-hidden="true"><FileText size={15} strokeWidth={1.8} /></span><div>
                       <div className="search-result-title">{note.title}</div>
                       <div className="search-muted">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</div>
                     </div></div>
@@ -271,7 +272,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
 
           <section className="search-card search-card--questions">
             <div className="search-card-head">
-              <div><div className="search-card-title">Past questions</div><div className="search-card-caption">Exam archive and practice leads</div></div>
+              <div><div className="search-card-title search-card-title-with-icon"><FileQuestion size={17} strokeWidth={1.8} aria-hidden="true" /><span>Past questions</span></div><div className="search-card-caption">Exam archive and practice leads</div></div>
               <div className="search-card-tools"><span className="search-count-pill">{pastQuestions.length}</span>
               {pastQuestions.length > 0 && <button type="button" className="search-link-btn" onClick={() => void saveQuestionsOffline()} disabled={offlineState === 'saving' || offlineState === 'saved'}>{offlineState === 'saving' ? 'Saving…' : offlineState === 'saved' ? 'Saved offline' : 'Save offline'}</button>}
               </div>
@@ -284,7 +285,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                   const meta = item.metadata_json as { course_code?: string; topics_covered?: string[] } | null;
                   return (
                     <div className="search-result-row" key={item.id}>
-                      <div className="search-result-leading"><span className="search-result-mark search-result-mark--question">Q</span><div>
+                      <div className="search-result-leading"><span className="search-result-mark search-result-mark--question" aria-hidden="true"><FileQuestion size={15} strokeWidth={1.8} /></span><div>
                         <div className="search-result-title">{materialTitle(item)}</div>
                         {(item.snippets || []).slice(0, 3).map(snippet => (
                           <div className="search-muted" key={snippet}>{preview(snippet, '', 160)}</div>
@@ -355,7 +356,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             </div>
             <div className="search-community-list">
           <section className="search-community-item search-card search-card--discussion">
-            <div className="search-card-title">Discussions</div>
+            <div className="search-card-title search-community-title"><MessagesSquare size={17} strokeWidth={1.8} aria-hidden="true" /><span>Discussions</span></div>
             {threads.length > 0 ? (
               threads.slice(0, 3).map(thread => (
                 <button className="search-link-row" key={thread.id} onClick={() => openCommunity('discussion', thread.id)}>
@@ -372,7 +373,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
           </section>
 
           <section className="search-community-item search-card search-card--groups">
-            <div className="search-card-title">Study Groups</div>
+            <div className="search-card-title search-community-title"><UsersRound size={17} strokeWidth={1.8} aria-hidden="true" /><span>Study groups</span></div>
             {groups.length > 0 ? (
               groups.slice(0, 3).map(group => (
                 <button className="search-link-row" key={group.id} onClick={() => openCommunity('study_group', group.id)}>
@@ -389,7 +390,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
           </section>
 
           <section className="search-community-item search-card search-card--rooms">
-            <div className="search-card-title">Reading Rooms</div>
+            <div className="search-card-title search-community-title"><Video size={17} strokeWidth={1.8} aria-hidden="true" /><span>Reading rooms</span></div>
             {rooms.length > 0 ? (
               rooms.slice(0, 3).map(room => (
                 <button className="search-link-row" key={room.id} onClick={() => openCommunity('reading_room', room.id)}>
