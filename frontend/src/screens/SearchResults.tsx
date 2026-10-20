@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileQuestion, FileText, MessagesSquare, UsersRound, Video } from 'lucide-react';
+import { FileQuestion, FileText, MessagesSquare, Search, UsersRound, Video } from 'lucide-react';
 import type { GlobalSearchResult, PastQuestion, ScreenType, SearchActionContext, SearchCommunityKind, SearchSuggestedAction } from '../types';
 import { saveStudyPack } from '../offline';
 
@@ -263,7 +263,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 ))}
               </div>
             ) : (
-              <div className="search-empty-row">
+              <div className="search-empty-row search-empty-row--materials">
+                <FileText className="search-empty-icon" size={21} strokeWidth={1.7} aria-hidden="true" />
                 <span>Build this result by adding a lecture note for “{topic}”.</span>
                 <button className="search-link-btn" onClick={onUpload}>Upload notes</button>
               </div>
@@ -301,7 +302,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 })}
               </div>
             ) : (
-              <div className="search-empty-row">
+              <div className="search-empty-row search-empty-row--questions">
+                <FileQuestion className="search-empty-icon" size={21} strokeWidth={1.7} aria-hidden="true" />
                 <span>Grow this result with a related phrase or an uploaded past question.</span>
                 <button className="search-link-btn" onClick={onUpload}>Upload past questions</button>
               </div>
@@ -342,7 +344,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 {relatedTopics.slice(0, 10).map(item => <span key={item}>{item}</span>)}
               </div>
             ) : (
-              <div className="search-empty-row">Related ideas will appear here as your library grows.</div>
+              <div className="search-empty-row search-empty-row--related"><Search className="search-empty-icon" size={21} strokeWidth={1.7} aria-hidden="true" /><span>Related ideas will appear here as your library grows.</span></div>
             )}
           </section>
 
@@ -365,7 +367,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 </button>
               ))
             ) : (
-              <div className="search-empty-row">
+              <div className="search-empty-row search-empty-row--discussion">
+                <MessagesSquare className="search-empty-icon" size={21} strokeWidth={1.7} aria-hidden="true" />
                 <span>Start a conversation around this search.</span>
                 <button className="search-link-btn" onClick={() => goCommunity('discussion')}>Start one</button>
               </div>
@@ -382,7 +385,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 </button>
               ))
             ) : (
-              <div className="search-empty-row">
+              <div className="search-empty-row search-empty-row--groups">
+                <UsersRound className="search-empty-icon" size={21} strokeWidth={1.7} aria-hidden="true" />
                 <span>Make this a shared study topic.</span>
                 <button className="search-link-btn" onClick={() => goCommunity('study_group')}>Create one</button>
               </div>
@@ -399,7 +403,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 </button>
               ))
             ) : (
-              <div className="search-empty-row">
+              <div className="search-empty-row search-empty-row--rooms">
+                <Video className="search-empty-icon" size={21} strokeWidth={1.7} aria-hidden="true" />
                 <span>Open a room and study this topic together.</span>
                 <button className="search-link-btn" onClick={() => goCommunity('reading_room')}>Start reading room</button>
               </div>
