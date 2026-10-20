@@ -282,6 +282,7 @@ export const Auth = ({
   const [accountRecoveryError, setAccountRecoveryError] = useState('');
   const googleTokenRef = useRef<string | undefined>(undefined);
   const exchangeInFlight = useRef(false);
+  const exchangedFirebaseUserRef = useRef<string | null>(null);
 
   const completeFirebaseSession = useCallback(async (
     user: FirebaseUser,
@@ -298,6 +299,9 @@ export const Auth = ({
       setError('For security, sign in with Google again to finish restoring this session.');
       return;
     }
+    // Firebase can notify onAuthStateChanged immediately after the explicit
+    // sign-in handler. Do not exchange the same verified identity twice.
+    if (exchangedFirebaseUserRef.current === user.uid) return;
     if (exchangeInFlight.current) return;
 
     const verifiedEmail = normaliseEmail(user.email || email);
@@ -321,6 +325,7 @@ export const Auth = ({
       }
       clearPendingProfile();
       await onLogin(response.access_token, response.user);
+      exchangedFirebaseUserRef.current = user.uid;
     } catch (err) {
       if (err instanceof Error && err.message === ACCOUNT_DELETION_PENDING) {
         onDeletionRecoveryPending?.(FIREBASE_CLEANUP_PENDING_MESSAGE, false);
@@ -350,6 +355,8 @@ export const Auth = ({
     return onAuthStateChanged(firebaseAuth, (nextUser) => {
       setFirebaseUser(nextUser);
       if (!nextUser) {
+        exchangedFirebaseUserRef.current = null;
+        googleTokenRef.current = undefined;
         setVerificationOpen(false);
         return;
       }

@@ -1,5 +1,7 @@
-import { apiPost } from './api';
-import type { User } from '../types';
+import { apiPost, API_INVALID_RESPONSE_ERROR } from './api';
+import { mapFirebaseSessionResponse, type FirebaseSessionResponse } from './firebaseSession';
+
+export type { FirebaseSessionResponse } from './firebaseSession';
 
 // Render may need time to wake the API after inactivity, but authentication
 // must still return control to the browser if the session exchange is stuck.
@@ -13,12 +15,13 @@ export type FirebaseSessionPayload = {
   username?: string;
 };
 
-export type FirebaseSessionResponse = {
-  access_token: string;
-  token_type: string;
-  user: User;
-};
-
-export function createFirebaseSession(payload: FirebaseSessionPayload) {
-  return apiPost('/auth/firebase/session', payload, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS }) as Promise<FirebaseSessionResponse>;
+export async function createFirebaseSession(payload: FirebaseSessionPayload): Promise<FirebaseSessionResponse> {
+  const response = await apiPost('/auth/firebase/session', payload, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
+  try {
+    return mapFirebaseSessionResponse(response);
+  } catch {
+    // Keep the existing safe UX mapping while ensuring no partial session can
+    // reach App.tsx and leave the user in an invalid authenticated state.
+    throw new Error(API_INVALID_RESPONSE_ERROR);
+  }
 }
