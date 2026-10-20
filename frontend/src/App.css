@@ -2685,4 +2685,77 @@
   .search-recommendation-grid{grid-template-columns:1fr;}
 }
 
+/* Search results â€” second pass: answer-first sheets instead of repeated legacy cards */
+.search-results-page{width:min(1240px,100%);padding-top:34px;padding-bottom:76px;}
+.search-results-title-wrap .search-page-kicker{display:none;}
+.search-results-page .search-page-title{max-width:18ch;font-size:clamp(36px,4.4vw,56px);line-height:1.04;letter-spacing:-1.2px;}
+.search-results-page .search-page-title span{color:var(--text);font-style:italic;font-weight:400;}
+.search-results-head{margin-bottom:30px;padding-bottom:26px;border-bottom:1px solid var(--border2);}
+.search-results-head-meta{align-self:flex-end;min-width:196px;border:0;border-left:1px solid var(--border2);border-radius:0;background:transparent;padding:4px 0 4px 16px;}
+.search-head-meta-label{color:var(--teal);}
+.search-results-page .search-layout{grid-template-columns:minmax(0,1.75fr) minmax(290px,.7fr);gap:26px;}
+.search-results-page .search-main,.search-results-page .search-side{gap:20px;}
+.search-results-page .search-card,.search-results-page .search-overview{border-radius:16px;box-shadow:0 14px 34px rgba(22,25,21,.055);}
+.search-results-hero{grid-template-columns:minmax(0,1fr) auto;gap:32px;padding:30px 31px!important;border:1px solid var(--border2)!important;border-top:3px solid var(--teal)!important;border-left:1px solid var(--border2)!important;background:var(--surface)!important;}
+.search-results-hero.is-general{border-top-color:var(--gold)!important;background:linear-gradient(110deg,var(--gold2),var(--surface) 58%)!important;}
+.search-results-page .search-badge{border:0;border-radius:0;background:transparent;color:var(--teal);padding:0;font:700 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;}
+.search-results-hero.is-general .search-badge{color:var(--gold);}
+.search-results-page .search-overview h2{max-width:18ch;margin:14px 0 9px;font-size:clamp(30px,3.1vw,42px);line-height:1.03;letter-spacing:-.5px;}
+.search-results-page .search-overview p{max-width:58ch;}
+.search-overview-stats{gap:0;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);padding:11px 0;}
+.search-overview-stats div{min-width:72px;padding:0 14px;border-left:1px solid var(--border2);}
+.search-overview-stats div:first-child{padding-left:0;border-left:0;}
+.search-overview-stats strong{font-size:29px;}
+.search-overview-stats span{font-size:8px;}
+.search-evidence-sheet,.search-community-sheet{overflow:hidden;border:1px solid var(--border2);border-radius:16px;background:var(--surface);box-shadow:0 14px 34px rgba(22,25,21,.045);}
+.search-evidence-head,.search-community-head{display:flex;align-items:end;justify-content:space-between;gap:14px;padding:21px 23px 18px;border-bottom:1px solid var(--border2);}
+.search-evidence-head h2,.search-community-head h2{margin:0;font:400 26px/1.05 var(--serif);letter-spacing:-.2px;}
+.search-sheet-count{flex:0 0 auto;color:var(--text3);font:700 10px var(--mono);letter-spacing:.06em;text-transform:uppercase;}
+.search-evidence-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+.search-results-page .search-evidence-grid>.search-card{min-width:0;padding:22px 23px;border:0;border-radius:0;background:transparent;box-shadow:none;}
+.search-results-page .search-evidence-grid>.search-card+ .search-card{border-left:1px solid var(--border2);}
+.search-results-page .search-card-head{margin-bottom:14px;}
+.search-results-page .search-card-title{font-size:16px;}
+.search-card-caption{margin-top:4px;color:var(--text3);font-size:10.5px;line-height:1.4;}
+.search-results-page .search-count-pill{min-width:26px;min-height:22px;border:0;background:var(--bg2);}
+.search-results-page .search-result-row{padding:14px 0;}
+.search-results-page .search-result-row:first-child{padding-top:3px;}
+.search-results-page .search-result-mark{width:30px;height:30px;border-radius:8px;}
+.search-results-page .search-link-btn{border-radius:8px;background:transparent;color:var(--brand-word);}
+.search-results-page .search-link-btn:hover{background:var(--bg2);}
+.search-results-page .search-card--practice{padding:20px 23px;border:1px solid var(--border2);border-radius:16px;background:var(--bg3);box-shadow:none;}
+.search-results-page .search-card--practice .search-card-title{font-size:18px;}
+.search-results-page .search-card--practice .search-card-eyebrow{color:var(--brand-word);}
+.search-results-page .search-card--actions{position:sticky;top:84px;padding:23px;border:1px solid var(--border2);border-top:3px solid var(--gold);background:var(--surface);}
+.search-results-page .search-card--actions .search-card-title{font-size:24px;line-height:1.05;}
+.search-results-page .search-action-grid{gap:8px;}
+.search-results-page .search-action-btn,.search-results-page .search-primary-btn{min-height:42px;border-radius:9px;}
+.search-results-page .search-action-btn{background:var(--bg3);}
+.search-results-page .search-action-btn:hover{background:var(--teal2);}
+.search-results-page .search-card--related{padding:19px 21px;border:1px solid var(--border2);background:var(--bg3);box-shadow:none;}
+.search-results-page .search-card--related .search-card-head{margin-bottom:12px;}
+.search-results-page .search-card--related .search-related-list span{border:0;border-bottom:1px solid var(--border2);border-radius:0;background:transparent;padding:7px 0;color:var(--text2);}
+.search-results-page .search-card--related .search-related-list span:last-child{border-bottom:0;}
+.search-community-list{display:grid;}
+.search-results-page .search-community-item{padding:17px 21px;border:0;border-bottom:1px solid var(--border2);border-radius:0;background:transparent;box-shadow:none;}
+.search-results-page .search-community-item:last-child{border-bottom:0;}
+.search-results-page .search-community-item .search-card-title{margin-bottom:5px;font-size:14px;}
+.search-results-page .search-community-item .search-empty-row{min-height:48px;}
+.search-results-page .search-link-row{padding:11px 0;}
+.search-results-page .search-card--recommendations{border:1px solid var(--border2);border-top:3px solid var(--teal);border-left:1px solid var(--border2);background:var(--teal2);box-shadow:none;}
+.search-results-page .search-recommendation-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+.search-results-page .search-recommendation-btn{min-height:58px;border:1px solid color-mix(in srgb,var(--teal) 24%,var(--border2));background:var(--surface);}
+@media(max-width:768px){
+  .search-results-page{padding-top:24px;}
+  .search-results-page .search-page-title{max-width:20ch;font-size:38px;}
+  .search-results-head-meta{align-self:stretch;border-left:0;border-top:1px solid var(--border2);padding:12px 0 0;}
+  .search-results-hero{grid-template-columns:1fr;gap:22px;padding:24px 21px!important;}
+  .search-overview-stats{justify-content:space-between;}
+  .search-evidence-grid{grid-template-columns:1fr;}
+  .search-results-page .search-evidence-grid>.search-card+ .search-card{border-top:1px solid var(--border2);border-left:0;}
+  .search-evidence-head,.search-community-head{align-items:flex-start;flex-direction:column;}
+  .search-results-page .search-card--actions{position:static;}
+  .search-results-page .search-recommendation-grid{grid-template-columns:1fr;}
+}
+
 .profile-nudge{display:flex;max-width:78ch;margin:0 auto var(--space-5);padding:13px 15px;align-items:center;gap:14px;border:1px solid color-mix(in srgb,var(--teal) 28%,var(--border));border-radius:12px;background:var(--teal2);color:var(--text2);font-size:12px}.profile-nudge span{display:grid;min-width:0;flex:1;gap:3px}.profile-nudge strong{color:var(--text);font-size:12.5px}.profile-nudge small{font-size:11px;line-height:1.45}.profile-nudge button:not(.profile-nudge-dismiss){min-height:34px;padding:0 12px;border:1px solid var(--text);border-radius:999px;background:var(--text);color:var(--surface);cursor:pointer;font:inherit;font-size:11px;font-weight:600}.profile-nudge-dismiss{display:grid;width:32px;height:32px;padding:0;place-items:center;border:0;background:transparent;color:var(--text3);cursor:pointer;font-size:20px}.profile-nudge button:focus-visible{outline:2px solid var(--text);outline-offset:3px}@media(max-width:560px){.profile-nudge{align-items:flex-start;flex-wrap:wrap}.profile-nudge span{flex-basis:calc(100% - 46px)}.profile-nudge button:not(.profile-nudge-dismiss){margin-left:0}}

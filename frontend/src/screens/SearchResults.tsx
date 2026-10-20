@@ -235,9 +235,18 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             </section>
           )}
 
+          <section className="search-evidence-sheet" aria-label="Searchable sources">
+            <div className="search-evidence-head">
+              <div>
+                <div className="search-card-eyebrow">Your study sources</div>
+                <h2>Open something useful</h2>
+              </div>
+              <span className="search-sheet-count">{lectureNotes.length + pastQuestions.length} source{lectureNotes.length + pastQuestions.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="search-evidence-grid">
           <section className="search-card search-card--materials">
             <div className="search-card-head">
-              <div><div className="search-card-eyebrow">Source library</div><div className="search-card-title">Uploaded materials</div></div>
+              <div><div className="search-card-title">Uploaded materials</div><div className="search-card-caption">Lecture notes and source files</div></div>
               <span className="search-count-pill">{lectureNotes.length}</span>
             </div>
             {lectureNotes.length > 0 ? (
@@ -262,7 +271,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
 
           <section className="search-card search-card--questions">
             <div className="search-card-head">
-              <div><div className="search-card-eyebrow">Exam archive</div><div className="search-card-title">Past questions</div></div>
+              <div><div className="search-card-title">Past questions</div><div className="search-card-caption">Exam archive and practice leads</div></div>
               <div className="search-card-tools"><span className="search-count-pill">{pastQuestions.length}</span>
               {pastQuestions.length > 0 && <button type="button" className="search-link-btn" onClick={() => void saveQuestionsOffline()} disabled={offlineState === 'saving' || offlineState === 'saved'}>{offlineState === 'saving' ? 'Saving…' : offlineState === 'saved' ? 'Saved offline' : 'Save offline'}</button>}
               </div>
@@ -296,6 +305,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 <button className="search-link-btn" onClick={onUpload}>Upload past questions</button>
               </div>
             )}
+          </section>
+            </div>
           </section>
 
           <section className="search-card search-card--practice">
@@ -334,7 +345,16 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             )}
           </section>
 
-          <section className="search-card">
+          <section className="search-community-sheet" aria-label="Study together">
+            <div className="search-community-head">
+              <div>
+                <div className="search-card-eyebrow">Study together</div>
+                <h2>Continue with people</h2>
+              </div>
+              <span className="search-sheet-count">{threads.length + groups.length + rooms.length} match{threads.length + groups.length + rooms.length === 1 ? '' : 'es'}</span>
+            </div>
+            <div className="search-community-list">
+          <section className="search-community-item search-card search-card--discussion">
             <div className="search-card-title">Discussions</div>
             {threads.length > 0 ? (
               threads.slice(0, 3).map(thread => (
@@ -351,7 +371,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             )}
           </section>
 
-          <section className="search-card">
+          <section className="search-community-item search-card search-card--groups">
             <div className="search-card-title">Study Groups</div>
             {groups.length > 0 ? (
               groups.slice(0, 3).map(group => (
@@ -368,7 +388,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             )}
           </section>
 
-          <section className="search-card">
+          <section className="search-community-item search-card search-card--rooms">
             <div className="search-card-title">Reading Rooms</div>
             {rooms.length > 0 ? (
               rooms.slice(0, 3).map(room => (
@@ -383,6 +403,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                 <button className="search-link-btn" onClick={() => goCommunity('reading_room')}>Start reading room</button>
               </div>
             )}
+          </section>
+            </div>
           </section>
 
         </aside>
