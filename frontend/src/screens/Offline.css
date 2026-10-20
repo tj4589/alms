@@ -126,3 +126,52 @@
   #s-offline .shelf-item-row{align-items:flex-start;flex-direction:column}
   #s-offline .shelf-row-actions{width:100%;justify-content:flex-start}
 }
+
+/* System folders are stable landmarks; custom folders sit beside them without
+   pretending to be another learning-space source. */
+#s-offline .materials-folders{margin:0 0 28px;padding:20px 0 0;border-top:1px solid var(--border)}
+#s-offline .materials-folders-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:14px}
+#s-offline .materials-folders-copy{max-width:58ch;margin:5px 0 0;color:var(--text3);font-size:12.5px;line-height:1.55}
+#s-offline .materials-folder-nav{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#s-offline .materials-folder-nav button{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 12px;border:1px solid var(--border2);border-radius:18px;background:var(--surface);color:var(--text2);font-family:var(--font);font-size:12px;cursor:pointer;transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease),color var(--fast) var(--ease)}
+#s-offline .materials-folder-nav button:hover{border-color:var(--text);color:var(--text)}
+#s-offline .materials-folder-nav button.is-active{border-color:var(--text);background:var(--text);color:var(--surface)}
+#s-offline .materials-folder-nav button span{font-family:var(--mono);font-size:10px;color:var(--text3)}
+#s-offline .materials-folder-nav button.is-active span{color:var(--surface)}
+#s-offline .materials-folder-nav button:focus-visible,#s-offline .materials-new-folder:focus-visible,#s-offline .materials-collection-form input:focus-visible,#s-offline .materials-collection-form select:focus-visible{outline:2px solid var(--highlighter);outline-offset:2px}
+#s-offline .materials-new-folder{flex:0 0 auto}
+#s-offline .materials-collection-form{display:flex;align-items:end;gap:12px;margin-top:16px;padding:14px;border:1px solid var(--border2);border-radius:12px;background:var(--surface2)}
+#s-offline .materials-collection-form label{display:flex;flex:1;flex-direction:column;gap:6px;min-width:0}
+#s-offline .materials-collection-form label span{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+#s-offline .materials-collection-form input,#s-offline .materials-collection-form select{box-sizing:border-box;width:100%;height:40px;padding:0 11px;border:1px solid var(--border2);border-radius:9px;background:var(--surface);color:var(--text);font:13px var(--font)}
+#s-offline .materials-collection-form label:nth-child(2){flex:0 0 150px}
+#s-offline .shelf-row-btn.is-primary{border-color:var(--highlighter);background:var(--highlighter);color:var(--surface)}
+#s-offline .shelf-row-btn.is-primary:hover{border-color:var(--text);background:var(--text);color:var(--surface)}
+#s-offline .shelf-row-btn:disabled{cursor:wait;opacity:.55}
+#s-offline .materials-organize{display:grid;grid-template-columns:minmax(180px,1fr) minmax(240px,1.4fr) auto;gap:18px;align-items:center;margin:0 0 28px;padding:18px;border:1px solid var(--border2);border-radius:12px;background:var(--surface2)}
+#s-offline .materials-organize .shelf-title{margin-bottom:0}
+#s-offline .materials-checklist{display:flex;flex-wrap:wrap;gap:8px}
+#s-offline .materials-checklist label{display:inline-flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--text2);font-size:12px;cursor:pointer}
+#s-offline .materials-checklist label:has(input:checked){border-color:var(--teal);color:var(--text)}
+#s-offline .materials-checklist input{accent-color:var(--teal)}
+#s-offline .materials-checklist small{font-family:var(--mono);font-size:9px;color:var(--text3)}
+#s-offline .materials-organize-actions{display:flex;justify-content:flex-end;gap:8px}
+#s-offline .materials-subsection{margin-top:20px;padding-top:18px;border-top:1px solid var(--border)}
+#s-offline .materials-subsection>.shelf-label{margin-bottom:9px}
+#s-offline .materials-custom-folder{grid-column:1 / -1}
+
+@media(max-width:900px){
+  #s-offline .materials-organize{grid-template-columns:1fr}
+  #s-offline .materials-organize-actions{justify-content:flex-start}
+}
+
+@media(max-width:560px){
+  #s-offline .materials-folders-head{align-items:stretch;flex-direction:column}
+  #s-offline .materials-new-folder{align-self:flex-start}
+  #s-offline .materials-collection-form{align-items:stretch;flex-direction:column}
+  #s-offline .materials-collection-form label:nth-child(2){flex-basis:auto}
+  #s-offline .materials-collection-form .shelf-row-btn{width:100%}
+  #s-offline .materials-organize{padding:14px}
+  #s-offline .materials-organize-actions{justify-content:stretch}
+  #s-offline .materials-organize-actions button{flex:1}
+}

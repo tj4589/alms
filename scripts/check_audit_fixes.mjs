@@ -177,7 +177,7 @@ window.fetch=async (...args)=>{
   results.push({ queuedUpload: 'no automatic submission; analysis failure retains bytes; retry preserves PPTX MIME; explicit private confirmation; duplicates prevented; stored queue entry removed' });
 
   await page.getByRole('button', { name: 'My Materials', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Find more materials' }).click();
+  await page.getByRole('button', { name: 'Find more past questions' }).click();
   const search = page.locator('#s-questions input').first();
   await search.fill('Audit source');
   await search.press('Enter');
@@ -195,7 +195,7 @@ window.fetch=async (...args)=>{
   await second.goto('http://127.0.0.1:4175/');
   await second.locator('#s-dashboard').waitFor();
   await second.getByRole('button', { name: 'My Materials', exact: true }).first().click();
-  await second.locator('#mat-docs-title').locator('..').getByText('Nothing saved yet.', { exact: false }).waitFor();
+  await second.locator('#mat-past-title').locator('..').getByText('Nothing saved yet.', { exact: false }).waitFor();
   assert.ok(!(await second.locator('#s-offline').innerText()).includes('Synthetic authorized question text'));
   assert.equal(await second.locator('#s-offline .shelf-list li').count(), 0);
   results.push({ accountSwitch: 'actual UI-saved private pack remains invisible to second account after normal logout' });

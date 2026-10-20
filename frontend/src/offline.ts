@@ -1,6 +1,6 @@
 const DB_NAME = 'exammind-offline';
 // Preserve old records but index only records with verified ownership.
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const OFFLINE_CLEANUP_TIMEOUT_MS = 5000;
 const openConnections = new Set<IDBDatabase>();
 let offlineCleanupPromise: Promise<void> | null = null;
@@ -33,6 +33,7 @@ export type OfflineStudyPack = {
   courseCode: string;
   title: string;
   savedAt: string;
+  collectionIds?: string[];
   questions: Array<{
     year: string;
     topic: string;
@@ -51,7 +52,14 @@ export type PendingUpload = {
   mimeType?: string;
 };
 
-export type StoreName = 'studyPacks' | 'pendingUploads' | 'practiceAttempts' | 'savedItems';
+export type SavedCollection = {
+  id: string;
+  name: string;
+  kind: 'folder' | 'playlist';
+  createdAt: string;
+};
+
+export type StoreName = 'studyPacks' | 'pendingUploads' | 'practiceAttempts' | 'savedItems' | 'savedCollections';
 
 /**
  * Something the student chose to keep.
@@ -69,6 +77,7 @@ export type SavedItem = {
   meta: string;
   savedAt: string;
   cachedOffline: boolean;
+  collectionIds?: string[];
   snapshot?: unknown;
 };
 
@@ -99,7 +108,10 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('savedItems')) {
         db.createObjectStore('savedItems', { keyPath: 'id' });
       }
-      for (const name of ['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems']) {
+      if (!db.objectStoreNames.contains('savedCollections')) {
+        db.createObjectStore('savedCollections', { keyPath: 'id' });
+      }
+      for (const name of ['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems', 'savedCollections']) {
         const store = request.transaction!.objectStore(name);
         if (!store.indexNames.contains('scope')) store.createIndex('scope', '_scope');
       }
@@ -146,9 +158,9 @@ export function clearOfflineAccountData(): Promise<void> {
   offlineCleanupPromise = (async () => {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems'], 'readwrite');
+      const tx = db.transaction(['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems', 'savedCollections'], 'readwrite');
       const timeout = window.setTimeout(() => tx.abort(), OFFLINE_CLEANUP_TIMEOUT_MS);
-      for (const name of ['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems']) {
+      for (const name of ['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems', 'savedCollections']) {
         const request = tx.objectStore(name).openCursor();
         request.onsuccess = () => {
           const cursor = request.result;
@@ -198,6 +210,10 @@ export async function saveStudyPack(pack: OfflineStudyPack) {
   await writeRecord('studyPacks', pack);
 }
 
+export async function saveCollection(collection: SavedCollection) {
+  await writeRecord('savedCollections', collection);
+}
+
 export async function queuePendingUpload(meta: Omit<PendingUpload, 'fileData'>, file: File) {
   const scope = requireScope();
   const fileData = await file.arrayBuffer();
@@ -235,6 +251,7 @@ async function removeRecord(storeName: StoreName, id: string) {
 export const removePracticeAttempt = (id: string) => removeRecord('practiceAttempts', id);
 export const removeStudyPack = (id: string) => removeRecord('studyPacks', id);
 export const removePendingUpload = (id: string) => removeRecord('pendingUploads', id);
+export const removeCollection = (id: string) => removeRecord('savedCollections', id);
 
 export async function countRecords(storeName: StoreName) {
   const scope = activeScope;
@@ -284,7 +301,7 @@ export async function removeItem(id: string) {
 export async function hasLegacyOfflineData(): Promise<boolean> {
   const db = await openDb();
   try {
-    const names: StoreName[] = ['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems'];
+    const names: StoreName[] = ['studyPacks', 'pendingUploads', 'practiceAttempts', 'savedItems', 'savedCollections'];
     const tx = db.transaction(names, 'readonly');
     const results = await Promise.all(names.map(async name => {
       const store = tx.objectStore(name);
@@ -303,6 +320,11 @@ export async function hasLegacyOfflineData(): Promise<boolean> {
 export async function listItems(): Promise<SavedItem[]> {
   const items = await listRecords<SavedItem>('savedItems');
   return items.sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
+}
+
+export async function listCollections(): Promise<SavedCollection[]> {
+  const collections = await listRecords<SavedCollection>('savedCollections');
+  return collections.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** A stable id, so re-saving a document updates its entry instead of doubling it. */
