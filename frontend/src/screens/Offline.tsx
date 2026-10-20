@@ -392,7 +392,7 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
       )}
 
       <div className="shelf-grid">
-        {!isCollectionView && (folderView === 'all' || folderView === 'past_questions') && <section className="shelf" aria-labelledby="mat-past-title">
+        {!isCollectionView && (folderView === 'all' || folderView === 'past_questions') && <section className="shelf materials-system-folder" aria-labelledby="mat-past-title">
           <div className="shelf-head">
             <p className="shelf-label">System folder 01</p>
             <span className="shelf-count">{pastQuestions.length}</span>
@@ -402,7 +402,7 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
           <button className="shelf-action" onClick={() => go('questions')}>Find more past questions</button>
         </section>}
 
-        {!isCollectionView && (folderView === 'all' || folderView === 'lecture_notes') && <section className="shelf" aria-labelledby="mat-notes-title">
+        {!isCollectionView && (folderView === 'all' || folderView === 'lecture_notes') && <section className="shelf materials-system-folder" aria-labelledby="mat-notes-title">
           <div className="shelf-head">
             <p className="shelf-label">System folder 02</p>
             <span className="shelf-count">{lectureNotes.length}</span>
@@ -411,7 +411,7 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
           {renderSavedRows(lectureNotes, 'Nothing saved yet. Save a lecture note and it will stay here for your next study session.')}
         </section>}
 
-        {!isCollectionView && (folderView === 'all' || folderView === 'maxe_conversations') && <section className="shelf" aria-labelledby="mat-convos-title">
+        {!isCollectionView && (folderView === 'all' || folderView === 'maxe_conversations') && <section className="shelf materials-system-folder" aria-labelledby="mat-convos-title">
           <div className="shelf-head">
             <p className="shelf-label">System folder 03</p>
             <span className="shelf-count">{conversations.length}</span>
@@ -420,7 +420,7 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
           {renderSavedRows(conversations, 'No Maxe conversations saved yet. Save a useful exchange from the assistant to keep it here.')}
         </section>}
 
-        {!isCollectionView && (folderView === 'all' || folderView === 'practice_offline') && <section className="shelf" aria-labelledby="mat-practice-title">
+        {!isCollectionView && (folderView === 'all' || folderView === 'practice_offline') && <section className="shelf materials-system-folder" aria-labelledby="mat-practice-title">
           <div className="shelf-head">
             <p className="shelf-label">System folder 04</p>
             <span className="shelf-count">{results.length + visiblePacks.length}</span>
