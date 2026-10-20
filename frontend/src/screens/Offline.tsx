@@ -226,13 +226,13 @@ export default function Materials({ go, onOpenConversation, onOpenResource, onRe
 
   const folderNav = (
     <div className="materials-folder-nav" role="tablist" aria-label="Material folders">
-      <button type="button" role="tab" aria-selected={folderView === 'all'} className={folderView === 'all' ? 'is-active' : ''} onClick={() => setFolderView('all')}>All materials <span>{saved.length + packs.length}</span></button>
+      <button type="button" role="tab" aria-selected={folderView === 'all'} className={folderView === 'all' ? 'is-active' : ''} onClick={() => setFolderView('all')}><strong>All materials</strong><span>{saved.length + packs.length} items</span></button>
       {SYSTEM_FOLDERS.map((folder) => (
-        <button type="button" role="tab" aria-selected={folderView === folder.id} className={folderView === folder.id ? 'is-active' : ''} key={folder.id} onClick={() => setFolderView(folder.id)}>{folder.label} <span>{systemFolderCount(folder.id)}</span></button>
+        <button type="button" role="tab" aria-selected={folderView === folder.id} className={folderView === folder.id ? 'is-active' : ''} key={folder.id} onClick={() => setFolderView(folder.id)}><strong>{folder.label}</strong><span>{systemFolderCount(folder.id)} items</span></button>
       ))}
       {collections.map((collection) => {
         const id = `collection:${collection.id}` as FolderView;
-        return <button type="button" role="tab" aria-selected={folderView === id} className={folderView === id ? 'is-active' : ''} key={collection.id} onClick={() => setFolderView(id)}>{collection.name} <span>{collectionCount(collection.id)}</span></button>;
+        return <button type="button" role="tab" aria-selected={folderView === id} className={folderView === id ? 'is-active' : ''} key={collection.id} onClick={() => setFolderView(id)}><strong>{collection.name}</strong><span>{collection.kind} · {collectionCount(collection.id)} items</span></button>;
       })}
     </div>
   );
