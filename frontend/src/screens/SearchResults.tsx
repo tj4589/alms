@@ -103,6 +103,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   const rooms = result?.study_sessions || [];
   const relatedTopics = result?.related_topics || [];
   const hasUploaded = pastQuestions.length > 0 || lectureNotes.length > 0;
+  const totalMatches = lectureNotes.length + pastQuestions.length + threads.length + groups.length + rooms.length;
   const primaryMaterial = pastQuestions[0];
   const primaryContext: SearchActionContext = {
     query,
@@ -152,44 +153,59 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
   if (error) return <SearchErrorState message={error} onRetry={onRetry} go={go} />;
 
   return (
-    <div className="search-page">
-      <div className="search-page-head">
-        <div>
-          <div className="search-page-kicker">ExamMind Search</div>
-          <h1 className="search-page-title">Search results for "{query}"</h1>
-          <p className="search-page-sub">
-            Uploaded materials · Past questions · Practice · Discussions · Study groups · Reading rooms
-          </p>
+    <div className="search-page search-results-page">
+      <div className="search-page-head search-results-head">
+        <div className="search-results-title-wrap">
+          <div className="search-page-kicker"><span>ExamMind Search</span><span className="search-scope-pill">Active learning space</span></div>
+          <h1 className="search-page-title">Search results for <span>"{query}"</span></h1>
+          <p className="search-page-sub"><strong>{totalMatches}</strong> result{totalMatches === 1 ? '' : 's'} across your materials and study community</p>
+        </div>
+        <div className="search-results-head-meta" aria-label="Search coverage">
+          <span className="search-head-meta-label">Search coverage</span>
+          <span>Materials · Questions · Community</span>
         </div>
       </div>
 
       <div className="search-layout">
         <div className="search-main">
-          <section className={`search-overview ${hasUploaded ? '' : 'is-general'}`}>
-            <div className="search-badge">
-              {hasUploaded ? 'Grounded in uploaded materials' : 'General overview · no uploaded source found'}
+          <section className={`search-overview search-results-hero ${hasUploaded ? '' : 'is-general'}`}>
+            <div className="search-overview-main">
+              <div className="search-overview-topline">
+                <div className="search-badge">
+                  {hasUploaded ? 'Grounded in uploaded materials' : 'No uploaded source found yet'}
+                </div>
+                <span className="search-overview-query">{hasUploaded ? 'Source-backed' : 'Broad search'}</span>
+              </div>
+              <h2>{topic}</h2>
+              <p>
+                {hasUploaded
+                  ? `Found ${lectureNotes.length} lecture note${lectureNotes.length === 1 ? '' : 's'} and ${pastQuestions.length} past question${pastQuestions.length === 1 ? '' : 's'} connected to this search.`
+                  : noteSummary(topic)}
+              </p>
+              {relatedTerms.length > 0 && (
+                <div className="search-muted">Also considered: {relatedTerms.slice(0, 4).join(', ')}</div>
+              )}
             </div>
-            <h2>{topic}</h2>
-            <p>
-              {hasUploaded
-                ? `Found ${lectureNotes.length} lecture note${lectureNotes.length === 1 ? '' : 's'} and ${pastQuestions.length} past question${pastQuestions.length === 1 ? '' : 's'} connected to this search.`
-                : noteSummary(topic)}
-            </p>
-            {relatedTerms.length > 0 && (
-              <div className="search-muted">Also considered: {relatedTerms.slice(0, 4).join(', ')}</div>
-            )}
+            <div className="search-overview-stats" aria-label="Search result counts">
+              <div><strong>{lectureNotes.length}</strong><span>Notes</span></div>
+              <div><strong>{pastQuestions.length}</strong><span>Questions</span></div>
+              <div><strong>{threads.length + groups.length + rooms.length}</strong><span>Community</span></div>
+            </div>
           </section>
 
-          <section className="search-card">
-            <div className="search-card-title">Uploaded Materials</div>
+          <section className="search-card search-card--materials">
+            <div className="search-card-head">
+              <div><div className="search-card-eyebrow">Source library</div><div className="search-card-title">Uploaded materials</div></div>
+              <span className="search-count-pill">{lectureNotes.length}</span>
+            </div>
             {lectureNotes.length > 0 ? (
               <div className="search-result-list">
                 {lectureNotes.slice(0, 6).map(note => (
                   <div className="search-result-row" key={note.id}>
-                    <div>
+                    <div className="search-result-leading"><span className="search-result-mark search-result-mark--note">N</span><div>
                       <div className="search-result-title">{note.title}</div>
                       <div className="search-muted">{note.topic || 'Lecture note'}{note.year ? ` · ${note.year}` : ''}</div>
-                    </div>
+                    </div></div>
                     <button type="button" className="search-link-btn" onClick={() => onOpenResource('lecture_note', note.id)} aria-label={`Open ${note.title}`}>Open</button>
                   </div>
                 ))}
@@ -202,10 +218,12 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             )}
           </section>
 
-          <section className="search-card">
+          <section className="search-card search-card--questions">
             <div className="search-card-head">
-              <div className="search-card-title">Past Questions</div>
+              <div><div className="search-card-eyebrow">Exam archive</div><div className="search-card-title">Past questions</div></div>
+              <div className="search-card-tools"><span className="search-count-pill">{pastQuestions.length}</span>
               {pastQuestions.length > 0 && <button type="button" className="search-link-btn" onClick={() => void saveQuestionsOffline()} disabled={offlineState === 'saving' || offlineState === 'saved'}>{offlineState === 'saving' ? 'Saving…' : offlineState === 'saved' ? 'Saved offline' : 'Save offline'}</button>}
+              </div>
             </div>
             {offlineState === 'saved' && <p className="search-muted" role="status">Saved for offline study.</p>}
             {offlineState === 'error' && <p className="search-muted" role="alert">This study pack could not be saved on this device. Try again.</p>}
@@ -215,7 +233,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                   const meta = item.metadata_json as { course_code?: string; topics_covered?: string[] } | null;
                   return (
                     <div className="search-result-row" key={item.id}>
-                      <div>
+                      <div className="search-result-leading"><span className="search-result-mark search-result-mark--question">Q</span><div>
                         <div className="search-result-title">{materialTitle(item)}</div>
                         {(item.snippets || []).slice(0, 3).map(snippet => (
                           <div className="search-muted" key={snippet}>{preview(snippet, '', 160)}</div>
@@ -224,7 +242,7 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
                           {meta?.course_code ? `${meta.course_code} · ` : ''}{materialMetaLine(item)}
                           {meta?.topics_covered?.[0] ? ` · ${meta.topics_covered[0]}` : ''}
                         </div>
-                      </div>
+                      </div></div>
                       <button type="button" className="search-link-btn" onClick={() => onOpenResource('past_question', item.id)} aria-label={`Open ${materialTitle(item)}`}>Open</button>
                     </div>
                   );
@@ -238,9 +256,12 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             )}
           </section>
 
-          <section className="search-card">
-            <div className="search-card-title">Practice</div>
-            <div className="search-empty-row">
+          <section className="search-card search-card--practice">
+            <div className="search-card-head">
+              <div><div className="search-card-eyebrow">Keep going</div><div className="search-card-title">Practice this topic</div></div>
+              <span className="search-practice-mark" aria-hidden="true">↗</span>
+            </div>
+            <div className="search-practice-body">
               <span>No practice quiz has been created from this search yet.</span>
               <button className="search-link-btn" onClick={() => onPractice(topic, primaryContext)}>Create practice quiz</button>
             </div>
@@ -248,8 +269,10 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
         </div>
 
         <aside className="search-side">
-          <section className="search-card">
-            <div className="search-card-title">Quick Actions</div>
+          <section className="search-card search-card--actions">
+            <div className="search-card-eyebrow">Next step</div>
+            <div className="search-card-title">Make this useful</div>
+            <p className="search-side-intro">Turn this search into a study action or ask Maxe to explain the source context.</p>
             <div className="search-action-grid">
               <button className="search-primary-btn" onClick={() => onAskAI(groundedAiPrompt)}>Ask Maxe about this</button>
               <button className="search-action-btn" onClick={() => onPractice(topic, primaryContext)}>Create practice quiz</button>
@@ -258,8 +281,8 @@ export default function SearchResults({ query, result, loading, error, onRetry, 
             </div>
           </section>
 
-          <section className="search-card">
-            <div className="search-card-title">Related Topics</div>
+          <section className="search-card search-card--related">
+            <div className="search-card-head"><div><div className="search-card-eyebrow">Explore next</div><div className="search-card-title">Related topics</div></div><span className="search-count-pill">{relatedTopics.length}</span></div>
             {relatedTopics.length > 0 ? (
               <div className="search-related-list">
                 {relatedTopics.slice(0, 10).map(item => <span key={item}>{item}</span>)}

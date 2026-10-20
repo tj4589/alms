@@ -2598,4 +2598,80 @@
   .wb-course-main small{white-space:normal;}
 }
 
+/* Search results — canonical results surface */
+.search-results-page{padding-top:40px;padding-bottom:70px;}
+.search-results-head{align-items:flex-end;margin-bottom:28px;padding-bottom:24px;border-bottom:1px solid var(--border);}
+.search-results-title-wrap{min-width:0;}
+.search-results-title-wrap .search-page-kicker{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.search-scope-pill{display:inline-flex;align-items:center;min-height:22px;padding:0 9px;border:1px solid color-mix(in srgb,var(--teal) 32%,var(--border));border-radius:999px;background:var(--teal2);color:var(--teal);font:600 9px var(--mono);letter-spacing:.04em;text-transform:none;}
+.search-results-page .search-page-title{font-size:clamp(32px,4vw,48px);letter-spacing:-.6px;}
+.search-results-page .search-page-title span{color:var(--gold);}
+.search-results-page .search-page-sub{margin-top:11px;font-size:13px;}
+.search-results-page .search-page-sub strong{color:var(--text);font-family:var(--mono);font-size:12px;}
+.search-results-head-meta{display:grid;gap:5px;flex:0 0 auto;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg3);color:var(--text2);font-size:11px;}
+.search-head-meta-label{color:var(--text3);font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;}
+.search-results-page .search-layout{grid-template-columns:minmax(0,1.65fr) minmax(280px,.75fr);gap:22px;}
+.search-results-page .search-main,.search-results-page .search-side{gap:18px;}
+.search-results-page .search-card,.search-results-page .search-overview{border-radius:16px;background:var(--surface);box-shadow:0 10px 28px rgba(22,25,21,.045);}
+.search-results-page .search-card{padding:20px 21px;}
+.search-results-page .search-card-head{align-items:flex-start;margin-bottom:16px;}
+.search-card-eyebrow{margin-bottom:5px;color:var(--text3);font:700 9px var(--mono);letter-spacing:.13em;text-transform:uppercase;}
+.search-results-page .search-card-title{margin:0;color:var(--text);font-size:17px;letter-spacing:-.1px;}
+.search-count-pill{display:inline-grid;min-width:28px;min-height:24px;padding:0 7px;place-items:center;border:1px solid var(--border);border-radius:999px;background:var(--bg2);color:var(--text2);font:700 10px var(--mono);}
+.search-card-tools{display:flex;align-items:center;gap:9px;}
+.search-results-page .search-card-tools .search-link-btn{padding:4px 0;border:0;background:transparent;}
+.search-results-page .search-card-tools .search-link-btn:hover{background:transparent;}
+.search-results-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:28px;align-items:center;padding:26px 27px!important;border-left:5px solid var(--teal)!important;background:linear-gradient(135deg,var(--teal2),var(--surface) 62%)!important;}
+.search-results-hero.is-general{border-left-color:var(--gold)!important;background:linear-gradient(135deg,var(--gold2),var(--surface) 62%)!important;}
+.search-overview-topline{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.search-results-page .search-badge{border-color:color-mix(in srgb,var(--teal) 28%,var(--border));background:var(--surface);color:var(--teal);font-size:10px;}
+.search-results-hero.is-general .search-badge{border-color:color-mix(in srgb,var(--gold) 28%,var(--border));color:var(--gold);}
+.search-overview-query{color:var(--text3);font:600 10px var(--mono);letter-spacing:.04em;text-transform:uppercase;}
+.search-results-page .search-overview h2{margin:12px 0 8px;font-size:31px;}
+.search-results-page .search-overview p{max-width:64ch;font-size:13px;line-height:1.7;}
+.search-results-page .search-overview .search-muted{margin-top:11px;}
+.search-overview-stats{display:grid;grid-template-columns:repeat(3,auto);gap:14px;align-self:stretch;align-items:center;}
+.search-overview-stats div{display:grid;gap:4px;min-width:58px;padding-left:14px;border-left:1px solid color-mix(in srgb,var(--text3) 26%,transparent);}
+.search-overview-stats strong{color:var(--text);font:500 25px var(--serif);}
+.search-overview-stats span{color:var(--text3);font:700 9px var(--mono);letter-spacing:.08em;text-transform:uppercase;}
+.search-results-page .search-result-list{gap:0;}
+.search-results-page .search-result-row{align-items:center;gap:16px;margin:0;padding:13px 0;border-bottom:1px solid var(--border);}
+.search-results-page .search-result-row:last-child{border-bottom:0;padding-bottom:0;}
+.search-result-leading{display:flex;align-items:flex-start;gap:11px;min-width:0;flex:1;}
+.search-result-mark{display:grid;flex:0 0 auto;width:32px;height:32px;place-items:center;border:1px solid var(--border);border-radius:9px;background:var(--bg2);color:var(--text2);font:700 10px var(--mono);}
+.search-result-mark--note{border-color:color-mix(in srgb,var(--teal) 28%,var(--border));background:var(--teal2);color:var(--teal);}
+.search-result-mark--question{border-color:color-mix(in srgb,var(--gold) 30%,var(--border));background:var(--gold2);color:var(--gold);}
+.search-results-page .search-result-title{font-size:13px;line-height:1.45;}
+.search-results-page .search-result-title::before{display:none;}
+.search-results-page .search-muted{font-size:11px;line-height:1.5;}
+.search-results-page .search-link-btn{flex:0 0 auto;border-radius:999px;padding:7px 12px;background:var(--bg2);font-size:11px;}
+.search-results-page .search-link-btn:hover{background:var(--teal2);}
+.search-results-page .search-empty-row{min-height:76px;padding:12px 0;}
+.search-practice-body{display:flex;align-items:center;justify-content:space-between;gap:14px;color:var(--text2);font-size:12px;line-height:1.55;}
+.search-practice-mark{display:grid;width:30px;height:30px;place-items:center;border-radius:50%;background:var(--gold2);color:var(--gold);font-size:18px;}
+.search-side-intro{margin:-5px 0 15px;color:var(--text2);font-size:12px;line-height:1.6;}
+.search-results-page .search-card--actions{padding:21px;background:linear-gradient(145deg,var(--gold2),var(--surface) 72%);}
+.search-results-page .search-card--actions .search-card-title{font-size:20px;}
+.search-results-page .search-action-grid{gap:7px;}
+.search-results-page .search-action-btn,.search-results-page .search-primary-btn{min-height:38px;border-radius:10px;}
+.search-results-page .search-action-btn{background:var(--surface);}
+.search-results-page .search-action-btn:hover{background:var(--teal2);}
+.search-results-page .search-link-row{padding:12px 0;}
+.search-results-page .search-link-row span{font-size:12px;}
+.search-results-page .search-link-row small{font-size:10.5px;}
+.search-results-page .search-related-list{gap:7px;}
+.search-results-page .search-related-list span{padding:6px 9px;border:1px solid var(--border);border-radius:999px;background:var(--bg2);font-size:11px;}
+.search-results-page .search-related-list span::before{display:none;}
+@media(max-width:768px){
+  .search-results-page{padding-top:24px;}
+  .search-results-head{align-items:flex-start;flex-direction:column;gap:16px;}
+  .search-results-head-meta{width:100%;}
+  .search-results-page .search-page-title{font-size:34px;}
+  .search-results-page .search-layout{gap:16px;}
+  .search-results-hero{grid-template-columns:1fr;gap:20px;padding:22px 20px!important;}
+  .search-overview-stats{justify-content:space-between;align-items:start;}
+  .search-overview-stats div{flex:1;}
+  .search-practice-body{align-items:flex-start;flex-direction:column;}
+}
+
 .profile-nudge{display:flex;max-width:78ch;margin:0 auto var(--space-5);padding:13px 15px;align-items:center;gap:14px;border:1px solid color-mix(in srgb,var(--teal) 28%,var(--border));border-radius:12px;background:var(--teal2);color:var(--text2);font-size:12px}.profile-nudge span{display:grid;min-width:0;flex:1;gap:3px}.profile-nudge strong{color:var(--text);font-size:12.5px}.profile-nudge small{font-size:11px;line-height:1.45}.profile-nudge button:not(.profile-nudge-dismiss){min-height:34px;padding:0 12px;border:1px solid var(--text);border-radius:999px;background:var(--text);color:var(--surface);cursor:pointer;font:inherit;font-size:11px;font-weight:600}.profile-nudge-dismiss{display:grid;width:32px;height:32px;padding:0;place-items:center;border:0;background:transparent;color:var(--text3);cursor:pointer;font-size:20px}.profile-nudge button:focus-visible{outline:2px solid var(--text);outline-offset:3px}@media(max-width:560px){.profile-nudge{align-items:flex-start;flex-wrap:wrap}.profile-nudge span{flex-basis:calc(100% - 46px)}.profile-nudge button:not(.profile-nudge-dismiss){margin-left:0}}
