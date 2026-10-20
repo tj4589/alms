@@ -18,9 +18,11 @@ function isSessionUser(value: unknown): value is User {
     typeof value.id === 'number' &&
     Number.isFinite(value.id) &&
     typeof value.name === 'string' &&
-    (value.username === null || typeof value.username === 'string') &&
     typeof value.email === 'string' &&
-    typeof value.role === 'string'
+    (value.username === undefined || value.username === null || typeof value.username === 'string') &&
+    (value.role === undefined || typeof value.role === 'string') &&
+    (value.account_status === undefined || typeof value.account_status === 'string') &&
+    (value.admin_portal_access === undefined || typeof value.admin_portal_access === 'boolean')
   );
 }
 
@@ -40,9 +42,18 @@ export function mapFirebaseSessionResponse(value: unknown): FirebaseSessionRespo
   }
   if (!isSessionUser(value.user)) throw new Error(FIREBASE_SESSION_RESPONSE_ERROR);
 
+  const rawUser = value.user as Record<string, unknown>;
   return {
     access_token: value.access_token,
     token_type: value.token_type,
-    user: value.user,
+    user: {
+      id: rawUser.id as number,
+      name: rawUser.name as string,
+      username: rawUser.username === undefined ? null : rawUser.username as string | null,
+      email: rawUser.email as string,
+      role: rawUser.role === undefined ? 'student' : rawUser.role as string,
+      account_status: rawUser.account_status === undefined ? 'active' : rawUser.account_status as string,
+      admin_portal_access: rawUser.admin_portal_access === undefined ? false : rawUser.admin_portal_access as boolean,
+    },
   };
 }

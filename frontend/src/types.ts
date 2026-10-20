@@ -15,6 +15,7 @@ export type User = {
   username: string | null;
   email: string;
   role: string;
+  account_status?: string;
   admin_portal_access?: boolean;
 };
 
