@@ -314,7 +314,7 @@
 #s-upload .upload-confirm-shell,
 #s-upload .failure-card,
 #s-upload .duplicate-card {
-  width: min(1040px, 100%);
+  width: min(1200px, 100%);
   max-width: none;
   margin-inline: auto;
 }
@@ -362,6 +362,35 @@
   color: #536049;
   font-size: 12px;
   line-height: 1.45;
+  min-width: 0;
+}
+
+#s-upload .upload-step-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  justify-items: center;
+}
+
+#s-upload .upload-step-copy > span {
+  overflow-wrap: anywhere;
+}
+
+#s-upload .upload-step-copy small {
+  color: #7a806d;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+#s-upload .upload-step.skipped {
+  color: #7a806d;
+  opacity: .78;
+}
+
+#s-upload .upload-step.skipped .upload-step-dot {
+  border-style: dashed;
+  background: transparent;
+  color: #7a806d;
 }
 
 #s-upload .upload-step-dot {
@@ -916,11 +945,11 @@
 /* Review workspace: evidence stays visible while the decision fields remain
    close at hand. The right panel becomes the first block on narrow screens. */
 #s-upload .review-workspace {
-  width: min(1280px, 100%);
+  width: min(1440px, 100%);
   margin-inline: auto;
   display: grid;
-  grid-template-columns: minmax(0, 1.16fr) minmax(340px, .84fr);
-  gap: clamp(24px, 4vw, 48px);
+  grid-template-columns: minmax(0, 1.34fr) minmax(360px, .66fr);
+  gap: clamp(30px, 4.5vw, 64px);
   align-items: start;
 }
 
@@ -1490,11 +1519,30 @@
 }
 
 #s-upload .processing-live {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   max-width: 48ch;
   margin: 13px 0 0;
   color: #536049;
   font-size: 13px;
   line-height: 1.5;
+}
+
+#s-upload .processing-live-pulse {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--upload-orange);
+  box-shadow: 0 0 0 0 rgba(193, 67, 31, .22);
+  animation: upload-progress-pulse 1.8s ease-out infinite;
+}
+
+@keyframes upload-progress-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(193, 67, 31, .22); }
+  70% { box-shadow: 0 0 0 9px rgba(193, 67, 31, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(193, 67, 31, 0); }
 }
 
 #s-upload button:disabled {
@@ -1504,6 +1552,15 @@
 }
 
 @media (max-width: 900px) {
+  #s-upload .upload-step-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 24px;
+  }
+
+  #s-upload .upload-step-list::before {
+    display: none;
+  }
+
   #s-upload .review-workspace {
     grid-template-columns: 1fr;
   }
@@ -1517,6 +1574,11 @@
 }
 
 @media (max-width: 620px) {
+  #s-upload .upload-step-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 22px;
+  }
+
   #s-upload .review-intro h2,
   #s-upload .review-panel-heading h2 {
     font-size: 42px;
@@ -1564,6 +1626,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  #s-upload .processing-live-pulse {
+    animation: none;
+  }
+
   #s-upload .details-disclosure svg {
     transition: none;
   }

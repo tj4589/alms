@@ -146,6 +146,89 @@ export function apiFormPost(path: string, formData: FormData | URLSearchParams) 
   );
 }
 
+export type ApiProgressEvent = {
+  key: string;
+  status: string;
+};
+
+/**
+ * Read an NDJSON response whose progress records are emitted by the server
+ * while a long-running form upload is processed. Older API deployments can
+ * still return the normal JSON response; that fallback keeps the client
+ * compatible during a rolling deploy.
+ */
+export async function apiFormPostStream(
+  path: string,
+  formData: FormData | URLSearchParams,
+  onProgress: (event: ApiProgressEvent) => void,
+) {
+  const isUrlEncoded = formData instanceof URLSearchParams;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: authHeaders(isUrlEncoded ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    // The stream endpoint is additive. If a static frontend reaches an API
+    // that has not rolled forward yet, use the established JSON endpoint.
+    if (response.status === 404 && path.endsWith('/stream')) {
+      return apiFormPost(path.slice(0, -'/stream'.length), formData);
+    }
+    throw new ApiHttpError(await readErrorMessage(response, 'Request failed.'), response.status);
+  }
+
+  if (response.status === 204) return null;
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('ndjson') || !response.body) {
+    const data = await readJsonBody(response);
+    if (data === null) throw new Error(API_INVALID_RESPONSE_ERROR);
+    return data as JsonResponse;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result: unknown = null;
+
+  const consumeLine = (line: string) => {
+    if (!line.trim()) return;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw new Error(API_INVALID_RESPONSE_ERROR);
+    }
+    if (!event || typeof event !== 'object') throw new Error(API_INVALID_RESPONSE_ERROR);
+    const record = event as { type?: unknown; key?: unknown; status?: unknown; data?: unknown; detail?: unknown; status_code?: unknown };
+    if (record.type === 'progress' && typeof record.key === 'string' && typeof record.status === 'string') {
+      onProgress({ key: record.key, status: record.status });
+      return;
+    }
+    if (record.type === 'result') {
+      result = record.data;
+      return;
+    }
+    if (record.type === 'error') {
+      const detail = typeof record.detail === 'string' ? record.detail : 'Request failed.';
+      throw new ApiHttpError(sanitizeErrorMessage(detail), typeof record.status === 'number' ? record.status : 500);
+    }
+    throw new Error(API_INVALID_RESPONSE_ERROR);
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    lines.forEach(consumeLine);
+    if (done) break;
+  }
+  if (buffer.trim()) consumeLine(buffer);
+  if (result === null) throw new Error(API_INVALID_RESPONSE_ERROR);
+  return result as JsonResponse;
+}
+
 /**
  * Download a file the backend serves behind auth.
  *

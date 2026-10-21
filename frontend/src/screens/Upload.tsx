@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, ChevronDown, FileText, Globe2, LockKeyhole, Plus, Users, X } from 'lucide-react';
-import type { Course, ScreenType, User } from '../types';
+import type { Course, LearningSpace, ScreenType, User } from '../types';
 import { getOfflineScope, queuePendingUpload, removePendingUpload, type PendingUpload } from '../offline';
-import { apiFormPost, apiGet, apiPatch } from '../lib/api';
+import { apiFormPostStream, apiGet, apiPatch, type ApiProgressEvent } from '../lib/api';
 
 import './Upload.css';
 const ArchiveNameContext = createContext('your learning space');
@@ -39,8 +39,9 @@ type DuplicateDocument = {
 
 type UploadState = 'idle' | 'processing' | 'confirm' | 'manual_metadata_required' | 'duplicate' | 'success' | 'error';
 type UploadAction = 'analyze' | 'index';
-type StepStatus = 'pending' | 'active' | 'done' | 'error';
-type ProcessingStep = { label: string; status: StepStatus };
+type StepKey = 'reading' | 'extraction' | 'metadata' | 'duplicates' | 'transcription' | 'indexing';
+type StepStatus = 'pending' | 'active' | 'done' | 'error' | 'skipped';
+type ProcessingStep = { key: StepKey; label: string; status: StepStatus };
 type PreviewItem = { label: string; text: string };
 type PreviewSection = { title: string; items: PreviewItem[] };
 type ContentPreview = {
@@ -137,21 +138,49 @@ const emptyMetadata: Metadata = {
   metadata_evidence: {},
 };
 
-const STEP_LABELS = [
-  'Reading document',
-  'Extracting text / running OCR if needed',
-  'Understanding academic metadata',
-  'Checking duplicates',
-  'Transcribing audio if needed',
-  'Preparing for indexing',
+const STEP_DEFINITIONS: Array<{ key: StepKey; label: string }> = [
+  { key: 'reading', label: 'Reading your file' },
+  { key: 'extraction', label: 'Finding useful content' },
+  { key: 'metadata', label: 'Organizing what ExamMind found' },
+  { key: 'duplicates', label: 'Checking duplicates' },
+  { key: 'transcription', label: 'Preparing the recording' },
+  { key: 'indexing', label: 'Adding it to your library' },
 ];
+const STEP_LABELS = STEP_DEFINITIONS.map(step => step.label);
 
-const mkSteps = (activeIndex = 0): ProcessingStep[] =>
-  STEP_LABELS.map((label, i) => ({ label, status: i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending' }));
-const doneSteps = (through = STEP_LABELS.length - 1): ProcessingStep[] =>
-  STEP_LABELS.map((label, i) => ({ label, status: i <= through ? 'done' : 'pending' }));
-const failSteps = (errIdx: number): ProcessingStep[] =>
-  STEP_LABELS.map((label, i) => ({ label, status: i < errIdx ? 'done' : i === errIdx ? 'error' : 'pending' }));
+function pendingSteps(): ProcessingStep[] {
+  return STEP_DEFINITIONS.map(step => ({ ...step, status: 'pending' }));
+}
+
+function pipelineSteps(value: unknown): ProcessingStep[] {
+  if (!Array.isArray(value)) return pendingSteps();
+  const statuses = new Map<StepKey, StepStatus>();
+  value.forEach(item => {
+    if (!item || typeof item !== 'object') return;
+    const key = (item as { key?: unknown }).key;
+    const status = (item as { status?: unknown }).status;
+    if (!STEP_DEFINITIONS.some(step => step.key === key)) return;
+    const mappedStatus: StepStatus = status === 'complete' ? 'done'
+      : status === 'error' ? 'error'
+        : status === 'skipped' ? 'skipped'
+          : status === 'active' ? 'active' : 'pending';
+    statuses.set(key as StepKey, mappedStatus);
+  });
+  return STEP_DEFINITIONS.map(step => ({ ...step, status: statuses.get(step.key) || 'pending' }));
+}
+
+function applyProgressStep(current: ProcessingStep[], event: ApiProgressEvent): ProcessingStep[] {
+  if (!STEP_DEFINITIONS.some(step => step.key === event.key)) return current;
+  const status: StepStatus = event.status === 'complete' ? 'done'
+    : event.status === 'error' ? 'error'
+      : event.status === 'skipped' ? 'skipped'
+        : event.status === 'active' ? 'active' : 'pending';
+  return current.map(step => step.key === event.key ? { ...step, status } : step);
+}
+
+function unknownFailureSteps(): ProcessingStep[] {
+  return pendingSteps();
+}
 
 const DOC_TYPE_LABEL: Record<string, string> = {
   past_question: 'Past Question',
@@ -172,8 +201,8 @@ const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const UNKNOWN_VALUES = new Set(['unknown', 'not found', 'n/a', 'na', 'none', 'null', 'undefined', 'not available']);
 
 function rescueMessage(reason?: string) {
-  if (reason === 'ocr_not_installed') return 'OCR is not installed on this server. Install Tesseract OCR or upload a text-based file.';
-  if (reason === 'ocr_failed' || reason === 'ocr_low_confidence' || reason === 'file_too_blurry') return 'ExamMind tried OCR, but the scan is too unclear to read confidently.';
+  if (reason === 'ocr_not_installed') return 'This file needs a clearer text layer before ExamMind can use it. Try a text-based file or a clearer scan.';
+  if (reason === 'ocr_failed' || reason === 'ocr_low_confidence' || reason === 'file_too_blurry') return 'We found too little readable content. Try a clearer scan or image.';
   if (reason === 'encrypted_pdf') return 'This PDF appears to be encrypted. Upload an unlocked PDF.';
   return 'ExamMind could not read this file clearly.';
 }
@@ -310,7 +339,7 @@ function SharingChoice({
       <div className="sharing-choice-head">
         <div>
           <div className="document-summary-label" id="sharing-choice-title">Where should this material be available?</div>
-          <p>Contributing to Kora Sales Academy is the recommended path for course resources. You will confirm before anything is shared.</p>
+          <p>Contributing to {archiveName} is the recommended path for course resources. You will confirm before anything is shared.</p>
         </div>
         <span className="sharing-safe-note"><LockKeyhole size={13} /> Consent required</span>
       </div>
@@ -426,27 +455,20 @@ function confidenceLabel(metadata: Metadata) {
   return 'Medium';
 }
 
-function methodLabel(method: string) {
-  if (method === 'ocr') return 'OCR';
-  if (method === 'mixed') return 'Mixed extraction';
-  if (method === 'manual') return 'Manual details';
-  if (method === 'audio_pending') return 'Transcription after confirmation';
-  if (method === 'video_audio_pending') return 'Extracting audio after confirmation';
-  if (method === 'failed') return 'Could not read';
-  return 'Embedded text';
-}
-
 function UploadProcessingState({ fileName, queueLabel, steps, action }: { fileName: string; queueLabel: string; steps: ProcessingStep[]; action: UploadAction }) {
   return (
-    <div className="upload-processing-panel" aria-live="polite">
+    <div className="upload-processing-panel" aria-live="polite" aria-busy="true">
       <div className="upload-processing-kicker">{action === 'index' ? 'Adding to your library' : 'ExamMind is preparing your material'}</div>
       <div className="upload-file">{fileName || 'PDF'}{queueLabel}</div>
-      <p className="processing-live">Working through this file now. This can take a moment for scanned documents.</p>
+      <p className="processing-live"><span className="processing-live-pulse" aria-hidden="true" />ExamMind is working through this file. The steps will update when the server confirms them.</p>
       <div className="upload-step-list">
         {steps.map((step, i) => (
-          <div className={`upload-step ${step.status}`} key={step.label}>
+          <div className={`upload-step ${step.status}`} key={step.key}>
             <span className="upload-step-dot">{i + 1}</span>
-            <span>{step.label}</span>
+            <span className="upload-step-copy">
+              <span>{step.label}</span>
+              {step.status === 'skipped' && <small>Not needed for this file</small>}
+            </span>
           </div>
         ))}
       </div>
@@ -454,12 +476,40 @@ function UploadProcessingState({ fileName, queueLabel, steps, action }: { fileNa
   );
 }
 
-function DocumentSummary({ file, metadata, extraction, review }: { file: File | null; metadata: Metadata; extraction: ExtractionInfo | null; review: boolean }) {
+function readableContentLabel(metadata: Metadata, extraction: ExtractionInfo | null) {
+  if (metadata.document_type === 'audio' || metadata.document_type === 'video') {
+    return 'Ready to prepare after confirmation';
+  }
+  if (metadata.searchable || extraction?.searchable || (extraction?.text_char_count || 0) >= 50) {
+    return 'Readable content found';
+  }
+  return 'No readable content found yet';
+}
+
+function spaceReviewSummary(metadata: Metadata, extraction: ExtractionInfo | null, previewQuality: 'high' | 'medium' | 'low') {
+  const contentLabel = readableContentLabel(metadata, extraction);
+  if (contentLabel === 'No readable content found yet') {
+    return 'ExamMind could not find enough readable content to describe this file. You can save it for your library, but search and Maxe may need a clearer copy.';
+  }
+  const typeLabel = DOC_TYPE_LABEL[metadata.document_type] || 'study material';
+  const pageCount = metadata.pages_read || extraction?.page_count || 0;
+  const topicText = metadata.topics_covered.slice(0, 3).join(', ');
+  const details = [
+    `${typeLabel} identified`,
+    pageCount > 0 ? `${pageCount} ${pageCount === 1 ? 'page' : 'pages'} checked` : '',
+    topicText ? `topics include ${topicText}` : '',
+  ].filter(Boolean);
+  const confidenceNote = previewQuality === 'medium' || previewQuality === 'low'
+    ? ' Some details may need a quick look.'
+    : '';
+  return `${details.join('. ')}.${confidenceNote}`;
+}
+
+function DocumentSummary({ file, metadata, extraction, review, isKsaProgram }: { file: File | null; metadata: Metadata; extraction: ExtractionInfo | null; review: boolean; isKsaProgram: boolean }) {
   const facts = [
-    ['File type', fileTypeLabel(file), false],
-    ['File size', file ? formatBytes(file.size) : 'Not found', false],
+    ['Format', fileTypeLabel(file), false],
     ['Pages / slides', metadata.pages_read || extraction?.page_count || '', false],
-    ['Reading method', methodLabel(metadata.extraction_method || extraction?.method || ''), false],
+    ['Content', readableContentLabel(metadata, extraction), false],
   ] as const;
   return (
     <section className="document-summary" aria-labelledby="document-summary-title">
@@ -468,7 +518,7 @@ function DocumentSummary({ file, metadata, extraction, review }: { file: File | 
         <div>
           <div className="document-summary-label" id="document-summary-title">Document review</div>
           <div className="document-file-name">{file?.name || 'Uploaded document'}</div>
-          <div className="document-file-meta">Ready to review before it is added to the library.</div>
+          <div className="document-file-meta">{isKsaProgram ? 'A quick check before it is added to your library.' : 'Review the details before it is added to your library.'}</div>
         </div>
       </div>
       <div className="document-fact-grid">
@@ -479,8 +529,8 @@ function DocumentSummary({ file, metadata, extraction, review }: { file: File | 
           </div>
         ))}
         <div className="document-fact">
-          <dt>Overall status</dt>
-          <dd><span className={`summary-status ${review ? 'summary-status--review' : 'summary-status--ready'}`}><Check size={13} /> {review ? 'Needs review' : 'Ready to add'}</span></dd>
+          <dt>Next step</dt>
+          <dd><span className={`summary-status ${review ? 'summary-status--review' : 'summary-status--ready'}`}><Check size={13} /> {review ? 'Check the summary' : 'Ready to add'}</span></dd>
         </div>
       </div>
     </section>
@@ -490,17 +540,12 @@ function DocumentSummary({ file, metadata, extraction, review }: { file: File | 
 function ExtractedContentPreview({
   contentPreview,
   sections,
-  rawText,
   previewQuality,
-  extractionMethod,
 }: {
   contentPreview: ContentPreview | null;
   sections: PreviewSection[];
-  rawText: string;
   previewQuality: 'high' | 'medium' | 'low';
-  extractionMethod: string;
 }) {
-  const [showFullText, setShowFullText] = useState(false);
   const status = previewQuality === 'high'
     ? 'ExamMind read this document successfully.'
     : previewQuality === 'medium'
@@ -515,13 +560,8 @@ function ExtractedContentPreview({
           <div className="content-preview-head">Content preview</div>
           <div className={`preview-read-status ${previewQuality === 'high' ? 'good' : 'review'}`}>{status}</div>
         </div>
-        {rawText && (
-          <button type="button" className="upload-link-btn" onClick={() => setShowFullText(v => !v)}>
-            {showFullText ? 'Hide extracted text' : extractionMethod === 'ocr' ? 'View OCR text' : 'View extracted text'}
-          </button>
-        )}
       </div>
-      {!hasStructuredPreview && sections.length === 0 && <div className="preview-empty">No clean preview was available, but the extracted text can still be indexed.</div>}
+      {!hasStructuredPreview && sections.length === 0 && <div className="preview-empty">No short preview was available. Review the details below before adding this material.</div>}
       {hasStructuredPreview ? (
         <div className="structured-preview">
           {contentPreview?.instruction && (
@@ -561,7 +601,6 @@ function ExtractedContentPreview({
           </div>
         ))
       )}
-      {showFullText && <pre className="full-ocr-text">{rawText}</pre>}
     </div>
   );
 }
@@ -791,8 +830,8 @@ function UploadConfirmationCard({
   extraction,
   previewSections,
   contentPreview,
-  rawOcrText,
   previewQuality,
+  isKsaProgram,
   advancedOpen,
   setAdvancedOpen,
   updateField,
@@ -825,8 +864,8 @@ function UploadConfirmationCard({
   extraction: ExtractionInfo | null;
   previewSections: PreviewSection[];
   contentPreview: ContentPreview | null;
-  rawOcrText: string;
   previewQuality: 'high' | 'medium' | 'low';
+  isKsaProgram: boolean;
   advancedOpen: boolean;
   setAdvancedOpen: (value: boolean) => void;
   updateField: (key: keyof Metadata, value: string) => void;
@@ -855,12 +894,12 @@ function UploadConfirmationCard({
   periodPlaceholder: string;
 }) {
   const confidence = confidenceLabel(metadata);
-  const attentionEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'missing_required' || item.status === 'conflict' || item.status === 'suggested');
+  const attentionEntries = isKsaProgram ? [] : Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'missing_required' || item.status === 'conflict' || item.status === 'suggested');
   const completedEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'catalogue_confirmed' || item.status === 'strong_evidence');
   const optionalEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'optional' && displayValue(item.value as string | number | null, ''));
   const evidenceLabel: Record<string, string> = { title: 'Title', document_type: 'Document type', course_code: 'Course', course_title: 'Course title', academic_session: 'Academic session', semester: periodLabel, instructor_or_author: 'Instructor or author', year: 'Year', department: 'Department', exam_type: 'Exam type', topics: 'Topics' };
-  const review = confidence === 'Review Recommended' || attentionEntries.length > 0 || Boolean(metadata.needs_review);
-  const hasMissingEssentials = !metadata.document_title || metadata.document_type === 'unknown' || (!metadata.course_code && !metadata.course_title);
+  const review = isKsaProgram ? Boolean(metadata.needs_review) : confidence === 'Review Recommended' || attentionEntries.length > 0 || Boolean(metadata.needs_review);
+  const hasMissingEssentials = isKsaProgram ? false : !metadata.document_title || metadata.document_type === 'unknown' || (!metadata.course_code && !metadata.course_title);
   const validationSummary = Object.values(errors).filter(Boolean);
 
   return (
@@ -872,14 +911,12 @@ function UploadConfirmationCard({
             <h2 id="review-document-heading">Review this material</h2>
             <p>Confirm the important details before ExamMind adds this document to your library.</p>
           </div>
-          <DocumentSummary file={file} metadata={metadata} extraction={extraction} review={review || hasMissingEssentials} />
+            <DocumentSummary file={file} metadata={metadata} extraction={extraction} review={review || hasMissingEssentials} isKsaProgram={isKsaProgram} />
           <TopicsEditor topics={metadata.topics_covered} status={metadataFieldStatus(metadata, 'topics_covered', metadata.topics_covered.join(', '), editedFields.has('topics_covered'), Boolean(metadata.needs_review))} draft={topicDraft} onDraftChange={onTopicDraftChange} onAdd={onAddTopic} onRemove={onRemoveTopic} />
           <ExtractedContentPreview
             contentPreview={contentPreview}
             sections={previewSections}
-            rawText={rawOcrText}
             previewQuality={previewQuality}
-            extractionMethod={metadata.extraction_method}
           />
         </section>
 
@@ -903,19 +940,26 @@ function UploadConfirmationCard({
           ) : (
             <p className="metadata-ready-note"><Check size={15} /> Everything looks ready. Review the details or continue.</p>
           )}
-          {completedEntries.length > 0 && (
+          {!isKsaProgram && completedEntries.length > 0 && (
             <section className="metadata-completed" aria-labelledby="metadata-completed-heading">
               <h3 id="metadata-completed-heading">Already completed</h3>
               <p>{completedEntries.map(([key]) => evidenceLabel[key] || key).join(' · ')}</p>
             </section>
           )}
-          {optionalEntries.length > 0 && (
+          {!isKsaProgram && optionalEntries.length > 0 && (
             <section className="metadata-optional" aria-labelledby="metadata-optional-heading">
               <h3 id="metadata-optional-heading">Additional details</h3>
               <p>{optionalEntries.map(([key]) => evidenceLabel[key] || key).join(' · ')}</p>
             </section>
           )}
-          <EssentialMetadataEditor metadata={metadata} courses={courses} courseState={courseState} editedFields={editedFields} errors={errors} updateField={updateField} onCourseSelect={onCourseSelect} periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />
+          {isKsaProgram ? (
+            <div className="space-review-note">
+              <div className="document-summary-label">What ExamMind found</div>
+              <p>{spaceReviewSummary(metadata, extraction, previewQuality)}</p>
+            </div>
+          ) : (
+            <EssentialMetadataEditor metadata={metadata} courses={courses} courseState={courseState} editedFields={editedFields} errors={errors} updateField={updateField} onCourseSelect={onCourseSelect} periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />
+          )}
           {(review || hasMissingEssentials) && (
             <div className="review-warning"><AlertCircle size={16} /><span>ExamMind may misread some details. Review anything marked “Needs review” before adding this material.</span></div>
           )}
@@ -932,10 +976,12 @@ function UploadConfirmationCard({
             onConsentChange={onSharingConsentChange}
             error={sharingError}
           />
-          <button type="button" className="details-disclosure" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}>
-            <span>Additional details</span><ChevronDown size={17} aria-hidden="true" />
-          </button>
-          {advancedOpen && <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} showHeading={false} periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />}
+          {!isKsaProgram && <>
+            <button type="button" className="details-disclosure" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}>
+              <span>Additional details</span><ChevronDown size={17} aria-hidden="true" />
+            </button>
+            {advancedOpen && <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} showHeading={false} periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />}
+          </>}
           <div className="review-panel-actions">
             {hasQueue && <p className="queue-note">You can skip this file and continue with the next queued upload.</p>}
             <div className="confirm-actions">
@@ -1083,8 +1129,9 @@ function ContributionSuccessModal({
   );
 }
 
-export default function Upload({ go, user, archiveName = 'your learning space', queuedUpload, onQueuedUploadStored }: { go: (s: ScreenType) => void; user: User | null; archiveName?: string; queuedUpload?: PendingUpload | null; onQueuedUploadStored?: () => void }) {
-  const isKsaProgram = archiveName === 'KSA';
+export default function Upload({ go, user, learningSpace, archiveName = 'your learning space', queuedUpload, onQueuedUploadStored }: { go: (s: ScreenType) => void; user: User | null; learningSpace?: LearningSpace | null; archiveName?: string; queuedUpload?: PendingUpload | null; onQueuedUploadStored?: () => void }) {
+  const isKsaProgram = learningSpace?.slug === 'ksa';
+  const isCuProgram = learningSpace?.slug === 'cu';
   const periodLabel = isKsaProgram ? 'Cohort' : 'Semester';
   const periodPlaceholder = isKsaProgram ? 'e.g. 2026 cohort' : 'e.g. First';
   const [state, setState] = useState<UploadState>('idle');
@@ -1097,7 +1144,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
   const [chunksIndexed, setChunksIndexed] = useState(0);
   const [lastIndexed, setLastIndexed] = useState(true);
   const [recentUploads, setRecentUploads] = useState<RecentUpload[] | null>(null);
-  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>(mkSteps());
+  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>(pendingSteps());
   const [lastAction, setLastAction] = useState<UploadAction>('analyze');
   const [dragOver, setDragOver] = useState(false);
   const [queue, setQueue] = useState<File[]>([]);
@@ -1107,7 +1154,6 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
   const [previewSnippets, setPreviewSnippets] = useState<string[]>([]);
   const [previewSections, setPreviewSections] = useState<PreviewSection[]>([]);
   const [contentPreview, setContentPreview] = useState<ContentPreview | null>(null);
-  const [rawOcrText, setRawOcrText] = useState('');
   const [previewQuality, setPreviewQuality] = useState<'high' | 'medium' | 'low'>('low');
   const [extraction, setExtraction] = useState<ExtractionInfo | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -1158,7 +1204,11 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
   }, [user?.id, state]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !isCuProgram) {
+      setCourses([]);
+      setCourseState('empty');
+      return;
+    }
     setCourseState('loading');
     apiGet('/courses')
       .then(data => {
@@ -1170,7 +1220,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
         setCourses([]);
         setCourseState('error');
       });
-  }, [user?.id]);
+  }, [user?.id, isCuProgram]);
 
   const previewLines = useMemo(() => cleanPreviewLines(preview, previewSnippets), [preview, previewSnippets]);
   const structuredPreview = useMemo(
@@ -1197,10 +1247,9 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
     setPreviewSnippets([]);
     setPreviewSections([]);
     setContentPreview(null);
-    setRawOcrText('');
     setPreviewQuality('low');
     setExtraction(null);
-    setProcessingSteps(mkSteps(0));
+    setProcessingSteps(pendingSteps());
     setLastAction('analyze');
 
     if (!navigator.onLine) {
@@ -1227,37 +1276,38 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
     formData.append('file', selected);
 
     try {
-      const data = await apiFormPost('/ingest/upload', formData);
+      const data = await apiFormPostStream('/ingest/upload/stream', formData, event => {
+        setProcessingSteps(current => applyProgressStep(current, event));
+      });
       const nextMetadata = normalizeMetadata(data.metadata || {});
       setMetadata(nextMetadata);
       setPreview(data.preview || '');
       setPreviewSnippets(data.preview_snippets || []);
       setPreviewSections(data.preview_sections || []);
       setContentPreview(data.content_preview || null);
-      setRawOcrText(data.raw_ocr_text || data.raw_extracted_text || '');
       setPreviewQuality(data.preview_quality || 'low');
       setExtraction(data.extraction || null);
 
       if (data.status === 'duplicate') {
         setDuplicateDocument((data.existing_document || null) as DuplicateDocument | null);
-        setProcessingSteps(doneSteps(3));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps));
         setState('duplicate');
         setMessage(`Already uploaded as ${data.existing_document?.title || 'an existing document'}.`);
       } else if (data.status === 'manual_metadata_required') {
-        setProcessingSteps(failSteps(1));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps));
         setState('manual_metadata_required');
         setMessage(data.message || rescueMessage(data.metadata?.extraction_failure_reason));
       } else if (data.status === 'audio_failed') {
-        setProcessingSteps(failSteps(4));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps));
         setState('error');
         setMessage(data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.');
       } else {
-        setProcessingSteps(doneSteps());
+        setProcessingSteps(pipelineSteps(data.pipeline_steps));
         setMessage('');
         setState('confirm');
       }
     } catch (err) {
-      setProcessingSteps(failSteps(2));
+      setProcessingSteps(unknownFailureSteps());
       setState('error');
       const fallback = 'Upload analysis failed.';
       const errorMessage = err instanceof Error ? err.message : fallback;
@@ -1267,21 +1317,23 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
 
   const validateConfirmation = () => {
     const errors: ValidationErrors = {};
-    if (!metadata.document_title.trim() || UNKNOWN_VALUES.has(metadata.document_title.trim().toLowerCase())) {
-      errors.document_title = 'Add a meaningful title for this material.';
-    }
-    if (!metadata.document_type || metadata.document_type === 'unknown') {
-      errors.document_type = 'Choose the document type.';
-    }
-    const courseValues = [metadata.course_code, metadata.course_title].map(value => value.trim().toLowerCase());
-    if (!['audio', 'video'].includes(metadata.document_type) && !courseValues.some(value => value && !UNKNOWN_VALUES.has(value))) {
-      errors.course = 'Choose a course from the catalogue or enter a course code or title.';
-    }
-    if (metadata.document_type === 'past_question' && !metadata.academic_year.trim() && metadata.year === '') {
-      errors.academic_year = 'Select the academic session for this past question.';
-    }
-    if (metadata.document_type === 'past_question' && (!metadata.semester.trim() || UNKNOWN_VALUES.has(metadata.semester.trim().toLowerCase()))) {
-      errors.semester = `Add the ${periodLabel.toLowerCase()} for this past question.`;
+    if (!isKsaProgram) {
+      if (!metadata.document_title.trim() || UNKNOWN_VALUES.has(metadata.document_title.trim().toLowerCase())) {
+        errors.document_title = 'Add a meaningful title for this material.';
+      }
+      if (!metadata.document_type || metadata.document_type === 'unknown') {
+        errors.document_type = 'Choose the document type.';
+      }
+      const courseValues = [metadata.course_code, metadata.course_title].map(value => value.trim().toLowerCase());
+      if (!['audio', 'video'].includes(metadata.document_type) && !courseValues.some(value => value && !UNKNOWN_VALUES.has(value))) {
+        errors.course = 'Choose a course from the catalogue or enter a course code or title.';
+      }
+      if (metadata.document_type === 'past_question' && !metadata.academic_year.trim() && metadata.year === '') {
+        errors.academic_year = 'Select the academic session for this past question.';
+      }
+      if (metadata.document_type === 'past_question' && (!metadata.semester.trim() || UNKNOWN_VALUES.has(metadata.semester.trim().toLowerCase()))) {
+        errors.semester = `Add the ${periodLabel.toLowerCase()} for this past question.`;
+      }
     }
     if (metadata.year !== '' && (!Number.isInteger(metadata.year) || metadata.year < 1900 || metadata.year > 2100)) {
       errors.year = 'Enter a year between 1900 and 2100.';
@@ -1310,7 +1362,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
     confirmationPending.current = true;
     setState('processing');
     setMessage('');
-    setProcessingSteps(mkSteps(0));
+    setProcessingSteps(pendingSteps());
     setLastAction('index');
 
     const submissionMetadata = normalizeMetadata(metadata);
@@ -1331,7 +1383,9 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
     } : submissionMetadata));
 
     try {
-      const data = await apiFormPost('/ingest/upload', formData);
+      const data = await apiFormPostStream('/ingest/upload/stream', formData, event => {
+        setProcessingSteps(current => applyProgressStep(current, event));
+      });
 
       if (!submissionScope || getOfflineScope() !== submissionScope) return;
       let queueCleanupWarning = '';
@@ -1347,16 +1401,16 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
 
       if (data.status === 'duplicate') {
         setDuplicateDocument((data.existing_document || null) as DuplicateDocument | null);
-        setProcessingSteps(failSteps(3));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps));
         setState('duplicate');
         setMessage('A matching document already exists.');
       } else if (data.status === 'audio_failed') {
-        setProcessingSteps(failSteps(4));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps));
         setState('error');
         setMessage([data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.', queueCleanupWarning].filter(Boolean).join(' '));
       } else {
         setDuplicateDocument(null);
-        setProcessingSteps(doneSteps());
+        setProcessingSteps(pipelineSteps(data.pipeline_steps));
         setChunksIndexed(data.chunks_indexed || 0);
         setLastIndexed(data.indexed !== false);
         setLastDocumentId(typeof data.document_id === 'number' ? data.document_id : null);
@@ -1369,7 +1423,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
         setMessage([data.status === 'audio_warning' ? (data.message || 'The recording was saved and transcribed, but search indexing is still pending.') : '', queueCleanupWarning].filter(Boolean).join(' '));
       }
     } catch (err) {
-      setProcessingSteps(failSteps(4));
+      setProcessingSteps(unknownFailureSteps());
       setState('error');
       setMessage(err instanceof Error ? err.message : 'Indexing failed.');
     } finally { confirmationPending.current = false; }
@@ -1515,7 +1569,6 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
   const hasQueue = queue.length > 1;
   const queueLabel = hasQueue ? ` (${queueIndex + 1} of ${queue.length})` : '';
   const reviewRequired = metadata.indexed_status === 'indexed_review_required' || Boolean(metadata.needs_review);
-  const extractionConfidence = Math.round((metadata.extraction_confidence || extraction?.extraction_confidence || 0) * 100);
   const rescueReason = rescueMessage(metadata.extraction_failure_reason);
 
   return (
@@ -1558,7 +1611,7 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
                 <rect className="glyph-mark" x="16" y="52" width="32" height="7" rx="3.5" />
               </svg>
               <span className="sheet-title">Drop academic files here</span>
-              <span className="sheet-sub">ExamMind detects the document type, course, session, semester, department, topics, and reading confidence automatically.</span>
+              <span className="sheet-sub">{isKsaProgram ? 'ExamMind reads the material, finds useful topics, and gives you a short summary before you save it.' : 'ExamMind detects the document type, course, session, semester, department, topics, and reading confidence automatically.'}</span>
               <span className="sheet-formats">PDF · DOCX · PPTX · PNG · JPG</span>
             </span>
           </div>
@@ -1644,8 +1697,8 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
           extraction={extraction}
           previewSections={structuredPreview}
           contentPreview={contentPreview}
-          rawOcrText={rawOcrText}
           previewQuality={previewQuality}
+          isKsaProgram={isKsaProgram}
           advancedOpen={advancedOpen}
           setAdvancedOpen={setAdvancedOpen}
           updateField={updateField}
@@ -1679,34 +1732,42 @@ export default function Upload({ go, user, archiveName = 'your learning space', 
       )}
 
       {state === 'manual_metadata_required' && (
-        <div className="card confirm-card failure-card">
-          <div className="failure-title">ExamMind could not read this file clearly.</div>
-          <div className="failure-body">{rescueReason}</div>
-          <div className="upload-badges">
-            <span className="upload-badge warn">Not indexed</span>
-            <span className="upload-badge warn">{extractionConfidence}% extraction confidence</span>
+        isKsaProgram ? (
+          <div className="card confirm-card failure-card ksa-upload-rescue">
+            <div className="failure-title">We couldn’t read this material clearly.</div>
+            <div className="failure-body">{rescueReason} You can save the original to your library for reference, but search and Maxe may need a clearer copy.</div>
+            <div className="confirm-actions">
+              <button type="button" className="cta cta-ghost" onClick={() => setState('idle')}>Upload clearer file</button>
+              <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(true)}>Save to my library</button>
+              {file && <button type="button" className="cta" onClick={() => void analyzeFile(file)}>Try again</button>}
+            </div>
           </div>
-          <div className="upload-rescue-note">Manual metadata rescue is available here because the file could not produce useful searchable text.</div>
-          <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} includeEssentials periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />
-          <SharingChoice
-            visibility={sharingVisibility}
-            onVisibilityChange={value => { setSharingVisibility(value); setSharingError(''); }}
-            groups={shareGroups}
-            selectedGroupIds={selectedShareGroupIds}
-            onToggleGroup={groupId => {
-              setSelectedShareGroupIds(current => current.includes(groupId) ? current.filter(id => id !== groupId) : [...current, groupId]);
-              setSharingError('');
-            }}
-            consent={sharingConsent}
-            onConsentChange={value => { setSharingConsent(value); setSharingError(''); }}
-            error={sharingError}
-          />
-          <div className="confirm-actions">
-            <button type="button" className="cta cta-ghost" onClick={() => setState('idle')}>Upload clearer file</button>
-            <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(true)}>Save record only</button>
-            {file && <button type="button" className="cta" onClick={() => void analyzeFile(file)}>Retry OCR</button>}
+        ) : (
+          <div className="card confirm-card failure-card">
+            <div className="failure-title">ExamMind could not read this file clearly.</div>
+            <div className="failure-body">{rescueReason}</div>
+            <div className="upload-rescue-note">You can add the details ExamMind could not find, or upload a clearer copy.</div>
+            <AdvancedMetadataEditor metadata={metadata} updateField={updateField} updateListField={updateListField} editedFields={editedFields} includeEssentials periodLabel={periodLabel} periodPlaceholder={periodPlaceholder} />
+            <SharingChoice
+              visibility={sharingVisibility}
+              onVisibilityChange={value => { setSharingVisibility(value); setSharingError(''); }}
+              groups={shareGroups}
+              selectedGroupIds={selectedShareGroupIds}
+              onToggleGroup={groupId => {
+                setSelectedShareGroupIds(current => current.includes(groupId) ? current.filter(id => id !== groupId) : [...current, groupId]);
+                setSharingError('');
+              }}
+              consent={sharingConsent}
+              onConsentChange={value => { setSharingConsent(value); setSharingError(''); }}
+              error={sharingError}
+            />
+            <div className="confirm-actions">
+              <button type="button" className="cta cta-ghost" onClick={() => setState('idle')}>Upload clearer file</button>
+              <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(true)}>Save record only</button>
+              {file && <button type="button" className="cta" onClick={() => void analyzeFile(file)}>Try again</button>}
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {state === 'duplicate' && (

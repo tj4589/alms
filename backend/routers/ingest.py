@@ -3,15 +3,19 @@ import logging
 import math
 import mimetypes
 import os
+import queue
 import re
+import threading
 import zipfile
+from contextvars import ContextVar
 from difflib import SequenceMatcher
 from io import BytesIO
 from hashlib import sha256
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Callable, Dict, Literal, Optional
 
 import PyPDF2
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
@@ -19,7 +23,7 @@ import auth
 import models
 from learning_spaces import authorized_active_space
 from sectioniser import split_into_sections
-from database import get_db
+from database import SessionLocal, get_db
 from material_access import (
     GROUP,
     OFFICIAL,
@@ -83,6 +87,18 @@ if pytesseract:
 
 router = APIRouter(prefix="/ingest", tags=["ingestion"])
 logger = logging.getLogger(__name__)
+
+UploadProgressCallback = Callable[[str, str], None]
+_upload_progress_callback: ContextVar[UploadProgressCallback | None] = ContextVar(
+    "upload_progress_callback",
+    default=None,
+)
+
+
+def _emit_upload_progress(key: str, status: str) -> None:
+    callback = _upload_progress_callback.get()
+    if callback is not None:
+        callback(key, status)
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "40"))
@@ -2399,12 +2415,12 @@ def normalized_metadata(metadata_json: Optional[str], fallback: Dict[str, Any]) 
     return normalize_metadata_fields({**fallback, **parsed})
 
 
-def match_course(db: Session, metadata: Dict[str, Any]) -> Optional[models.Course]:
+def match_course(db: Session, metadata: Dict[str, Any], active_space_id: int | None = None) -> Optional[models.Course]:
     """Resolve an existing catalogue course without creating user-supplied rows."""
-    return derive_course_catalogue(db, metadata)
+    return derive_course_catalogue(db, metadata, active_space_id=active_space_id)
 
 
-def derive_course_catalogue(db: Session, metadata: Dict[str, Any]) -> Optional[models.Course]:
+def derive_course_catalogue(db: Session, metadata: Dict[str, Any], active_space_id: int | None = None) -> Optional[models.Course]:
     course_code = metadata.get("course_code")
     if not course_code or course_code == "UNKNOWN":
         metadata["course_catalogue_status"] = "unmatched"
@@ -2414,7 +2430,10 @@ def derive_course_catalogue(db: Session, metadata: Dict[str, Any]) -> Optional[m
         return None
 
     course_title = (metadata.get("course_title") or "").strip()
-    course = db.query(models.Course).filter(models.Course.code == course_code).first()
+    query = db.query(models.Course).filter(models.Course.code == course_code)
+    if active_space_id is not None:
+        query = query.filter(models.Course.learning_space_id == active_space_id)
+    course = query.first()
     if course:
         metadata["course_catalogue_status"] = "confirmed"
         metadata["catalogue_course_id"] = course.id
@@ -2445,7 +2464,9 @@ def _mark_catalogue_evidence(metadata: Dict[str, Any], field: str, value: Any) -
     metadata["metadata_evidence"] = evidence
 
 
-def metadata_required_errors(metadata: Dict[str, Any]) -> list[str]:
+def metadata_required_errors(metadata: Dict[str, Any], active_space_slug: str | None = None) -> list[str]:
+    if active_space_slug == "ksa":
+        return []
     errors: list[str] = []
     if not _metadata_value_is_good(metadata.get("document_title")):
         errors.append("title")
@@ -2746,6 +2767,37 @@ def _normalise_audio_transcription(result: Any) -> tuple[str, str, list[dict[str
     return provider, model, validated
 
 
+def upload_pipeline_steps(
+    *,
+    extraction_succeeded: bool,
+    is_timed_media: bool,
+    confirmed: bool,
+    transcription_status: str = "pending",
+    indexing_status: str = "pending",
+) -> list[dict[str, str]]:
+    """Describe the stages that actually ran for this upload request.
+
+    Upload processing is synchronous today, so the browser cannot receive
+    intermediate events. Returning the completed stage outcomes keeps the
+    client honest after the request finishes and makes it possible to add a
+    streamed progress transport later without changing the stage vocabulary.
+    """
+    return [
+        {"key": "reading", "status": "complete"},
+        {"key": "extraction", "status": "complete" if extraction_succeeded else "error"},
+        {"key": "metadata", "status": "complete"},
+        {"key": "duplicates", "status": "complete"},
+        {
+            "key": "transcription",
+            "status": transcription_status if is_timed_media else "skipped",
+        },
+        {
+            "key": "indexing",
+            "status": indexing_status if confirmed else "pending",
+        },
+    ]
+
+
 def _audio_response(
     note: models.LectureNote,
     metadata: Dict[str, Any],
@@ -2754,6 +2806,7 @@ def _audio_response(
     chunks: int = 0,
     sharing: dict | None = None,
     source_document_type: str = "audio",
+    pipeline_steps: list[dict[str, str]] | None = None,
 ) -> dict:
     source_document_type = str(metadata.get("document_type") or "audio")
     if source_document_type not in {"audio", "video"}:
@@ -2770,6 +2823,7 @@ def _audio_response(
         "metadata": metadata,
         "sharing": sharing or sharing_payload(PRIVATE),
         "message": message,
+        "pipeline_steps": pipeline_steps or [],
     }
 
 
@@ -2824,7 +2878,7 @@ def _persist_audio_upload(
         "indexed_status": "processing",
         "transcript_available": False,
     })
-    course = match_course(db, metadata)
+    course = match_course(db, metadata, active_space_id=getattr(current_user, "active_learning_space_id", None))
     note = models.LectureNote(
         course_id=course.id if course else None,
         uploaded_by=current_user.id,
@@ -2848,6 +2902,7 @@ def _persist_audio_upload(
     note_metadata["storage_reference"] = f"lecture_note:{note.id}"
     sharing = _apply_upload_sharing(db, [note], requested_visibility, requested_group_ids, current_user)
 
+    _emit_upload_progress("transcription", "active")
     try:
         transcription_bytes = extraction.get("transcription_bytes") or extraction.get("file_bytes") or b""
         if source_document_type == "video" and not extraction.get("transcription_bytes"):
@@ -2858,7 +2913,10 @@ def _persist_audio_upload(
             transcription_bytes,
         )
         provider, model, segments = _normalise_audio_transcription(transcription)
+        _emit_upload_progress("transcription", "complete")
     except VideoProcessingError:
+        _emit_upload_progress("transcription", "error")
+        _emit_upload_progress("indexing", "skipped")
         note_metadata.update({
             "processing_status": "failed",
             "transcription_status": "failed",
@@ -2870,8 +2928,23 @@ def _persist_audio_upload(
         })
         note.metadata_json = note_metadata
         db.commit()
-        return _audio_response(note, note_metadata, "audio_failed", "The original video was saved, but its audio could not be prepared for transcription.", sharing=sharing)
+        return _audio_response(
+            note,
+            note_metadata,
+            "audio_failed",
+            "The original video was saved, but its audio could not be prepared for transcription.",
+            sharing=sharing,
+            pipeline_steps=upload_pipeline_steps(
+                extraction_succeeded=True,
+                is_timed_media=True,
+                confirmed=True,
+                transcription_status="error",
+                indexing_status="skipped",
+            ),
+        )
     except AIProviderError:
+        _emit_upload_progress("transcription", "error")
+        _emit_upload_progress("indexing", "skipped")
         note_metadata.update({
             "processing_status": "failed",
             "transcription_status": "failed",
@@ -2883,8 +2956,23 @@ def _persist_audio_upload(
         })
         note.metadata_json = note_metadata
         db.commit()
-        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription could not be completed. Check the transcription provider configuration or try again.", sharing=sharing)
+        return _audio_response(
+            note,
+            note_metadata,
+            "audio_failed",
+            "Audio transcription could not be completed. Check the transcription provider configuration or try again.",
+            sharing=sharing,
+            pipeline_steps=upload_pipeline_steps(
+                extraction_succeeded=True,
+                is_timed_media=True,
+                confirmed=True,
+                transcription_status="error",
+                indexing_status="skipped",
+            ),
+        )
     except Exception:
+        _emit_upload_progress("transcription", "error")
+        _emit_upload_progress("indexing", "skipped")
         note_metadata.update({
             "processing_status": "failed",
             "transcription_status": "failed",
@@ -2895,7 +2983,20 @@ def _persist_audio_upload(
         })
         note.metadata_json = note_metadata
         db.commit()
-        return _audio_response(note, note_metadata, "audio_failed", "Audio transcription returned an invalid result. Try another recording.", sharing=sharing)
+        return _audio_response(
+            note,
+            note_metadata,
+            "audio_failed",
+            "Audio transcription returned an invalid result. Try another recording.",
+            sharing=sharing,
+            pipeline_steps=upload_pipeline_steps(
+                extraction_succeeded=True,
+                is_timed_media=True,
+                confirmed=True,
+                transcription_status="error",
+                indexing_status="skipped",
+            ),
+        )
 
     for segment in segments:
         segment_topic = (_infer_topics_covered(segment["text"]) or [None])[0]
@@ -2911,6 +3012,7 @@ def _persist_audio_upload(
             metadata_json={"provider": provider, "model": model, "segment_index": segment["segment_index"]},
         ))
 
+    _emit_upload_progress("indexing", "active")
     groups = _audio_chunk_groups(segments)
     embeddings: list[list[float] | None] = []
     indexing_warning = len(groups) > MAX_INDEX_CHUNKS
@@ -2960,9 +3062,20 @@ def _persist_audio_upload(
     })
     note.metadata_json = note_metadata
     db.commit()
+    _emit_upload_progress(
+        "indexing",
+        "error" if len(groups) > MAX_INDEX_CHUNKS else "complete" if groups else "skipped",
+    )
+    pipeline_steps = upload_pipeline_steps(
+        extraction_succeeded=True,
+        is_timed_media=True,
+        confirmed=True,
+        transcription_status="complete",
+        indexing_status="error" if len(groups) > MAX_INDEX_CHUNKS else "complete" if groups else "skipped",
+    )
     if indexing_warning:
-        return _audio_response(note, note_metadata, "audio_warning", "The recording was saved and transcribed. Keyword search is available while semantic embeddings are unavailable.", chunks=len(groups), sharing=sharing)
-    return _audio_response(note, note_metadata, "success", "Audio recording transcribed and added to your workspace.", len(groups), sharing)
+        return _audio_response(note, note_metadata, "audio_warning", "The recording was saved and transcribed. Keyword search is available while semantic embeddings are unavailable.", chunks=len(groups), sharing=sharing, pipeline_steps=pipeline_steps)
+    return _audio_response(note, note_metadata, "success", "Audio recording transcribed and added to your workspace.", len(groups), sharing, pipeline_steps=pipeline_steps)
 
 
 def _empty_delete_summary() -> Dict[str, int]:
@@ -3198,7 +3311,24 @@ def upload_document(
     current_user: models.User = Depends(auth.require_role("student")),
     _rate_limit: None = Depends(user_rate_limit("upload", auth.require_role("student"))),
 ):
-    extraction = extract_pdf_text(file)
+    # The active membership is the upload boundary. Real ORM users always
+    # carry an active-space pointer; lightweight direct unit callers may omit
+    # it and are intentionally left compatible with the existing tests.
+    active_space = None
+    if hasattr(current_user, "active_learning_space_id"):
+        active_space = authorized_active_space(db, current_user)
+        if active_space is None:
+            raise HTTPException(status_code=403, detail="Choose your active learning space before uploading material.")
+
+    _emit_upload_progress("reading", "active")
+    try:
+        extraction = extract_pdf_text(file)
+    except Exception:
+        _emit_upload_progress("reading", "complete")
+        _emit_upload_progress("extraction", "error")
+        raise
+    _emit_upload_progress("reading", "complete")
+    _emit_upload_progress("extraction", "active")
     is_timed_media = extraction.get("resource_type") in {"audio", "video"}
     raw_extracted_text = extraction.get("raw_extracted_text") or extraction.get("text") or ""
     cleaned_text = extraction.get("cleaned_text") or _clean_ocr_text(raw_extracted_text)
@@ -3207,48 +3337,60 @@ def upload_document(
         len(operational_text.strip()) >= MIN_INDEXABLE_TEXT_CHARS or bool(extraction.get("searchable"))
     ))
 
-    if is_timed_media:
-        media_label = "Video recording" if extraction.get("resource_type") == "video" else "Audio recording"
-        media_document_type = extraction.get("resource_type") or "audio"
-        audio_title = re.sub(r"[_-]+", " ", os.path.splitext(file.filename or media_label)[0]).strip().title()
-        heuristic = normalize_metadata_fields({
-            "document_type": media_document_type,
-            "document_title": audio_title or media_label,
-            "course_code": "",
-            "course_title": "",
-            "topics_covered": [],
-            "confidence_score": 0.5,
-        })
-        ai_metadata = _attach_metadata_review(
-            heuristic,
-            heuristic=heuristic,
-            ai_metadata={},
-            filename=file.filename or "recording",
-            text="",
-            page_texts=None,
-            extraction_method=extraction.get("method") or "audio_pending",
-        )
-        extraction_succeeded = True
-    elif extraction_succeeded:
-        ai_metadata = extract_metadata(
-            file.filename or "upload.pdf",
-            operational_text,
-            extraction.get("page_texts"),
-            extraction.get("method") or "embedded_text",
-        )
-    else:
-        heuristic = normalize_metadata_fields(
-            infer_metadata_fallback(file.filename or "upload.pdf", operational_text, extraction.get("page_texts"))
-        )
-        ai_metadata = _attach_metadata_review(
-            heuristic,
-            heuristic=heuristic,
-            ai_metadata={},
-            filename=file.filename or "upload.pdf",
-            text=operational_text,
-            page_texts=extraction.get("page_texts"),
-            extraction_method=extraction.get("method") or "failed",
-        )
+    _emit_upload_progress("extraction", "complete" if extraction_succeeded else "error")
+    # The media-only transcription stage is already known to be unnecessary
+    # for documents once extraction has completed. Tell streaming clients now
+    # so a non-applicable stage does not look pending during review.
+    _emit_upload_progress("transcription", "active" if is_timed_media else "skipped")
+    _emit_upload_progress("metadata", "active")
+    try:
+        if is_timed_media:
+            media_label = "Video recording" if extraction.get("resource_type") == "video" else "Audio recording"
+            media_document_type = extraction.get("resource_type") or "audio"
+            audio_title = re.sub(r"[_-]+", " ", os.path.splitext(file.filename or media_label)[0]).strip().title()
+            heuristic = normalize_metadata_fields({
+                "document_type": media_document_type,
+                "document_title": audio_title or media_label,
+                "course_code": "",
+                "course_title": "",
+                "topics_covered": [],
+                "confidence_score": 0.5,
+            })
+            ai_metadata = _attach_metadata_review(
+                heuristic,
+                heuristic=heuristic,
+                ai_metadata={},
+                filename=file.filename or "recording",
+                text="",
+                page_texts=None,
+                extraction_method=extraction.get("method") or "audio_pending",
+            )
+            extraction_succeeded = True
+        elif extraction_succeeded:
+            ai_metadata = extract_metadata(
+                file.filename or "upload.pdf",
+                operational_text,
+                extraction.get("page_texts"),
+                extraction.get("method") or "embedded_text",
+            )
+        else:
+            heuristic = normalize_metadata_fields(
+                infer_metadata_fallback(file.filename or "upload.pdf", operational_text, extraction.get("page_texts"))
+            )
+            ai_metadata = _attach_metadata_review(
+                heuristic,
+                heuristic=heuristic,
+                ai_metadata={},
+                filename=file.filename or "upload.pdf",
+                text=operational_text,
+                page_texts=extraction.get("page_texts"),
+                extraction_method=extraction.get("method") or "failed",
+            )
+    except Exception:
+        _emit_upload_progress("metadata", "error")
+        raise
+    _emit_upload_progress("metadata", "complete")
+
     ai_metadata.update(
         {
             "source_file": file.filename,
@@ -3277,6 +3419,25 @@ def upload_document(
         metadata["transcription_status"] = "pending"
         metadata["transcript_available"] = False
     metadata["pages_read"] = extraction.get("page_count") or 0
+    if active_space is not None:
+        metadata["learning_space_id"] = active_space.id
+        metadata["learning_space_slug"] = active_space.slug
+        if active_space.slug == "ksa":
+            if metadata.get("document_type") == "unknown":
+                metadata["document_type"] = "lecture_note"
+            if not metadata.get("document_title"):
+                stem = os.path.splitext(file.filename or "Study material")[0]
+                metadata["document_title"] = re.sub(r"[_-]+", " ", stem).strip().title() or "Study material"
+            # KSA has no CU course catalogue metadata requirement.
+            metadata.update({
+                "course_code": "UNKNOWN",
+                "course_title": "",
+                "academic_year": "",
+                "semester": "Unknown",
+                "department": "",
+                "faculty": "",
+                "college": "",
+            })
     detected_topics = _infer_topics_covered(operational_text)
     metadata["topics_covered"] = list(dict.fromkeys([*(metadata.get("topics_covered") or []), *detected_topics]))[:24]
     metadata["raw_extracted_text"] = raw_extracted_text[:8000]
@@ -3284,12 +3445,11 @@ def upload_document(
     metadata["cleaned_text_sample"] = cleaned_text[:5000]
     metadata["cleaned_text_char_count"] = len(cleaned_text.strip())
 
-    active_space = authorized_active_space(db, current_user)
     metadata["workspace_relevance"] = classify_workspace_relevance(active_space, metadata, operational_text)
 
     # Catalogue data is read-only enrichment. Unknown codes remain unmatched;
     # an upload never creates a new course row as a side effect of review.
-    derive_course_catalogue(db, metadata)
+    derive_course_catalogue(db, metadata, active_space_id=getattr(active_space, "id", None))
     if not confirm:
         metadata["metadata_proposal"] = _metadata_snapshot(metadata)
     else:
@@ -3346,11 +3506,27 @@ def upload_document(
     ]
     preview_text = cleaned_text[:5000]
     response_extraction = public_extraction_payload(extraction)
+    pipeline_steps = upload_pipeline_steps(
+        extraction_succeeded=extraction_succeeded,
+        is_timed_media=is_timed_media,
+        confirmed=confirm,
+    )
 
     form_duplicate_resolution = duplicate_resolution if isinstance(duplicate_resolution, str) else None
-    duplicate = find_duplicate(db, metadata, current_user, operational_text)
+    _emit_upload_progress("duplicates", "active")
+    try:
+        duplicate = find_duplicate(db, metadata, current_user, operational_text)
+    except Exception:
+        _emit_upload_progress("duplicates", "error")
+        raise
+    _emit_upload_progress("duplicates", "complete")
     if duplicate and form_duplicate_resolution not in {"continue", "newer_version"}:
-        return {"status": "duplicate", "metadata": metadata, "existing_document": duplicate}
+        return {
+            "status": "duplicate",
+            "metadata": metadata,
+            "existing_document": duplicate,
+            "pipeline_steps": pipeline_steps,
+        }
 
     version_parent_id = duplicate.get("id") if duplicate and form_duplicate_resolution == "newer_version" else None
     material_model = models.PastQuestion if metadata.get("document_type") == "past_question" else models.LectureNote
@@ -3379,6 +3555,7 @@ def upload_document(
             "extraction": response_extraction,
             "sharing": sharing_payload(PRIVATE),
             "message": extraction_message(extraction),
+            "pipeline_steps": pipeline_steps,
         }
 
     if not confirm:
@@ -3396,9 +3573,10 @@ def upload_document(
             "extraction": response_extraction,
             "sharing": sharing_payload(PRIVATE),
             "message": extraction_message(extraction),
+            "pipeline_steps": pipeline_steps,
         }
 
-    required_errors = metadata_required_errors(metadata)
+    required_errors = metadata_required_errors(metadata, active_space_slug=getattr(active_space, "slug", None))
     if required_errors:
         readable = {
             "title": "title",
@@ -3426,7 +3604,8 @@ def upload_document(
             source_document_type=extraction.get("resource_type") or "audio",
         )
 
-    course = match_course(db, metadata)
+    course = match_course(db, metadata, active_space_id=getattr(active_space, "id", None))
+    _emit_upload_progress("indexing", "active")
     manual_unindexed = metadata.get("extraction_method") == "manual" or not extraction_succeeded
     chunks = [] if manual_unindexed else [chunk for chunk in chunk_text(operational_text) if len(chunk.strip()) >= 50]
     if not chunks:
@@ -3595,6 +3774,13 @@ def upload_document(
         metadata.setdefault("embedding_mode", "semantic")
 
     db.commit()
+    _emit_upload_progress("indexing", "complete" if chunks else "skipped")
+    pipeline_steps = upload_pipeline_steps(
+        extraction_succeeded=extraction_succeeded,
+        is_timed_media=False,
+        confirmed=True,
+        indexing_status="complete" if chunks else "skipped",
+    )
     return {
         "status": "success",
         "document_id": document_id,
@@ -3604,4 +3790,90 @@ def upload_document(
         "searchable": metadata.get("searchable", bool(chunks)),
         "sharing": sharing,
         "metadata": metadata,
+        "pipeline_steps": pipeline_steps,
     }
+
+
+@router.post("/upload/stream")
+def upload_document_stream(
+    file: UploadFile = File(...),
+    confirm: bool = Form(False),
+    confirmed_metadata: Optional[str] = Form(None),
+    visibility: Optional[str] = Form(None),
+    shared_group_ids: Optional[str] = Form(None),
+    visibility_confirmed: bool = Form(False),
+    duplicate_resolution: Optional[str] = Form(None),
+    current_user: models.User = Depends(auth.require_role("student")),
+    _rate_limit: None = Depends(user_rate_limit("upload", auth.require_role("student"))),
+):
+    """Stream server-confirmed upload stages while the synchronous pipeline runs.
+
+    The regular JSON endpoint remains available for non-browser clients. This
+    endpoint uses a short-lived worker and a request-local event queue so the
+    browser can show actual extraction/transcription/indexing transitions
+    without pretending that a timer represents backend work.
+    """
+    content = _read_bounded_upload(file)
+    filename = file.filename or "upload"
+    content_type = file.content_type or "application/octet-stream"
+    try:
+        file.file.close()
+    except OSError:
+        pass
+
+    events: queue.Queue = queue.Queue()
+
+    def emit(key: str, status: str) -> None:
+        events.put({"type": "progress", "key": key, "status": status})
+
+    def worker() -> None:
+        worker_db = SessionLocal()
+        callback_token = _upload_progress_callback.set(emit)
+        try:
+            worker_user = (
+                worker_db.query(models.User)
+                .filter(models.User.id == current_user.id)
+                .first()
+                or current_user
+            )
+            worker_file = UploadFile(
+                filename=filename,
+                file=BytesIO(content),
+                headers={"content-type": content_type},
+            )
+            result = upload_document(
+                file=worker_file,
+                confirm=confirm,
+                confirmed_metadata=confirmed_metadata,
+                visibility=visibility,
+                shared_group_ids=shared_group_ids,
+                visibility_confirmed=visibility_confirmed,
+                duplicate_resolution=duplicate_resolution,
+                db=worker_db,
+                current_user=worker_user,
+            )
+            events.put({"type": "result", "data": result})
+        except HTTPException as exc:
+            events.put({"type": "error", "status": exc.status_code, "detail": exc.detail})
+        except Exception:
+            logger.exception("upload_stream_failed")
+            events.put({"type": "error", "status": 500, "detail": "Upload processing failed. Please try again."})
+        finally:
+            _upload_progress_callback.reset(callback_token)
+            worker_db.close()
+            events.put(None)
+
+    threading.Thread(target=worker, name="exammind-upload", daemon=True).start()
+
+    def event_stream():
+        while True:
+            event = events.get()
+            if event is None:
+                break
+            yield json.dumps(event, separators=(",", ":"), default=str) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

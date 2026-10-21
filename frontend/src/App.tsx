@@ -1346,7 +1346,7 @@ export default function App() {
           />
         )}
         {activeScreen === 'assistant' && <Assistant go={go} selectedQuestion={selectedQuestion} messages={chatMessages} onMessagesChange={updatePrivateMessages} user={user} onOpenSearch={focusGlobalSearch} />}
-        {activeScreen === 'upload' && <Upload go={go} user={user} archiveName={verifiedSpace?.slug === 'ksa' ? 'KSA' : verifiedSpace?.slug === 'cu' ? 'CU' : verifiedSpace?.name || 'your learning space'} queuedUpload={queuedUpload} onQueuedUploadStored={() => setQueuedUpload(null)} />}
+        {activeScreen === 'upload' && <Upload go={go} user={user} learningSpace={verifiedSpace} archiveName={verifiedSpace?.slug === 'ksa' ? 'KSA' : verifiedSpace?.slug === 'cu' ? 'CU' : verifiedSpace?.name || 'your learning space'} queuedUpload={queuedUpload} onQueuedUploadStored={() => setQueuedUpload(null)} />}
         {activeScreen === 'offline' && (
           <Offline
             go={go}

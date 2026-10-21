@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
@@ -162,6 +162,17 @@ class UploadSerializationTests(unittest.TestCase):
         response = self.analyze("study-material.pdf", successful_extraction(b"%PDF\x00\xff", "embedded_text"))
 
         self.assertEqual(response["status"], "needs_confirmation")
+        self.assertEqual(
+            [(step["key"], step["status"]) for step in response["pipeline_steps"]],
+            [
+                ("reading", "complete"),
+                ("extraction", "complete"),
+                ("metadata", "complete"),
+                ("duplicates", "complete"),
+                ("transcription", "skipped"),
+                ("indexing", "pending"),
+            ],
+        )
         self.assert_json_serializable_analysis(response)
 
     def test_powerpoint_analysis_response_is_json_serializable(self):
@@ -206,6 +217,7 @@ class UploadSerializationTests(unittest.TestCase):
         self.assertEqual(note.file_size, len(raw_bytes))
         self.assertEqual(db.commits, 1)
         self.assertEqual(response["status"], "success")
+        self.assertEqual(response["pipeline_steps"][-1], {"key": "indexing", "status": "complete"})
         json.dumps(jsonable_encoder(response))
         assert_no_binary(response)
 
@@ -235,6 +247,7 @@ class UploadSerializationTests(unittest.TestCase):
         self.assertEqual(response["status"], "success")
         self.assertTrue(response["searchable"])
         self.assertEqual(response["metadata"]["embedding_mode"], "keyword")
+        self.assertEqual(response["pipeline_steps"][-1], {"key": "indexing", "status": "complete"})
         self.assertEqual(note.file_data, raw_bytes)
         self.assertTrue(chunks)
         self.assertTrue(all(chunk.embedding is None for chunk in chunks))
@@ -244,7 +257,128 @@ class UploadSerializationTests(unittest.TestCase):
         response = self.analyze("unclear-scan.pdf", failed_extraction(b"\x89PNG\x00\xff"))
 
         self.assertEqual(response["status"], "manual_metadata_required")
+        self.assertEqual(response["pipeline_steps"][1], {"key": "extraction", "status": "error"})
+        self.assertEqual(response["pipeline_steps"][4], {"key": "transcription", "status": "skipped"})
         self.assert_json_serializable_analysis(response)
+
+    def test_pipeline_signal_marks_media_transcription_pending_until_confirmation(self):
+        review_steps = ingest.upload_pipeline_steps(
+            extraction_succeeded=True,
+            is_timed_media=True,
+            confirmed=False,
+        )
+        self.assertEqual(review_steps[4], {"key": "transcription", "status": "pending"})
+        self.assertEqual(review_steps[5], {"key": "indexing", "status": "pending"})
+
+        completed_steps = ingest.upload_pipeline_steps(
+            extraction_succeeded=True,
+            is_timed_media=True,
+            confirmed=True,
+            transcription_status="complete",
+            indexing_status="complete",
+        )
+        self.assertEqual(completed_steps[4], {"key": "transcription", "status": "complete"})
+        self.assertEqual(completed_steps[5], {"key": "indexing", "status": "complete"})
+
+    def test_server_progress_callback_follows_confirmed_pdf_pipeline(self):
+        events = []
+        callback_token = ingest._upload_progress_callback.set(
+            lambda key, status: events.append((key, status)),
+        )
+        try:
+            db = DatabaseDouble()
+            with (
+                patch.object(ingest, "extract_pdf_text", return_value=successful_extraction(b"pdf", "embedded_text")),
+                patch.object(ingest, "extract_metadata", return_value=metadata_result()),
+                patch.object(ingest, "find_duplicate", return_value=None),
+                patch.object(ingest, "match_course", return_value=None),
+                patch.object(ingest, "embed_or_fail", return_value=[0.0] * 384),
+                patch.object(ingest, "split_into_sections", return_value=[]),
+            ):
+                response = ingest.upload_document(
+                    file=upload("study-material.pdf", b"pdf"),
+                    confirm=True,
+                    confirmed_metadata=None,
+                    db=db,
+                    current_user=SimpleNamespace(id=7),
+                )
+        finally:
+            ingest._upload_progress_callback.reset(callback_token)
+
+        self.assertEqual(response["status"], "success")
+        self.assertEqual(events, [
+            ("reading", "active"),
+            ("reading", "complete"),
+            ("extraction", "active"),
+            ("extraction", "complete"),
+            ("transcription", "skipped"),
+            ("metadata", "active"),
+            ("metadata", "complete"),
+            ("duplicates", "active"),
+            ("duplicates", "complete"),
+            ("indexing", "active"),
+            ("indexing", "complete"),
+        ])
+
+    def test_ksa_upload_review_uses_active_space_without_cu_metadata(self):
+        raw_bytes = b"ksa-study-material"
+        db = DatabaseDouble()
+        extraction = successful_extraction(raw_bytes, "embedded_text")
+        active_space = SimpleNamespace(id=22, slug="ksa", name="Kora Sales Academy")
+        user = SimpleNamespace(id=7, active_learning_space_id=active_space.id)
+
+        with (
+            patch.object(ingest, "authorized_active_space", return_value=active_space),
+            patch.object(ingest, "extract_pdf_text", return_value=extraction),
+            patch.object(ingest, "extract_metadata", return_value=metadata_result(document_title="", course_code="CSC301")),
+            patch.object(ingest, "find_duplicate", return_value=None),
+            patch.object(ingest, "match_course", return_value=None),
+            patch.object(ingest, "embed_or_fail", return_value=[0.0] * 384),
+            patch.object(ingest, "split_into_sections", return_value=[]),
+        ):
+            review = ingest.upload_document(
+                file=upload("week-4-slides.pdf", raw_bytes),
+                confirm=False,
+                confirmed_metadata=None,
+                db=db,
+                current_user=user,
+            )
+            self.assertEqual(review["status"], "needs_confirmation")
+            self.assertEqual(review["metadata"]["learning_space_id"], 22)
+            self.assertEqual(review["metadata"]["learning_space_slug"], "ksa")
+            self.assertEqual(review["metadata"]["course_code"], "UNKNOWN")
+            self.assertTrue(review["metadata"]["document_title"])
+
+            saved = ingest.upload_document(
+                file=upload("week-4-slides.pdf", raw_bytes),
+                confirm=True,
+                confirmed_metadata=json.dumps(review["metadata"]),
+                db=db,
+                current_user=user,
+            )
+
+        self.assertEqual(saved["status"], "success")
+        note = next(value for value in db.added if isinstance(value, models.LectureNote))
+        self.assertEqual(note.metadata_json["learning_space_id"], 22)
+        self.assertEqual(note.metadata_json["learning_space_slug"], "ksa")
+
+    def test_upload_requires_an_authorized_active_space_for_real_users(self):
+        db = DatabaseDouble()
+        user = SimpleNamespace(id=7, active_learning_space_id=None)
+        with patch.object(ingest, "authorized_active_space", return_value=None):
+            with self.assertRaises(HTTPException) as context:
+                ingest.upload_document(
+                    file=upload("study-material.pdf", b"content"),
+                    confirm=False,
+                    confirmed_metadata=None,
+                    db=db,
+                    current_user=user,
+                )
+        self.assertEqual(context.exception.status_code, 403)
+
+    def test_ksa_metadata_does_not_require_course_or_session(self):
+        metadata = metadata_result(document_title="", course_code="UNKNOWN", course_title="", academic_year="", semester="Unknown")
+        self.assertEqual(ingest.metadata_required_errors(metadata, active_space_slug="ksa"), [])
 
     def test_cohere_fallback_metadata_succeeds_when_deepseek_fails(self):
         class FailingDeepSeek:
