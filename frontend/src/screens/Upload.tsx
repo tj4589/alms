@@ -156,12 +156,21 @@ const STEP_DEFINITIONS: Array<{ key: StepKey; label: string }> = [
 ];
 const STEP_LABELS = STEP_DEFINITIONS.map(step => step.label);
 
-function pendingSteps(): ProcessingStep[] {
-  return STEP_DEFINITIONS.map(step => ({ ...step, status: 'pending' }));
+function fileNeedsTranscription(file?: Pick<File, 'name' | 'type'> | null) {
+  if (!file) return true;
+  return file.type.startsWith('audio/') || file.type.startsWith('video/') ||
+    /\.(mp3|wav|m4a|ogg|flac|webm|mp4|mov)$/i.test(file.name);
 }
 
-function pipelineSteps(value: unknown): ProcessingStep[] {
-  if (!Array.isArray(value)) return pendingSteps();
+function pendingSteps(file?: Pick<File, 'name' | 'type'> | null): ProcessingStep[] {
+  return STEP_DEFINITIONS.map(step => ({
+    ...step,
+    status: step.key === 'transcription' && file && !fileNeedsTranscription(file) ? 'skipped' : 'pending',
+  }));
+}
+
+function pipelineSteps(value: unknown, file?: Pick<File, 'name' | 'type'> | null): ProcessingStep[] {
+  if (!Array.isArray(value)) return pendingSteps(file);
   const statuses = new Map<StepKey, StepStatus>();
   value.forEach(item => {
     if (!item || typeof item !== 'object') return;
@@ -174,7 +183,10 @@ function pipelineSteps(value: unknown): ProcessingStep[] {
           : status === 'active' ? 'active' : 'pending';
     statuses.set(key as StepKey, mappedStatus);
   });
-  return STEP_DEFINITIONS.map(step => ({ ...step, status: statuses.get(step.key) || 'pending' }));
+  return STEP_DEFINITIONS.map(step => ({
+    ...step,
+    status: statuses.get(step.key) || (step.key === 'transcription' && file && !fileNeedsTranscription(file) ? 'skipped' : 'pending'),
+  }));
 }
 
 function applyProgressStep(current: ProcessingStep[], event: ApiProgressEvent): ProcessingStep[] {
@@ -186,8 +198,8 @@ function applyProgressStep(current: ProcessingStep[], event: ApiProgressEvent): 
   return current.map(step => step.key === event.key ? { ...step, status } : step);
 }
 
-function unknownFailureSteps(): ProcessingStep[] {
-  return pendingSteps();
+function unknownFailureSteps(file?: Pick<File, 'name' | 'type'> | null): ProcessingStep[] {
+  return pendingSteps(file);
 }
 
 const DOC_TYPE_LABEL: Record<string, string> = {
@@ -1283,7 +1295,7 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
     setContentPreview(null);
     setPreviewQuality('low');
     setExtraction(null);
-    setProcessingSteps(pendingSteps());
+    setProcessingSteps(pendingSteps(selected));
     setLastAction('analyze');
 
     if (!navigator.onLine) {
@@ -1324,24 +1336,24 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
 
       if (data.status === 'duplicate') {
         setDuplicateDocument((data.existing_document || null) as DuplicateDocument | null);
-        setProcessingSteps(pipelineSteps(data.pipeline_steps));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps, selected));
         setState('duplicate');
         setMessage(`Already uploaded as ${data.existing_document?.title || 'an existing document'}.`);
       } else if (data.status === 'manual_metadata_required') {
-        setProcessingSteps(pipelineSteps(data.pipeline_steps));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps, selected));
         setState('manual_metadata_required');
         setMessage(data.message || rescueMessage(data.metadata?.extraction_failure_reason));
       } else if (data.status === 'audio_failed') {
-        setProcessingSteps(pipelineSteps(data.pipeline_steps));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps, selected));
         setState('error');
         setMessage(data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.');
       } else {
-        setProcessingSteps(pipelineSteps(data.pipeline_steps));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps, selected));
         setMessage('');
         setState('confirm');
       }
     } catch (err) {
-      setProcessingSteps(unknownFailureSteps());
+      setProcessingSteps(unknownFailureSteps(selected));
       setState('error');
       const fallback = 'Upload analysis failed.';
       const errorMessage = err instanceof Error ? err.message : fallback;
@@ -1396,7 +1408,7 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
     confirmationPending.current = true;
     setState('processing');
     setMessage('');
-    setProcessingSteps(pendingSteps());
+    setProcessingSteps(pendingSteps(file));
     setLastAction('index');
 
     const submissionMetadata = normalizeMetadata(metadata);
@@ -1435,16 +1447,16 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
 
       if (data.status === 'duplicate') {
         setDuplicateDocument((data.existing_document || null) as DuplicateDocument | null);
-        setProcessingSteps(pipelineSteps(data.pipeline_steps));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps, file));
         setState('duplicate');
         setMessage('A matching document already exists.');
       } else if (data.status === 'audio_failed') {
-        setProcessingSteps(pipelineSteps(data.pipeline_steps));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps, file));
         setState('error');
         setMessage([data.message || 'Audio transcription could not be completed. Check the provider configuration or try again.', queueCleanupWarning].filter(Boolean).join(' '));
       } else {
         setDuplicateDocument(null);
-        setProcessingSteps(pipelineSteps(data.pipeline_steps));
+        setProcessingSteps(pipelineSteps(data.pipeline_steps, file));
         setChunksIndexed(data.chunks_indexed || 0);
         setLastIndexed(data.indexed !== false);
         setLastDocumentId(typeof data.document_id === 'number' ? data.document_id : null);
@@ -1457,7 +1469,7 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
         setMessage([data.status === 'audio_warning' ? (data.message || 'The recording was saved and transcribed, but search indexing is still pending.') : '', queueCleanupWarning].filter(Boolean).join(' '));
       }
     } catch (err) {
-      setProcessingSteps(unknownFailureSteps());
+      setProcessingSteps(unknownFailureSteps(file));
       setState('error');
       setMessage(err instanceof Error ? err.message : 'Indexing failed.');
     } finally { confirmationPending.current = false; }

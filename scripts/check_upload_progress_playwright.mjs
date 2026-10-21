@@ -105,7 +105,7 @@ const inspect = async () => page.evaluate(() => {
 
 const desktop = await inspect();
 assert.equal(desktop.stepCount, 6);
-assert.deepEqual(desktop.statuses, ['pending', 'pending', 'pending', 'pending', 'pending', 'pending']);
+assert.deepEqual(desktop.statuses, ['pending', 'pending', 'pending', 'pending', 'skipped', 'pending']);
 assert.equal(desktop.noOverflow, true);
 assert.match(desktop.indeterminateCopy, /server confirms/i);
 await mkdir(path.resolve('output/upload-progress'), { recursive: true });
