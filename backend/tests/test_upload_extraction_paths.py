@@ -82,7 +82,8 @@ class UploadExtractionPathTests(unittest.TestCase):
         document = fitz.open()
         page = document.new_page()
         lines = [
-            "Prospecting & Pipeline Generation",
+            "Prospecting &",
+            "Pipeline Generation",
             "Prospecting finds potential customers through inbound versus outbound approaches.",
             "Build targeted prospect lists using an ideal customer profile (ICP).",
             "Cold email uses Hook -> Value -> CTA to start a useful conversation.",
@@ -102,6 +103,7 @@ class UploadExtractionPathTests(unittest.TestCase):
         )
 
         topics = metadata["topics_covered"]
+        self.assertEqual(metadata["document_title"], "Prospecting & Pipeline Generation")
         self.assertIn("prospecting", topics)
         self.assertIn("inbound and outbound prospecting", topics)
         self.assertIn("targeted prospect lists and icp", topics)

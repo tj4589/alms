@@ -1318,6 +1318,34 @@ def _page_texts(content: bytes) -> list[str] | None:
         doc.close()
 
 
+def _infer_document_title(filename: str, text: str, page_texts: Optional[list[str]] = None) -> str:
+    """Infer a readable title from the current upload's first heading."""
+    source = (page_texts[0] if page_texts else text) or ""
+    lines = [
+        re.sub(r"\s+", " ", line.replace("\ufffd", " ")).strip(" -\t")
+        for line in source.splitlines()
+    ]
+    lines = [line for line in lines if line and re.search(r"[A-Za-z]{3,}", line)]
+    ignored = {
+        "contents", "table of contents", "session roadmap", "lecture notes",
+        "course outline", "course syllabus", "introduction",
+    }
+    for index, first in enumerate(lines[:8]):
+        if first.lower() in ignored or re.fullmatch(r"(?:page\s*)?\d+", first, re.IGNORECASE):
+            continue
+        title = first
+        if index + 1 < len(lines):
+            second = lines[index + 1]
+            if first.endswith(("&", "/", "-")) or (len(first) <= 28 and len(second) <= 72 and not second.endswith((".", ":"))):
+                title = f"{first} {second}"
+        title = re.sub(r"\s+", " ", title).strip()
+        if len(title) >= 4:
+            return _clean_document_title(title)[:180]
+
+    stem = os.path.splitext(os.path.basename(filename or ""))[0]
+    return _clean_document_title(re.sub(r"[_-]+", " ", stem).strip())[:180]
+
+
 def infer_metadata_fallback(filename: str, text: str, page_texts: Optional[list[str]] = None) -> Dict[str, Any]:
     sample = f"{filename}\n{text[:2500]}"
     course_matches = _extract_course_codes(sample)
@@ -1379,12 +1407,13 @@ def infer_metadata_fallback(filename: str, text: str, page_texts: Optional[list[
     year = int(year_match.group(1)) if year_match else None
     if academic_year and not year:
         year = int(academic_year.split("/")[-1])
+    document_title = _infer_document_title(filename, text, page_texts)
     course_title = _infer_course_title(sample)
     topics_covered = _infer_topics_covered(sample)
 
     return {
         "document_type": document_type,
-        "document_title": "",
+        "document_title": document_title,
         "course_code": course_code,
         "course_title": course_title,
         "instructor_names": instructor_names,
