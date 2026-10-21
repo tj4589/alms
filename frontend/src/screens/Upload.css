@@ -563,6 +563,18 @@
   line-height: 1;
 }
 
+#s-upload .topic-support-note {
+  margin: 10px 0 0;
+  color: #176b5d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+#s-upload .topic-support-note.is-uncertain,
+#s-upload .metadata-topic-note {
+  color: #8a4d2d;
+}
+
 #s-upload .content-preview {
   margin: 22px 0 16px;
   padding: 20px;

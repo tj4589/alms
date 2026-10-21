@@ -71,6 +71,12 @@ type MetadataEvidence = {
   page_number?: number | null;
   requires_confirmation?: boolean;
 };
+type TopicEvidence = {
+  topic?: string;
+  evidence?: string;
+  page_number?: number | null;
+  source?: string;
+};
 type FieldStatus = 'detected' | 'review' | 'missing' | 'edited' | 'catalogue' | 'strong' | 'suggested' | 'optional' | 'conflict';
 type ValidationErrors = Partial<Record<'document_title' | 'document_type' | 'course' | 'academic_year' | 'semester' | 'year' | 'topics' | 'sharing', string>>;
 
@@ -99,6 +105,8 @@ type Metadata = {
   confidence_score?: number;
   pages_read?: number;
   metadata_evidence?: Record<string, MetadataEvidence>;
+  topic_evidence?: TopicEvidence[];
+  topics_grounding_status?: 'grounded' | 'uncertain' | 'none';
   metadata_proposal?: Record<string, unknown>;
   metadata_corrections?: Record<string, unknown>;
   metadata_model_version?: string;
@@ -249,6 +257,15 @@ function normalizeMetadata(value: Record<string, unknown> = {}) : Metadata {
     college: cleanIncomingValue(next.college, 'college'),
     exam_type: cleanIncomingValue(next.exam_type, 'exam_type') || 'unknown',
     topics_covered: normalizeList(next.topics_covered),
+    topic_evidence: Array.isArray(next.topic_evidence)
+      ? next.topic_evidence.filter(item => item && typeof item === 'object').map(item => ({
+        topic: String((item as TopicEvidence).topic || ''),
+        evidence: String((item as TopicEvidence).evidence || ''),
+        page_number: typeof (item as TopicEvidence).page_number === 'number' ? (item as TopicEvidence).page_number : null,
+        source: String((item as TopicEvidence).source || 'document_text'),
+      }))
+      : [],
+    topics_grounding_status: next.topics_grounding_status === 'grounded' || next.topics_grounding_status === 'uncertain' ? next.topics_grounding_status : 'none',
     year: next.year === '' || next.year === null || next.year === undefined ? '' : Number(next.year) || '',
   };
 }
@@ -502,7 +519,10 @@ function spaceReviewSummary(metadata: Metadata, extraction: ExtractionInfo | nul
   const confidenceNote = previewQuality === 'medium' || previewQuality === 'low'
     ? ' Some details may need a quick look.'
     : '';
-  return `${details.join('. ')}.${confidenceNote}`;
+  const topicNote = metadata.topics_grounding_status === 'uncertain'
+    ? ' ExamMind could not confidently identify topics from this file yet.'
+    : '';
+  return `${details.join('. ')}.${topicNote}${confidenceNote}`;
 }
 
 function DocumentSummary({ file, metadata, extraction, review, isKsaProgram }: { file: File | null; metadata: Metadata; extraction: ExtractionInfo | null; review: boolean; isKsaProgram: boolean }) {
@@ -785,6 +805,8 @@ function EssentialMetadataEditor({
 
 function TopicsEditor({
   topics,
+  topicEvidence,
+  groundingStatus,
   status,
   draft,
   onDraftChange,
@@ -792,12 +814,20 @@ function TopicsEditor({
   onRemove,
 }: {
   topics: string[];
+  topicEvidence: TopicEvidence[];
+  groundingStatus?: Metadata['topics_grounding_status'];
   status: FieldStatus;
   draft: string;
   onDraftChange: (value: string) => void;
   onAdd: () => void;
   onRemove: (topic: string) => void;
 }) {
+  const supportedPages = [...new Set(topicEvidence.map(item => item.page_number).filter((page): page is number => typeof page === 'number'))];
+  const supportNote = groundingStatus === 'uncertain'
+    ? 'ExamMind could not confidently identify topics from this file yet. Add one only if it is supported by the preview.'
+    : topics.length > 0
+      ? supportedPages.length > 0 ? `Supported by this file · page${supportedPages.length === 1 ? '' : 's'} ${supportedPages.join(', ')}` : 'Supported by this file'
+      : 'No topics were detected from this file.';
   return (
     <section className="topics-editor" aria-labelledby="topics-editor-title">
       <div className="topics-editor-head">
@@ -809,13 +839,14 @@ function TopicsEditor({
       </div>
       <div className="topic-chip-row">
         {topics.map(topic => (
-          <span className="topic-chip topic-chip--editable" key={topic}>
+          <span className="topic-chip topic-chip--editable" key={topic} title={topicEvidence.find(item => item.topic === topic)?.page_number ? `Supported on page ${topicEvidence.find(item => item.topic === topic)?.page_number}` : 'Supported by this file'}>
             {topic}
             <button type="button" className="topic-remove" onClick={() => onRemove(topic)} aria-label={`Remove topic ${topic}`}><X size={13} /></button>
           </span>
         ))}
-        {topics.length === 0 && <span className="topic-empty">No topics detected yet.</span>}
+        {topics.length === 0 && <span className="topic-empty">{supportNote}</span>}
       </div>
+      {topics.length > 0 && <p className={`topic-support-note${groundingStatus === 'uncertain' ? ' is-uncertain' : ''}`}>{supportNote}</p>}
       <div className="topic-entry">
         <input value={draft} onChange={e => onDraftChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); onAdd(); } }} placeholder="Add a topic" aria-label="Add a topic" />
         <button type="button" className="topic-add" onClick={onAdd}><Plus size={15} /> Add topic</button>
@@ -898,7 +929,8 @@ function UploadConfirmationCard({
   const completedEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'catalogue_confirmed' || item.status === 'strong_evidence');
   const optionalEntries = Object.entries(metadata.metadata_evidence || {}).filter(([, item]) => item.status === 'optional' && displayValue(item.value as string | number | null, ''));
   const evidenceLabel: Record<string, string> = { title: 'Title', document_type: 'Document type', course_code: 'Course', course_title: 'Course title', academic_session: 'Academic session', semester: periodLabel, instructor_or_author: 'Instructor or author', year: 'Year', department: 'Department', exam_type: 'Exam type', topics: 'Topics' };
-  const review = isKsaProgram ? Boolean(metadata.needs_review) : confidence === 'Review Recommended' || attentionEntries.length > 0 || Boolean(metadata.needs_review);
+  const topicsNeedReview = metadata.topics_grounding_status === 'uncertain';
+  const review = isKsaProgram ? Boolean(metadata.needs_review) || topicsNeedReview : confidence === 'Review Recommended' || attentionEntries.length > 0 || Boolean(metadata.needs_review) || topicsNeedReview;
   const hasMissingEssentials = isKsaProgram ? false : !metadata.document_title || metadata.document_type === 'unknown' || (!metadata.course_code && !metadata.course_title);
   const validationSummary = Object.values(errors).filter(Boolean);
 
@@ -912,7 +944,7 @@ function UploadConfirmationCard({
             <p>Confirm the important details before ExamMind adds this document to your library.</p>
           </div>
             <DocumentSummary file={file} metadata={metadata} extraction={extraction} review={review || hasMissingEssentials} isKsaProgram={isKsaProgram} />
-          <TopicsEditor topics={metadata.topics_covered} status={metadataFieldStatus(metadata, 'topics_covered', metadata.topics_covered.join(', '), editedFields.has('topics_covered'), Boolean(metadata.needs_review))} draft={topicDraft} onDraftChange={onTopicDraftChange} onAdd={onAddTopic} onRemove={onRemoveTopic} />
+          <TopicsEditor topics={metadata.topics_covered} topicEvidence={metadata.topic_evidence || []} groundingStatus={metadata.topics_grounding_status} status={metadataFieldStatus(metadata, 'topics_covered', metadata.topics_covered.join(', '), editedFields.has('topics_covered'), Boolean(metadata.needs_review))} draft={topicDraft} onDraftChange={onTopicDraftChange} onAdd={onAddTopic} onRemove={onRemoveTopic} />
           <ExtractedContentPreview
             contentPreview={contentPreview}
             sections={previewSections}
@@ -937,6 +969,8 @@ function UploadConfirmationCard({
               <h3 id="metadata-attention-heading">Needs your attention</h3>
               <ul>{attentionEntries.map(([key, item]) => <li key={key}><strong>{evidenceLabel[key] || key}</strong><span>{item.status === 'conflict' ? 'There are conflicting proposals.' : item.status === 'missing_required' ? 'Select or enter this before continuing.' : 'Review the suggested value.'}</span></li>)}</ul>
             </section>
+          ) : topicsNeedReview ? (
+            <p className="metadata-ready-note metadata-topic-note"><AlertCircle size={15} /> Topics could not be confidently identified from this file. Review the preview before continuing.</p>
           ) : (
             <p className="metadata-ready-note"><Check size={15} /> Everything looks ready. Review the details or continue.</p>
           )}

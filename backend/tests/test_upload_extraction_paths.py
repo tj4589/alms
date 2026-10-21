@@ -1,7 +1,10 @@
 import io
+import json
 import os
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageDraw, ImageFont
@@ -72,6 +75,85 @@ class UploadExtractionPathTests(unittest.TestCase):
                 self.assertTrue(any(term in result["text"].lower() for term in ("requirements", "architecture", "verification")))
                 self.assertTrue(result["cleaned_text"].strip())
                 self.assertEqual(result["file_bytes"], content)
+
+    def test_prospecting_pdf_topics_are_grounded_in_current_source(self):
+        import fitz
+
+        document = fitz.open()
+        page = document.new_page()
+        lines = [
+            "Prospecting & Pipeline Generation",
+            "Prospecting finds potential customers through inbound versus outbound approaches.",
+            "Build targeted prospect lists using an ideal customer profile (ICP).",
+            "Cold email uses Hook -> Value -> CTA to start a useful conversation.",
+            "Use cold calls and prospect qualification to decide who needs follow-up.",
+        ]
+        for index, line in enumerate(lines):
+            page.insert_text((72, 90 + index * 70), line)
+        pdf_bytes = document.tobytes()
+        document.close()
+
+        extraction = ingest.extract_pdf_text(upload("week 4 slides.pdf", pdf_bytes, "application/pdf"))
+        metadata = ingest.extract_metadata(
+            "week 4 slides.pdf",
+            extraction["cleaned_text"],
+            extraction["page_texts"],
+            extraction["method"],
+        )
+
+        topics = metadata["topics_covered"]
+        self.assertIn("prospecting", topics)
+        self.assertIn("inbound and outbound prospecting", topics)
+        self.assertIn("targeted prospect lists and icp", topics)
+        self.assertIn("cold email: hook, value, cta", topics)
+        self.assertIn("cold calls", topics)
+        self.assertIn("prospect qualification", topics)
+        self.assertNotIn("stakeholder management", topics)
+        self.assertEqual(metadata["topics_grounding_status"], "grounded")
+        self.assertTrue(metadata["topic_evidence"])
+        self.assertTrue(all(item["page_number"] == 1 for item in metadata["topic_evidence"]))
+        self.assertEqual(metadata["metadata_evidence"]["topics"]["source"], "document_text")
+
+        ai_proposal = json.dumps({
+            "title": "Prospecting & Pipeline Generation",
+            "document_type": "lecture_note",
+            "course_code": None,
+            "course_title": None,
+            "academic_session": None,
+            "semester": None,
+            "instructor_or_author": [],
+            "year": None,
+            "department": None,
+            "faculty": None,
+            "college": None,
+            "institution": None,
+            "exam_type": "unknown",
+            "topics": ["stakeholder management", "prospecting"],
+            "confidence_score": 0.9,
+            "evidence": {},
+        })
+        with patch.object(ingest, "_metadata_needs_ai", return_value=True), patch.object(ingest, "generate_ai_response", return_value=ai_proposal):
+            grounded_ai = ingest.extract_metadata(
+                "week 4 slides.pdf",
+                extraction["cleaned_text"],
+                extraction["page_texts"],
+                extraction["method"],
+            )
+        self.assertNotIn("stakeholder management", grounded_ai["topics_covered"])
+        self.assertIn("prospecting", grounded_ai["topics_covered"])
+
+        with patch.object(ingest, "find_duplicate", return_value=None):
+            review = ingest.upload_document(
+                file=upload("week 4 slides.pdf", pdf_bytes, "application/pdf"),
+                confirm=False,
+                confirmed_metadata=None,
+                db=object(),
+                current_user=SimpleNamespace(id=7),
+            )
+        self.assertEqual(review["status"], "needs_confirmation")
+        self.assertEqual(review["metadata"]["topics_covered"], topics)
+        self.assertNotIn("stakeholder management", review["metadata"]["topics_covered"])
+        self.assertTrue(review["metadata"]["topic_evidence"])
 
     def test_printed_image_and_scanned_pdf_use_real_ocr(self):
         import fitz

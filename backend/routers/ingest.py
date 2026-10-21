@@ -1470,6 +1470,13 @@ Document excerpt:
         page_texts=page_texts,
         extraction_method=extraction_method,
     )
+    merged = _apply_topic_grounding(
+        merged,
+        merged.get("topics_covered"),
+        text,
+        page_texts,
+        extraction_method,
+    )
     _log_metadata_debug("heuristic metadata", heuristic)
     _log_metadata_debug("ai metadata", ai_metadata)
     _log_metadata_debug("merged metadata", merged)
@@ -1855,6 +1862,12 @@ def _infer_college(sample: str) -> str:
 
 def _infer_topics_covered(sample: str) -> list[str]:
     checks = [
+        ("prospecting", r"\bprospecting\b|\bprospects?\b"),
+        ("inbound and outbound prospecting", r"\binbound\b.{0,100}\boutbound\b|\boutbound\b.{0,100}\binbound\b"),
+        ("targeted prospect lists and ICP", r"\btargeted\s+prospect\s+lists?\b|\bprospect\s+lists?\b|\bideal\s+customer\s+profile\b|\bICP\b"),
+        ("cold email: Hook, Value, CTA", r"\bcold\s+emails?\b|\bHook\b.{0,40}\bValue\b.{0,40}\bCTA\b"),
+        ("cold calls", r"\bcold\s+calls?\b|\bcold\s+calling\b"),
+        ("prospect qualification", r"\bprospect(?:s)?\s+qualification\b|\bqualif(?:y|ied|ication)\b.{0,50}\bprospect(?:s)?\b"),
         ("project network diagram", r"\bnetwork\s+diagram\b"),
         ("critical path", r"\bcritical\s+path\b"),
         ("path lengths", r"\bpath\s+lengths?\b"),
@@ -1876,13 +1889,131 @@ def _infer_topics_covered(sample: str) -> list[str]:
         ("schedule variance", r"\bschedule\s+variance\b|\bSV\b"),
         ("cost performance index", r"\bcost\s+performance\s+index\b|\bCPI\b"),
         ("schedule performance index", r"\bschedule\s+performance\s+index\b|\bSPI\b"),
-        ("stakeholder management", r"\bstakeholder\s+management\b|\bstakeholder\b"),
+        ("stakeholder management", r"\bstakeholder\s+management\b"),
         ("stakeholder engagement", r"\bstakeholder\s+engagement\b"),
         ("power/interest grid", r"\bpower\s*/?\s*interest\s+grid\b"),
         ("project management", r"\bproject\s+management\b"),
     ]
     topics = [topic for topic, pattern in checks if re.search(pattern, sample, re.IGNORECASE)]
     return topics[:24]
+
+
+TOPIC_SOURCE_ALIASES = {
+    "prospecting": r"\bprospecting\b|\bprospects?\b",
+    "inbound and outbound prospecting": r"\binbound\b.{0,100}\boutbound\b|\boutbound\b.{0,100}\binbound\b",
+    "targeted prospect lists and icp": r"\btargeted\s+prospect\s+lists?\b|\bprospect\s+lists?\b|\bideal\s+customer\s+profile\b|\bICP\b",
+    "cold email hook value cta": r"\bcold\s+emails?\b|\bHook\b.{0,40}\bValue\b.{0,40}\bCTA\b",
+    "cold calls": r"\bcold\s+calls?\b|\bcold\s+calling\b",
+    "prospect qualification": r"\bprospect(?:s)?\s+qualification\b|\bqualif(?:y|ied|ication)\b.{0,50}\bprospect(?:s)?\b",
+}
+
+
+def _topic_source_pattern(topic: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(topic or "").lower()).strip()
+    if normalized in TOPIC_SOURCE_ALIASES:
+        return TOPIC_SOURCE_ALIASES[normalized]
+    tokens = [token for token in normalized.split() if token not in {"and", "or", "the", "of", "for", "a", "an"}]
+    if not tokens:
+        return r"(?!)"
+    # Unrecognised proposals still need to read like a phrase in the source;
+    # do not accept two words merely because they occur somewhere nearby.
+    return r"\b" + r"\W{1,40}".join(re.escape(token) for token in tokens) + r"\b"
+
+
+def _topic_evidence_excerpt(source: str, match: re.Match[str]) -> str:
+    lines = [re.sub(r"\s+", " ", line).strip() for line in (source or "").splitlines() if line.strip()]
+    match_start = match.start()
+    offset = 0
+    for line in lines:
+        line_start = (source or "").find(line, offset)
+        line_end = line_start + len(line)
+        if line_start <= match_start <= line_end:
+            return line[:240]
+        offset = max(line_end, offset + 1)
+    start = max(0, match.start() - 70)
+    return re.sub(r"\s+", " ", (source or "")[start:match.end() + 110]).strip()[:240]
+
+
+def _ground_topic_candidates(
+    candidates: Any,
+    text: str,
+    page_texts: Optional[list[str]] = None,
+    extraction_method: str = "embedded_text",
+) -> list[dict[str, Any]]:
+    """Keep only topic proposals supported by this upload's source text.
+
+    Topic detection is deliberately request-local: it receives only the
+    current extraction and its page text, with no cache, previous material, or
+    cross-space lookup. A proposal must match an explicit source pattern or
+    have every meaningful term present on the same page.
+    """
+    sources = page_texts or [text or ""]
+    grounded: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in _as_list(candidates):
+        topic = _clean_metadata_text(candidate).lower()
+        if not topic or topic in seen:
+            continue
+        pattern = _topic_source_pattern(topic)
+        match: re.Match[str] | None = None
+        page_number: int | None = None
+        excerpt = ""
+        for index, source in enumerate(sources, start=1):
+            current = source or ""
+            match = re.search(pattern, current, re.IGNORECASE | re.DOTALL)
+            if match:
+                page_number = index if page_texts else None
+                excerpt = _topic_evidence_excerpt(current, match)
+                break
+        if not match:
+            continue
+        seen.add(topic)
+        grounded.append({
+            "topic": topic,
+            "evidence": excerpt,
+            "page_number": page_number,
+            "source": "ocr" if extraction_method in {"ocr", "mixed"} else "document_text",
+        })
+    return grounded
+
+
+def _apply_topic_grounding(
+    metadata: Dict[str, Any],
+    candidates: Any,
+    text: str,
+    page_texts: Optional[list[str]],
+    extraction_method: str,
+) -> Dict[str, Any]:
+    grounded = _ground_topic_candidates(candidates, text, page_texts, extraction_method)
+    metadata["topics_covered"] = [item["topic"] for item in grounded]
+    metadata["topic_evidence"] = grounded
+    metadata["topics_grounding_status"] = "grounded" if grounded else ("uncertain" if (text or "").strip() else "none")
+    evidence = dict(metadata.get("metadata_evidence") or {})
+    if grounded:
+        first = grounded[0]
+        evidence["topics"] = MetadataEvidence(
+            value=metadata["topics_covered"],
+            status="strong_evidence",
+            source=first["source"],
+            confidence=0.9,
+            evidence=first["evidence"],
+            page_number=first["page_number"],
+            requires_confirmation=False,
+        ).model_dump()
+    else:
+        evidence["topics"] = MetadataEvidence(
+            value=[],
+            status="optional",
+            source="upload_context",
+            confidence=0.0,
+            evidence="",
+            page_number=None,
+            requires_confirmation=False,
+        ).model_dump()
+    metadata["metadata_evidence"] = evidence
+    if metadata["topics_grounding_status"] == "uncertain":
+        metadata["needs_review"] = True
+    return metadata
 
 
 def _extract_instructor_names(sample: str) -> list[str]:
@@ -3439,7 +3570,13 @@ def upload_document(
                 "college": "",
             })
     detected_topics = _infer_topics_covered(operational_text)
-    metadata["topics_covered"] = list(dict.fromkeys([*(metadata.get("topics_covered") or []), *detected_topics]))[:24]
+    metadata = _apply_topic_grounding(
+        metadata,
+        [*(metadata.get("topics_covered") or []), *detected_topics],
+        operational_text,
+        extraction.get("page_texts"),
+        extraction.get("method") or "embedded_text",
+    )
     metadata["raw_extracted_text"] = raw_extracted_text[:8000]
     metadata["raw_extracted_text_truncated"] = len(raw_extracted_text) > 8000
     metadata["cleaned_text_sample"] = cleaned_text[:5000]
