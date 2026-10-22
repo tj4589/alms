@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   ArrowDownToLine, BookOpen, Check, Clock3, Copy, File, FileQuestion,
   FileText, Image as ImageIcon, Link2, LoaderCircle, LockKeyhole, Music,
-  PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus,
-  Presentation, RefreshCw, Search, ShieldCheck, Trash2, Users, Video, X,
+  ChevronLeft, ChevronRight, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen,
+  PanelRightClose, PanelRightOpen, Plus, Presentation, RefreshCw, Search,
+  ShieldCheck, Sparkles, Trash2, Users, Video, X,
 } from 'lucide-react';
 import type { ChatMessage, MaxeCitation, ScreenType, User } from '../types';
 import { apiBlob, apiDelete, apiDownload, apiGet, apiPost, apiUrl } from '../lib/api';
@@ -53,6 +54,7 @@ type ShareLink = {
   revoked_at?: string | null; created_at?: string | null; token?: string; url?: string; title?: string;
 };
 type ReaderDetail = Resource & { sections: { id: number; heading: string | null; body: string; page_from?: number | null; page_to?: number | null }[] };
+type ReaderPage = { id: string; heading: string | null; body: string; pageFrom: number | null; pageTo: number | null; isPage: boolean };
 type WorkspaceProps = {
   go: (screen: ScreenType) => void;
   notifyUnavailable: (feature: string) => void;
@@ -125,7 +127,70 @@ function visibilityLabel(visibility: Resource['visibility']): string {
   return visibility === 'public' ? 'Academy archive' : visibility === 'group' ? 'Study group' : 'Only me';
 }
 function splitParagraphs(value: string): string[] { return value.split(/\n\s*\n|\n/).map(item => item.trim()).filter(Boolean); }
+
+function readerPages(detail: ReaderDetail | null, body: string): ReaderPage[] {
+  if (detail?.sections?.length) return detail.sections.map((section, index) => ({
+    id: `section-${section.id || index}`,
+    heading: section.heading,
+    body: section.body,
+    pageFrom: section.page_from ?? null,
+    pageTo: section.page_to ?? null,
+    isPage: section.page_from != null,
+  })).filter(page => page.body.trim());
+  return body.trim() ? [{ id: 'section-0', heading: null, body, pageFrom: null, pageTo: null, isPage: false }] : [];
+}
 function resourceDownloadPath(resource: Resource): string { return resource.isAudio ? `/materials/audio/${resource.id}/download` : resource.kind === 'lecture_note' ? `/materials/lecture-notes/${resource.id}/download` : `/materials/past-questions/${resource.id}/download`; }
+
+function SlideReader({ pages, citationPage, citationSlide }: { pages: ReaderPage[]; citationPage?: number; citationSlide?: number }) {
+  const readerRef = useRef<HTMLElement | null>(null);
+  const citationIndex = useMemo(() => {
+    const target = citationPage ?? citationSlide;
+    if (target == null) return -1;
+    return pages.findIndex(page => page.pageFrom === target || (page.pageFrom != null && page.pageTo != null && target >= page.pageFrom && target <= page.pageTo));
+  }, [citationPage, citationSlide, pages]);
+  const [currentPage, setCurrentPage] = useState(() => citationIndex >= 0 ? citationIndex : 0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const page = pages[Math.min(currentPage, Math.max(0, pages.length - 1))];
+
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(document.fullscreenElement === readerRef.current);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  if (!page) return null;
+  const goToPage = (nextPage: number) => setCurrentPage(Math.min(pages.length - 1, Math.max(0, nextPage)));
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await readerRef.current?.requestFullscreen();
+    } catch {
+      // Fullscreen is an enhancement; the reader remains usable when a browser blocks it.
+    }
+  };
+  const pageLabel = page.isPage
+    ? `Page ${page.pageFrom}${page.pageTo && page.pageTo !== page.pageFrom ? `–${page.pageTo}` : ''}`
+    : `Reading section ${currentPage + 1}`;
+
+  return <section ref={readerRef} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
+    <div className="ws-slide-toolbar">
+      <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>Select text to ask Maxe about it.</small></div>
+      <button type="button" className="ws-slide-fullscreen" onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'} title={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'}>{isFullscreen ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}</button>
+    </div>
+    <div className="ws-slide-stage">
+      <article className="ws-slide-sheet" key={page.id}>
+        <div className="ws-slide-sheet-meta"><span>{page.isPage ? 'Source page' : 'Source reading'}</span><span>{page.pageFrom ? `Page ${page.pageFrom}` : 'Text view'}</span></div>
+        <h2>{page.heading || `Slide ${currentPage + 1}`}</h2>
+        <div className="ws-slide-sheet-body">{splitParagraphs(page.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
+      </article>
+    </div>
+    <footer className="ws-slide-controls">
+      <button type="button" className="ws-slide-nav" onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} aria-label="Previous slide"><ChevronLeft size={17} aria-hidden="true" /><span>Back</span></button>
+      <span className="ws-slide-count" aria-live="polite">{currentPage + 1} <small>of</small> {pages.length}</span>
+      <button type="button" className="ws-slide-nav" onClick={() => goToPage(currentPage + 1)} disabled={currentPage === pages.length - 1} aria-label="Next slide"><span>Next</span><ChevronRight size={17} aria-hidden="true" /></button>
+    </footer>
+  </section>;
+}
 
 function formatTimestamp(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
@@ -443,28 +508,53 @@ function ShareLinksPanel({ resource, onClose }: { resource: Resource; onClose: (
   </section>;
 }
 
-function ResourceReader({ resource, go, onSelection, citationTarget, user }: { resource: Resource; go: (screen: ScreenType) => void; onSelection: (text: string, source: string) => void; citationTarget: CitationTarget; user: User | null }) {
+function ResourceReader({ resource, go, onSelection, onAskSelection, citationTarget, user }: { resource: Resource; go: (screen: ScreenType) => void; onSelection: (text: string, source: string) => void; onAskSelection: () => void; citationTarget: CitationTarget; user: User | null }) {
   const [detail, setDetail] = useState<ReaderDetail | null>(resource.kind === 'past_question' ? { ...resource, sections: [] } : null);
   const [loading, setLoading] = useState(resource.kind === 'lecture_note' && !resource.isAudio);
-  const [error, setError] = useState(''); const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false); const [downloadError, setDownloadError] = useState(''); const [previewError, setPreviewError] = useState(false);
+  const [error, setError] = useState('');
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const [previewError, setPreviewError] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [selectionAction, setSelectionAction] = useState<{ left: number; top: number } | null>(null);
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
   const canManageSharing = Boolean(user && resource.isOwner);
+  const extension = extensionOf(resource.fileName);
+  const isSlideDocument = ['pdf', 'ppt', 'pptx'].includes(extension);
+  const canNativePreview = resource.hasFile && (resource.isAudio || ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov'].includes(extension));
+
   useEffect(() => {
-    let cancelled = false; setError(''); setPreviewError(false); setSourceUrl(null);
-    if (resource.kind === 'past_question' || resource.isAudio) { setDetail({ ...resource, sections: [] }); setLoading(false); return () => { cancelled = true; }; }
-    setLoading(true); apiGet(`/materials/lecture-notes/${resource.id}`).then(payload => {
-      if (cancelled) return; const data = payload as RawResource & { sections?: ReaderDetail['sections'] };
+    let cancelled = false;
+    setError('');
+    setPreviewError(false);
+    setSourceUrl(null);
+    if (resource.kind === 'past_question' || resource.isAudio) {
+      setDetail({ ...resource, sections: [] });
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
+    setLoading(true);
+    void apiGet(`/materials/lecture-notes/${resource.id}`).then(payload => {
+      if (cancelled) return;
+      const data = payload as RawResource & { sections?: ReaderDetail['sections'] };
       setDetail({ ...resource, ...normalizeResource(data, 'lecture_note'), sections: data.sections || [] });
-    }).catch(() => { if (!cancelled) setError('That source could not be opened. It may have been removed or the connection dropped.'); }).finally(() => { if (!cancelled) setLoading(false); });
+    }).catch(() => {
+      if (!cancelled) setError('That source could not be opened. It may have been removed or the connection dropped.');
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
     return () => { cancelled = true; };
   }, [resource]);
-  const extension = extensionOf(resource.fileName);
-  const canNativePreview = resource.hasFile && (resource.isAudio || ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov'].includes(extension));
+
   useEffect(() => {
-    let cancelled = false; if (!canNativePreview) return () => { cancelled = true; };
-    apiBlob(resourceDownloadPath(resource)).then(blob => { if (!cancelled) setSourceUrl(URL.createObjectURL(blob)); }).catch(() => { if (!cancelled) setPreviewError(true); });
+    let cancelled = false;
+    if (!canNativePreview) return () => { cancelled = true; };
+    void apiBlob(resourceDownloadPath(resource)).then(blob => {
+      if (!cancelled) setSourceUrl(URL.createObjectURL(blob));
+    }).catch(() => {
+      if (!cancelled) setPreviewError(true);
+    });
     return () => {
       cancelled = true;
       setSourceUrl(current => {
@@ -473,30 +563,85 @@ function ResourceReader({ resource, go, onSelection, citationTarget, user }: { r
       });
     };
   }, [canNativePreview, resource]);
-  useEffect(() => { setShareOpen(false); setTranscript([]); }, [resource.key]);
+
+  useEffect(() => { setShareOpen(false); setSelectionAction(null); setTranscript([]); }, [resource.key]);
   const onTranscriptLoaded = useCallback((segments: TranscriptSegment[]) => setTranscript(segments), []);
-  const download = async () => { setDownloading(true); setDownloadError(''); try { await apiDownload(resourceDownloadPath(resource), resource.fileName || `${resource.title}.${extension || 'pdf'}`); } catch (failure) { setDownloadError(failure instanceof Error ? failure.message : 'That file could not be downloaded.'); } finally { setDownloading(false); } };
+  const body = detail?.contentText || resource.contentText;
+  const slidePages = useMemo(() => readerPages(detail, body), [body, detail]);
+  const selectedCitationPage = citationTarget?.resourceId === resource.id ? citationTarget.pageFrom : undefined;
+  const selectedCitationSlide = citationTarget?.resourceId === resource.id ? citationTarget.slideFrom : undefined;
+  const citationTargetLabel = selectedCitationPage ? `Opened at Page ${selectedCitationPage}` : selectedCitationSlide ? `Opened at Slide ${selectedCitationSlide}` : '';
+  const download = async () => {
+    setDownloading(true);
+    setDownloadError('');
+    try {
+      await apiDownload(resourceDownloadPath(resource), resource.fileName || `${resource.title}.${extension || 'pdf'}`);
+    } catch (failure) {
+      setDownloadError(failure instanceof Error ? failure.message : 'That file could not be downloaded.');
+    } finally {
+      setDownloading(false);
+    }
+  };
   const exportSource = (format: 'md' | 'txt') => apiDownload(
     `/collaboration/materials/${resource.kind}/${resource.id}/export?format=${format}`,
     `resource-${resource.id}.${format}`,
   );
-  const body = detail?.contentText || resource.contentText;
-  const selectedCitationPage = citationTarget?.resourceId === resource.id ? citationTarget.pageFrom : undefined;
-  const selectedCitationSlide = citationTarget?.resourceId === resource.id ? citationTarget.slideFrom : undefined;
-  const citationTargetLabel = selectedCitationPage ? `Opened at Page ${selectedCitationPage}` : selectedCitationSlide ? `Opened at Slide ${selectedCitationSlide}` : '';
-  return <div className="ws-reader-content" onMouseUp={() => {
-    const text = window.getSelection()?.toString().trim() || '';
-    if (text.length > 1) onSelection(text.slice(0, 4000), resource.title);
-  }}>
+  const captureSelection = () => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() || '';
+    if (text.length <= 1) {
+      setSelectionAction(null);
+      return;
+    }
+    onSelection(text.slice(0, 4000), resource.title);
+    const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+    if (range && (range.width || range.height)) setSelectionAction({
+      left: Math.min(window.innerWidth - 176, Math.max(12, range.left + range.width / 2 - 88)),
+      top: Math.max(12, range.top - 48),
+    });
+  };
+
+  return <div className="ws-reader-content" onMouseUp={captureSelection}>
+    {selectionAction && <button type="button" className="ws-selection-action" style={{ left: selectionAction.left, top: selectionAction.top }} onMouseDown={event => event.preventDefault()} onClick={() => { setSelectionAction(null); onAskSelection(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     {citationTargetLabel && <p className="ws-citation-target" role="status">{citationTargetLabel}</p>}
+    {canManageSharing && <div className="ws-share-strip"><button type="button" className="ws-share-button" onClick={() => setShareOpen(value => !value)} aria-expanded={shareOpen} aria-controls="ws-share-title"><Link2 size={15} aria-hidden="true" />{shareOpen ? 'Close sharing' : 'Share this source'}</button></div>}
+    {shareOpen && <ShareLinksPanel key={resource.key} resource={resource} onClose={() => setShareOpen(false)} />}
+    <header className="ws-reader-header">
+      <div className="ws-reader-kicker"><span>{resource.courseCode || 'Archive'}</span><span>{typeLabel(resource)}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div>
+      <h1>{resource.title}</h1>
+      <p>{[resource.courseTitle, resource.year && String(resource.year), resource.semester, visibilityLabel(resource.visibility)].filter(Boolean).join(' · ')}</p>
+      <div className="ws-reader-actions">
+        {resource.hasFile && <button type="button" className="ws-download-button" onClick={() => void download()} disabled={downloading}><ArrowDownToLine size={15} aria-hidden="true" />{downloading ? 'Preparing...' : 'Download original'}</button>}
+        <SaveButton compact triggerLabel="Save" menuLabel="Save" target={{ itemType: resource.kind, refId: resource.id, title: resource.title, meta: typeLabel(resource), snapshot: async () => { const snapshot = detail || resource; const sections = 'sections' in snapshot && Array.isArray(snapshot.sections) ? snapshot.sections : []; const contentText = snapshot.contentText || body || sections.map(section => section.body).join('\\n\\n'); const savedTranscript = transcript.length > 0 ? { segments: transcript } : {}; return sections.length > 0 || contentText || transcript.length > 0 ? { ...snapshot, content_text: contentText, sections, ...savedTranscript } : null; }, exports: [{ label: 'Export Markdown', description: 'Download the authorized reading as Markdown', run: () => exportSource('md') }, { label: 'Export plain text', description: 'Download the authorized reading as text', run: () => exportSource('txt') }] }} />
+        <button type="button" className="ws-text-action" onClick={() => go('upload')}>Add another source <Plus size={15} aria-hidden="true" /></button>
+      </div>
+      {downloadError && <p className="ws-reader-error" role="alert">{downloadError}</p>}
+    </header>
+    {loading && <div className="ws-reader-state"><LoaderCircle size={19} className="ws-spin" aria-hidden="true" /> Opening source...</div>}
+    {error && <div className="ws-reader-state is-error" role="alert">{error}</div>}
+    {!loading && !error && resource.isAudio && <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} onTranscriptLoaded={onTranscriptLoaded} />}
+    {!loading && !error && !resource.isAudio && <>
+      {isSlideDocument && slidePages.length > 0 && <SlideReader key={`${resource.key}-slides-${selectedCitationPage || selectedCitationSlide || 'start'}`} pages={slidePages} citationPage={selectedCitationPage} citationSlide={selectedCitationSlide} />}
+      {canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}
+      {canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}
+      {resource.hasFile && !canNativePreview && !isSlideDocument && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}
+      {previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}
+      {!isSlideDocument && detail?.sections?.length && detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>)}
+      {!isSlideDocument && !detail?.sections?.length && body && <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>}
+      {isSlideDocument && slidePages.length === 0 && <div className="ws-reader-state">No readable slide text was kept for this source. Download the original to review it.</div>}
+    </>}
+  </div>;
+}
+/*
     {canManageSharing && <div className="ws-share-strip"><button type="button" className="ws-share-button" onClick={() => setShareOpen(value => !value)} aria-expanded={shareOpen} aria-controls="ws-share-title"><Link2 size={15} aria-hidden="true" />{shareOpen ? 'Close sharing' : 'Share this source'}</button></div>}
     {shareOpen && <ShareLinksPanel key={resource.key} resource={resource} onClose={() => setShareOpen(false)} />}
     <header className="ws-reader-header"><div className="ws-reader-kicker"><span>{resource.courseCode || 'Archive'}</span><span>{typeLabel(resource)}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div><h1>{resource.title}</h1><p>{[resource.courseTitle, resource.year && String(resource.year), resource.semester, visibilityLabel(resource.visibility)].filter(Boolean).join(' · ')}</p><div className="ws-reader-actions">{resource.hasFile && <button type="button" className="ws-download-button" onClick={() => void download()} disabled={downloading}><ArrowDownToLine size={15} aria-hidden="true" />{downloading ? 'Preparing...' : 'Download original'}</button>}<SaveButton compact triggerLabel="Save" menuLabel="Save" target={{ itemType: resource.kind, refId: resource.id, title: resource.title, meta: typeLabel(resource), snapshot: async () => { const snapshot = detail || resource; const sections = 'sections' in snapshot && Array.isArray(snapshot.sections) ? snapshot.sections : []; const contentText = snapshot.contentText || body || sections.map(section => section.body).join('\n\n'); const savedTranscript = transcript.length > 0 ? { segments: transcript } : {}; return sections.length > 0 || contentText || transcript.length > 0 ? { ...snapshot, content_text: contentText, sections, ...savedTranscript } : null; }, exports: [{ label: 'Export Markdown', description: 'Download the authorized reading as Markdown', run: () => exportSource('md') }, { label: 'Export plain text', description: 'Download the authorized reading as text', run: () => exportSource('txt') }] }} /><button type="button" className="ws-text-action" onClick={() => go('upload')}>Add another source <Plus size={15} aria-hidden="true" /></button></div>{downloadError && <p className="ws-reader-error" role="alert">{downloadError}</p>}</header>
     {loading && <div className="ws-reader-state"><LoaderCircle size={19} className="ws-spin" aria-hidden="true" /> Opening source...</div>}{error && <div className="ws-reader-state is-error" role="alert">{error}</div>}
-    {!loading && !error && <>{resource.isAudio ? <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} onTranscriptLoaded={onTranscriptLoaded} /> : <>{canNativePreview && sourceUrl && extension === 'pdf' && <iframe className="ws-native-preview" title={`Preview of ${resource.title}`} src={`${sourceUrl}${selectedCitationPage ? `#page=${selectedCitationPage}` : ''}`} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section> : <div className="ws-reader-state">No readable text was kept for this source.</div>}</>}</>}
+    {!loading && !error && <>{resource.isAudio ? <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} onTranscriptLoaded={onTranscriptLoaded} /> : <>{isSlideDocument && slidePages.length > 0 && <SlideReader key={`${resource.key}-slides-${selectedCitationPage || selectedCitationSlide || 'start'}`} pages={slidePages} citationPage={selectedCitationPage} citationSlide={selectedCitationSlide} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && !isSlideDocument && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{!isSlideDocument && (detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p></section> : null)}{isSlideDocument && slidePages.length === 0 && <div className="ws-reader-state">No readable slide text was kept for this source. Download the original to review it.</div>}</>}</>}
   </div>;
 }
 
+*/
 function MaxePanel({ activeResource, selectedText, go, notifyUnavailable, messages, onMessagesChange, onNewThread, onCitationClick, user }: { activeResource: Resource | null; selectedText: string; go: (screen: ScreenType) => void; notifyUnavailable: (feature: string) => void; messages: ChatMessage[]; onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void; onNewThread: () => void; onCitationClick: (citation: MaxeCitation) => void; user: User | null }) {
   const maxeResource: MaxeResourceContext | null = activeResource ? { id: activeResource.id, kind: activeResource.kind, title: activeResource.title, courseCode: activeResource.courseCode, isAudio: activeResource.isAudio } : null;
   void notifyUnavailable;
@@ -532,5 +677,5 @@ export default function Workspace({ go, notifyUnavailable, messages, onMessagesC
   const startResize = (panel: 'sources' | 'maxe', event: React.PointerEvent<HTMLButtonElement>) => { event.preventDefault(); const startX = event.clientX; const startWidth = panel === 'sources' ? sourceWidth : maxeWidth; const onMove = (moveEvent: PointerEvent) => { const delta = moveEvent.clientX - startX; if (panel === 'sources') setSourceWidth(Math.min(420, Math.max(220, startWidth + delta))); else setMaxeWidth(Math.min(460, Math.max(280, startWidth - delta))); }; const stop = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', stop); document.body.classList.remove('ws-is-resizing'); }; window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', stop, { once: true }); document.body.classList.add('ws-is-resizing'); };
   const adjustWidth = (panel: 'sources' | 'maxe', direction: number) => { if (panel === 'sources') setSourceWidth(value => Math.min(420, Math.max(220, value + direction * 16))); else setMaxeWidth(value => Math.min(460, Math.max(280, value - direction * 16))); };
   const gridStyle = { '--ws-source-width': sourcesCollapsed ? '52px' : `${sourceWidth}px`, '--ws-maxe-width': maxeCollapsed ? '52px' : `${maxeWidth}px` } as React.CSSProperties;
-  return <div className="page workspace-page" id="s-workspace"><header className="workspace-heading"><div><p className="ws-eyebrow">{user?.name ? `${user.name.split(' ')[0]}'s` : 'Your'} learning space</p><h1>Study desk</h1><p>Keep your sources, reading and questions in one calm place.</p></div><button type="button" className="ws-heading-upload" onClick={() => go('offline')}><BookOpen size={16} aria-hidden="true" /> My materials</button></header><div className="ws-mobile-tabs" role="tablist" aria-label="Workspace panels">{(['sources', 'reader', 'maxe'] as const).map(panel => <button type="button" role="tab" aria-selected={mobilePanel === panel} className={mobilePanel === panel ? 'is-active' : ''} key={panel} onClick={() => setMobilePanel(panel)}>{panel === 'sources' ? 'Sources' : panel === 'reader' ? 'Reader' : 'Maxe'}</button>)}</div>{error && <div className="ws-load-error" role="alert"><span>{error}</span><button type="button" onClick={() => void loadResources()}><RefreshCw size={14} aria-hidden="true" /> Try again</button></div>}<div className="ws-workbench" style={gridStyle}><aside className={`ws-panel ws-sources-panel${sourcesCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'sources' ? ' is-mobile-active' : ''}`} aria-label="Sources"><ResourceSidebar resources={resources} activeKey={selectedKey} search={search} onSearch={setSearch} onSelect={resource => { setSelectedKey(resource.key); setSelectedText(''); setCitationTarget(null); setMobilePanel('reader'); }} onUpload={() => go('upload')} onRefresh={() => void loadResources()} loading={loading} /><button type="button" className="ws-collapse-button" onClick={() => setSourcesCollapsed(value => !value)} aria-label={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'} title={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'}>{sourcesCollapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}</button></aside><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize sources panel" aria-valuenow={sourcesCollapsed ? 52 : sourceWidth} aria-valuemin={220} aria-valuemax={420} onPointerDown={event => startResize('sources', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('sources', -1); if (event.key === 'ArrowRight') adjustWidth('sources', 1); }} /><main className={`ws-panel ws-reader-panel${mobilePanel === 'reader' ? ' is-mobile-active' : ''}`} aria-label="Reader">{activeResource ? <ResourceReader resource={activeResource} go={go} onSelection={text => { setSelectedText(text); setCitationTarget(null); }} citationTarget={citationTarget} user={user} /> : <div className="ws-reader-empty"><BookOpen size={28} aria-hidden="true" /><h2>Select a source</h2><p>Choose a note or past question from the left to open its reading view.</p><button type="button" onClick={() => go('upload')}>Add your first source <Plus size={15} aria-hidden="true" /></button></div>}</main><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize Maxe panel" aria-valuenow={maxeCollapsed ? 52 : maxeWidth} aria-valuemin={280} aria-valuemax={460} onPointerDown={event => startResize('maxe', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('maxe', -1); if (event.key === 'ArrowRight') adjustWidth('maxe', 1); }} /><aside className={`ws-panel ws-maxe-panel${maxeCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'maxe' ? ' is-mobile-active' : ''}`} aria-label="Maxe assistant"><MaxePanel activeResource={activeResource} selectedText={selectedText} go={go} notifyUnavailable={notifyUnavailable} messages={messages} onMessagesChange={onMessagesChange} onNewThread={onNewThread} onCitationClick={handleCitationClick} user={user} /><button type="button" className="ws-collapse-button" onClick={() => setMaxeCollapsed(value => !value)} aria-label={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'} title={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'}>{maxeCollapsed ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}</button></aside></div></div>;
+  return <div className="page workspace-page" id="s-workspace"><header className="workspace-heading"><div><p className="ws-eyebrow">{user?.name ? `${user.name.split(' ')[0]}'s` : 'Your'} learning space</p><h1>Study desk</h1><p>Keep your sources, reading and questions in one calm place.</p></div><button type="button" className="ws-heading-upload" onClick={() => go('offline')}><BookOpen size={16} aria-hidden="true" /> My materials</button></header><div className="ws-mobile-tabs" role="tablist" aria-label="Workspace panels">{(['sources', 'reader', 'maxe'] as const).map(panel => <button type="button" role="tab" aria-selected={mobilePanel === panel} className={mobilePanel === panel ? 'is-active' : ''} key={panel} onClick={() => setMobilePanel(panel)}>{panel === 'sources' ? 'Sources' : panel === 'reader' ? 'Reader' : 'Maxe'}</button>)}</div>{error && <div className="ws-load-error" role="alert"><span>{error}</span><button type="button" onClick={() => void loadResources()}><RefreshCw size={14} aria-hidden="true" /> Try again</button></div>}<div className="ws-workbench" style={gridStyle}><aside className={`ws-panel ws-sources-panel${sourcesCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'sources' ? ' is-mobile-active' : ''}`} aria-label="Sources"><ResourceSidebar resources={resources} activeKey={selectedKey} search={search} onSearch={setSearch} onSelect={resource => { setSelectedKey(resource.key); setSelectedText(''); setCitationTarget(null); setMobilePanel('reader'); }} onUpload={() => go('upload')} onRefresh={() => void loadResources()} loading={loading} /><button type="button" className="ws-collapse-button" onClick={() => setSourcesCollapsed(value => !value)} aria-label={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'} title={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'}>{sourcesCollapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}</button></aside><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize sources panel" aria-valuenow={sourcesCollapsed ? 52 : sourceWidth} aria-valuemin={220} aria-valuemax={420} onPointerDown={event => startResize('sources', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('sources', -1); if (event.key === 'ArrowRight') adjustWidth('sources', 1); }} /><main className={`ws-panel ws-reader-panel${mobilePanel === 'reader' ? ' is-mobile-active' : ''}`} aria-label="Reader">{activeResource ? <ResourceReader resource={activeResource} go={go} onSelection={text => { setSelectedText(text); setCitationTarget(null); }} onAskSelection={() => setMobilePanel('maxe')} citationTarget={citationTarget} user={user} /> : <div className="ws-reader-empty"><BookOpen size={28} aria-hidden="true" /><h2>Select a source</h2><p>Choose a note or past question from the left to open its reading view.</p><button type="button" onClick={() => go('upload')}>Add your first source <Plus size={15} aria-hidden="true" /></button></div>}</main><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize Maxe panel" aria-valuenow={maxeCollapsed ? 52 : maxeWidth} aria-valuemin={280} aria-valuemax={460} onPointerDown={event => startResize('maxe', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('maxe', -1); if (event.key === 'ArrowRight') adjustWidth('maxe', 1); }} /><aside className={`ws-panel ws-maxe-panel${maxeCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'maxe' ? ' is-mobile-active' : ''}`} aria-label="Maxe assistant"><MaxePanel activeResource={activeResource} selectedText={selectedText} go={go} notifyUnavailable={notifyUnavailable} messages={messages} onMessagesChange={onMessagesChange} onNewThread={onNewThread} onCitationClick={handleCitationClick} user={user} /><button type="button" className="ws-collapse-button" onClick={() => setMaxeCollapsed(value => !value)} aria-label={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'} title={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'}>{maxeCollapsed ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}</button></aside></div></div>;
 }

@@ -3527,12 +3527,45 @@ def upload_document(
             )
             extraction_succeeded = True
         elif extraction_succeeded:
-            ai_metadata = extract_metadata(
-                file.filename or "upload.pdf",
-                operational_text,
-                extraction.get("page_texts"),
-                extraction.get("method") or "embedded_text",
-            )
+            if active_space is not None and active_space.slug == "ksa":
+                # KSA does not need CU course metadata. Keep this path local and
+                # deterministic so students can review a usable result without
+                # waiting on an optional AI metadata provider.
+                heuristic = normalize_metadata_fields(
+                    infer_metadata_fallback(
+                        file.filename or "upload.pdf",
+                        operational_text,
+                        extraction.get("page_texts"),
+                    )
+                )
+                # KSA stores ordinary study uploads as notes unless the file
+                # contains clear past-question structure. Generic words such
+                # as "exam" in a lecture slide should not turn the resource
+                # into a past-question record.
+                if heuristic.get("document_type") == "past_question" and not re.search(
+                    r"\b(?:past\s+questions?|question\s*[1-9]|answer\s+(?:any|all)|time\s+allowed|\d+\s+marks?)\b",
+                    operational_text,
+                    re.IGNORECASE,
+                ):
+                    heuristic["document_type"] = "lecture_note"
+                elif heuristic.get("document_type") not in {"past_question", "lecture_note"}:
+                    heuristic["document_type"] = "lecture_note"
+                ai_metadata = _attach_metadata_review(
+                    heuristic,
+                    heuristic=heuristic,
+                    ai_metadata={},
+                    filename=file.filename or "upload.pdf",
+                    text=operational_text,
+                    page_texts=extraction.get("page_texts"),
+                    extraction_method=extraction.get("method") or "embedded_text",
+                )
+            else:
+                ai_metadata = extract_metadata(
+                    file.filename or "upload.pdf",
+                    operational_text,
+                    extraction.get("page_texts"),
+                    extraction.get("method") or "embedded_text",
+                )
         else:
             heuristic = normalize_metadata_fields(
                 infer_metadata_fallback(file.filename or "upload.pdf", operational_text, extraction.get("page_texts"))

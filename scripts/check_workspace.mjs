@@ -306,16 +306,23 @@ async function askWorkspaceMaxe(question) {
 }
 
 await selectWorkspaceSource('Week 2 reading');
-await waitFor(`document.querySelector('#s-workspace .ws-native-preview')`);
+await waitFor(`document.querySelector('#s-workspace .ws-slide-reader')`);
+assert.equal(await evaluate(`document.querySelector('#s-workspace iframe.ws-native-preview')`),null,'The native browser PDF viewer leaked into the workspace reader');
+assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-slide-count')?.textContent.includes('of')`),'Slide page count did not render');
+assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-slide-nav[aria-label="Next slide"]')`),'Next-slide control did not render');
+assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-slide-fullscreen')`),'Fullscreen reader control did not render');
 assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-maxe-context')?.textContent.includes('Week 2 reading')`),'Active-resource context did not reach Maxe');
-await evaluate(`(() => { const paragraph = document.querySelector('#s-workspace .ws-reading-section p'); const selection = window.getSelection(); const range = document.createRange(); range.selectNodeContents(paragraph); selection.removeAllRanges(); selection.addRange(range); document.querySelector('#s-workspace .ws-reader-content').dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); })()`);
+await evaluate(`(() => { const paragraph = document.querySelector('#s-workspace .ws-slide-sheet-body p'); const selection = window.getSelection(); const range = document.createRange(); range.selectNodeContents(paragraph); selection.removeAllRanges(); selection.addRange(range); document.querySelector('#s-workspace .ws-reader-content').dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); })()`);
+await waitFor(`document.querySelector('#s-workspace .ws-selection-action')`);
 await waitFor(`document.querySelector('#s-workspace .ws-selection-note')`);
 assert.ok(await evaluate(`document.querySelector('#s-workspace .ai-context-strip')?.textContent.includes('Selected text in context')`),'Selected-text context did not reach Maxe');
+await evaluate(`document.querySelector('#s-workspace .ws-selection-action').click()`);
 await askWorkspaceMaxe('Explain this source');
 await waitFor(`document.querySelectorAll('#s-workspace .ai-citation').length > 0`);
 assert.equal(await evaluate(`document.querySelector('#s-workspace .ai-citation').textContent.includes('Page 4')`),true,'PDF citation did not render');
 await evaluate(`document.querySelectorAll('#s-workspace .ai-citation').item(document.querySelectorAll('#s-workspace .ai-citation').length - 1).click()`);
-await waitFor(`document.querySelector('#s-workspace .ws-native-preview')?.src.includes('#page=4')`);
+await waitFor(`document.querySelector('#s-workspace .ws-citation-target')?.textContent.includes('Page 4')`);
+assert.ok(await evaluate(`document.querySelector('#s-workspace .ws-slide-reader')`),'Citation did not return to the purpose-built slide reader');
 
 await evaluate(`document.querySelector('#s-workspace .ws-reader-actions .sv-trigger').click()`);
 await waitFor(`document.querySelector('.sv-menu')`);

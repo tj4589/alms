@@ -19,6 +19,7 @@ const context = await browser.newContext({
   reducedMotion: 'reduce',
 });
 const apiOrigin = 'http://127.0.0.1:8001';
+let uploadStreamCalls = 0;
 const response = (data, status = 200) => ({
   status,
   contentType: 'application/json',
@@ -41,6 +42,7 @@ await context.route('**/*', async route => {
   if (url.pathname === '/health') return route.fulfill(response({ status: 'ok', application: 'ok' }));
   if (url.pathname.startsWith('/analytics/student/')) return route.fulfill(response({ readiness: [], attempts: [] }));
   if (url.pathname === '/ingest/upload/stream' && method === 'POST') {
+    uploadStreamCalls += 1;
     const result = {
       status: 'needs_confirmation',
       metadata: {
@@ -83,6 +85,19 @@ await context.route('**/*', async route => {
         { key: 'indexing', status: 'pending' },
       ],
     };
+    if (uploadStreamCalls === 2) {
+      result.status = 'success';
+      result.document_id = 42;
+      result.document_type = 'lecture_note';
+      result.chunks_indexed = 4;
+      result.indexed = true;
+      result.sharing = { visibility: 'private', requested_visibility: 'space_shared', moderation_status: 'pending_review' };
+      result.pipeline_steps = result.pipeline_steps.map(step => ({ ...step, status: step.key === 'transcription' ? 'skipped' : 'complete' }));
+    } else if (uploadStreamCalls === 3) {
+      result.status = 'duplicate';
+      result.message = 'Already uploaded as Prospecting & Pipeline Generation.';
+      result.existing_document = { id: 42, type: 'lecture_note', title: 'Prospecting & Pipeline Generation', match_type: 'exact_checksum' };
+    }
     const events = [
       { type: 'progress', key: 'reading', status: 'active' },
       { type: 'progress', key: 'reading', status: 'complete' },
@@ -147,6 +162,46 @@ assert.equal(mobile.noOverflow, true);
 assert.equal(mobile.columns.trim().split(/\s+/).length, 1);
 await page.screenshot({ path: path.resolve('output/upload-review/ksa-review-mobile.png'), fullPage: true });
 
-console.log(JSON.stringify({ ok: true, desktop: { leftWidth: Math.round(desktop.leftWidth), rightWidth: Math.round(desktop.rightWidth), rightOffset: Math.round(desktop.rightOffset), noOverflow: desktop.noOverflow }, mobile }, null, 2));
+await page.setViewportSize({ width: 1440, height: 1000 });
+await page.locator('input[value="space_shared"]').check();
+await page.locator('.sharing-consent input[type="checkbox"]').check();
+const addToLibrary = page.getByRole('button', { name: 'Add to library', exact: true });
+await addToLibrary.hover();
+const hoverStyle = await addToLibrary.evaluate(button => {
+  const style = getComputedStyle(button);
+  return { backgroundColor: style.backgroundColor, color: style.color };
+});
+assert.equal(hoverStyle.backgroundColor, 'rgb(255, 255, 255)');
+assert.equal(hoverStyle.color, 'rgb(37, 43, 36)');
+await addToLibrary.click();
+await page.locator('.success-modal').waitFor();
+const successText = await page.locator('.success-modal').innerText();
+assert.match(successText, /ready in My Materials now/i);
+assert.doesNotMatch(successText, /Share to KSA archive|Where should this material be available\?|Confirm sharing/i);
+
+await page.getByRole('button', { name: 'Upload Another', exact: true }).click();
+await page.locator('input[type=file]').setInputFiles({
+  name: 'week 4 slides.pdf',
+  mimeType: 'application/pdf',
+  buffer: Buffer.from('%PDF-1.4 duplicate prospecting fixture'),
+});
+await page.locator('.duplicate-card').waitFor();
+const duplicateText = await page.locator('.duplicate-card').innerText();
+assert.match(duplicateText, /already in your library/i);
+assert.match(duplicateText, /Prospecting & Pipeline Generation/);
+assert.match(duplicateText, /Save as newer version/);
+assert.equal(await page.locator('.upload-alert').count(), 0);
+await page.screenshot({ path: path.resolve('output/upload-review/duplicate-upload-desktop.png'), fullPage: true });
+
+await page.setViewportSize({ width: 390, height: 844 });
+const duplicateMobile = await page.evaluate(() => ({
+  noOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+  columns: getComputedStyle(document.querySelector('.duplicate-card')).gridTemplateColumns,
+}));
+assert.equal(duplicateMobile.noOverflow, true);
+assert.equal(duplicateMobile.columns.trim().split(/\s+/).length, 1);
+await page.screenshot({ path: path.resolve('output/upload-review/duplicate-upload-mobile.png'), fullPage: true });
+
+console.log(JSON.stringify({ ok: true, desktop: { leftWidth: Math.round(desktop.leftWidth), rightWidth: Math.round(desktop.rightWidth), rightOffset: Math.round(desktop.rightOffset), noOverflow: desktop.noOverflow }, mobile, duplicateMobile }, null, 2));
 await context.close();
 await browser.close();

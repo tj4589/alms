@@ -330,7 +330,7 @@ class UploadSerializationTests(unittest.TestCase):
         with (
             patch.object(ingest, "authorized_active_space", return_value=active_space),
             patch.object(ingest, "extract_pdf_text", return_value=extraction),
-            patch.object(ingest, "extract_metadata", return_value=metadata_result(document_title="", course_code="CSC301")),
+            patch.object(ingest, "extract_metadata", side_effect=AssertionError("KSA review should not wait for AI metadata")),
             patch.object(ingest, "find_duplicate", return_value=None),
             patch.object(ingest, "match_course", return_value=None),
             patch.object(ingest, "embed_or_fail", return_value=[0.0] * 384),

@@ -384,7 +384,7 @@ function SharingChoice({
           <span className="sharing-option-icon"><Globe2 size={17} /></span>
           <span className="sharing-option-copy">
             <strong>Contribute to {archiveName} <em>Recommended</em></strong>
-            <span>Help everyone studying this course find and use this resource. It stays private until moderation approves it.</span>
+            <span>Help everyone studying this course find and use this resource. It stays private to you while moderation reviews the archive request.</span>
             <ul className="sharing-benefits">
               <li>Build a reliable {archiveName} course archive</li>
               <li>Keep useful materials from getting lost in chats</li>
@@ -433,7 +433,7 @@ function SharingChoice({
       {visibility === 'space_shared' && (
         <label className="sharing-consent">
           <input type="checkbox" checked={consent} onChange={event => onConsentChange(event.target.checked)} />
-          <span>You are submitting this material for review. If approved, it will be available to verified {archiveName} members in course search, AI study answers and practice generation.</span>
+          <span>Submit this material for archive review. Your personal copy is ready in My Materials now; approval controls only shared archive visibility.</span>
         </label>
       )}
 
@@ -485,11 +485,18 @@ function confidenceLabel(metadata: Metadata) {
 }
 
 function UploadProcessingState({ fileName, queueLabel, steps, action }: { fileName: string; queueLabel: string; steps: ProcessingStep[]; action: UploadAction }) {
+  const [takingLonger, setTakingLonger] = useState(false);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setTakingLonger(true), 12000);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
   return (
     <div className="upload-processing-panel" aria-live="polite" aria-busy="true">
       <div className="upload-processing-kicker">{action === 'index' ? 'Adding to your library' : 'ExamMind is preparing your material'}</div>
       <div className="upload-file">{fileName || 'PDF'}{queueLabel}</div>
-      <p className="processing-live"><span className="processing-live-pulse" aria-hidden="true" />ExamMind is working through this file. The steps will update when the server confirms them.</p>
+      <p className="processing-live"><span className="processing-live-pulse" aria-hidden="true" />{takingLonger ? 'This is taking longer than usual. ExamMind is still waiting for the active server step to finish; you can leave this page open.' : 'ExamMind is working through this file. The steps will update when the server confirms them.'}</p>
       <div className="upload-step-list">
         {steps.map((step, i) => (
           <div className={`upload-step ${step.status}`} key={step.key}>
@@ -1045,92 +1052,38 @@ function ContributionSuccessModal({
   metadata,
   chunksIndexed,
   searchable,
-  documentId,
-  documentType,
   initialVisibility,
   initialModerationStatus,
   initialRequestedVisibility,
-  initialGroupIds,
-  groups,
   onViewLibrary,
   onUploadAnother,
-  onDismiss,
 }: {
   metadata: Metadata;
   chunksIndexed: number;
   searchable: boolean;
-  documentId: number | null;
-  documentType: 'past_question' | 'lecture_note' | null;
   initialVisibility: ShareVisibility;
   initialModerationStatus?: string;
   initialRequestedVisibility?: ShareVisibility;
-  initialGroupIds: number[];
-  groups: ShareGroup[];
   onViewLibrary: () => void;
   onUploadAnother: () => void;
-  onDismiss: () => void;
 }) {
-  const [currentVisibility, setCurrentVisibility] = useState<ShareVisibility>(initialVisibility);
   const archiveName = useContext(ArchiveNameContext);
-  const [moderationStatus, setModerationStatus] = useState(initialModerationStatus || 'not_submitted');
-  const requestedVisibility = initialRequestedVisibility || (moderationStatus === 'pending_review' ? 'space_shared' : currentVisibility);
-  const [currentGroupIds, setCurrentGroupIds] = useState<number[]>(initialGroupIds);
-  const [editorVisibility, setEditorVisibility] = useState<ShareVisibility | null>(null);
-  const [editorGroupIds, setEditorGroupIds] = useState<number[]>(initialGroupIds);
-  const [consent, setConsent] = useState(false);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const selectedGroups = groups.filter(group => currentGroupIds.includes(group.id));
-  const saveSharing = async () => {
-    if (!documentId || !documentType || !editorVisibility) return;
-    if (editorVisibility === 'group' && editorGroupIds.length === 0) {
-      setError('Choose at least one study group.');
-      return;
-    }
-    if (editorVisibility === 'space_shared' && !consent) {
-      setError(`Confirm that this material may be reviewed for the ${archiveName} archive.`);
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      const result = await apiPatch(`/materials/${documentType}/${documentId}/visibility`, {
-        visibility: editorVisibility,
-        group_ids: editorGroupIds,
-        confirm: editorVisibility === 'private' ? true : consent,
-      });
-      setCurrentVisibility((result as { sharing?: { visibility?: ShareVisibility } })?.sharing?.visibility || editorVisibility);
-      setModerationStatus((result as { sharing?: { moderation_status?: string } })?.sharing?.moderation_status || (editorVisibility === 'space_shared' ? 'pending_review' : 'not_submitted'));
-      setCurrentGroupIds(editorVisibility === 'group' ? editorGroupIds : []);
-      setEditorVisibility(null);
-      setConsent(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update sharing.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const startSharing = (value: ShareVisibility) => {
-    setEditorVisibility(value);
-    setEditorGroupIds(value === 'group' ? currentGroupIds : []);
-    setConsent(false);
-    setError('');
-  };
+  const moderationStatus = initialModerationStatus || 'not_submitted';
+  const requestedVisibility = initialRequestedVisibility || initialVisibility;
+  const archiveReviewPending = moderationStatus === 'pending_review';
 
   return (
     <div className="success-modal-backdrop">
       <div className="success-modal">
         <div className="success-label">Upload complete</div>
-        <h2>{moderationStatus === 'pending_review' ? 'Contribution submitted for review' : currentVisibility === 'private' ? 'Saved to your workspace' : 'Thank you for contributing'}</h2>
+        <h2>{archiveReviewPending ? 'Saved to your library' : initialVisibility === 'private' ? 'Saved to your workspace' : 'Thank you for contributing'}</h2>
         <p>
-          {moderationStatus === 'pending_review'
-            ? `Your resource is currently private while a ${archiveName} moderator reviews it. We will keep your personal study data private.`
+          {archiveReviewPending
+            ? `Your resource is ready in My Materials now. Its ${archiveName} archive request will be reviewed separately, so you do not need to wait before studying it.`
             : requestedVisibility === 'space_shared'
             ? `Resource shared successfully. Members studying this course can now find it in the ${archiveName} archive.`
-            : currentVisibility === 'group'
-              ? `Resource shared with ${selectedGroups.map(group => group.name).join(', ')}. Only members of ${selectedGroups.length > 1 ? 'these groups' : 'this group'} can access it.`
+            : initialVisibility === 'group'
+              ? 'Resource shared with your selected study group.'
               : `This resource is currently private. Would you like to help other students by sharing it with your study group or the ${archiveName} archive?`}
         </p>
         <div className="success-modal-meta">
@@ -1138,34 +1091,12 @@ function ContributionSuccessModal({
           <span>{DOC_TYPE_LABEL[metadata.document_type] ?? 'Document'}</span>
           <span>{chunksIndexed} chunks</span>
           <span>{searchable ? 'Searchable' : 'Record only'}</span>
-          <span>{visibilityLabel(currentVisibility)}</span>
+          <span>{archiveReviewPending ? 'Archive review pending' : visibilityLabel(initialVisibility)}</span>
         </div>
-        {(currentVisibility === 'private' || moderationStatus === 'pending_review') && !editorVisibility && (
-          <div className="success-sharing-actions">
-            <button type="button" className="cta" onClick={() => startSharing('space_shared')}><Globe2 size={15} /> Share to {archiveName} archive</button>
-            <button type="button" className="cta cta-ghost" onClick={() => startSharing('group')}><Users size={15} /> Share with a study group</button>
-            <button type="button" className="success-keep-private" onClick={onDismiss}>Keep visible only to me</button>
-          </div>
-        )}
-        {editorVisibility && (
-          <div className="success-sharing-editor">
-            <SharingChoice
-              visibility={editorVisibility}
-              onVisibilityChange={value => { setEditorVisibility(value); setError(''); }}
-              groups={groups}
-              selectedGroupIds={editorGroupIds}
-              onToggleGroup={groupId => setEditorGroupIds(current => current.includes(groupId) ? current.filter(id => id !== groupId) : [...current, groupId])}
-              consent={consent}
-              onConsentChange={setConsent}
-              error={error}
-              compact
-            />
-            <div className="empty-actions">
-              <button type="button" className="cta cta-ghost" onClick={() => setEditorVisibility(null)} disabled={saving}>Cancel</button>
-              <button type="button" className="cta" onClick={() => void saveSharing()} disabled={saving}>{saving ? 'Saving...' : 'Confirm sharing'}</button>
-            </div>
-          </div>
-        )}
+        <div className="success-sharing-note">
+          <LockKeyhole size={16} />
+          <span>Sharing was decided on the review page. You can change access later from My Materials.</span>
+        </div>
         <div className="empty-actions">
           <button type="button" className="cta" onClick={onViewLibrary}>View in Library</button>
           <button type="button" className="cta cta-ghost" onClick={onUploadAnother}>Upload Another</button>
@@ -1212,8 +1143,6 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
   const [selectedShareGroupIds, setSelectedShareGroupIds] = useState<number[]>([]);
   const [sharingConsent, setSharingConsent] = useState(false);
   const [sharingError, setSharingError] = useState('');
-  const [lastDocumentId, setLastDocumentId] = useState<number | null>(null);
-  const [lastDocumentType, setLastDocumentType] = useState<'past_question' | 'lecture_note' | null>(null);
   const [lastModerationStatus, setLastModerationStatus] = useState('not_submitted');
   const [lastRequestedVisibility, setLastRequestedVisibility] = useState<ShareVisibility | undefined>(undefined);
   const [editingRecentKey, setEditingRecentKey] = useState<string | null>(null);
@@ -1459,8 +1388,6 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
         setProcessingSteps(pipelineSteps(data.pipeline_steps, file));
         setChunksIndexed(data.chunks_indexed || 0);
         setLastIndexed(data.indexed !== false);
-        setLastDocumentId(typeof data.document_id === 'number' ? data.document_id : null);
-        setLastDocumentType(data.document_type === 'past_question' ? 'past_question' : 'lecture_note');
         setLastModerationStatus(data.sharing?.moderation_status || 'not_submitted');
         setLastRequestedVisibility(data.sharing?.requested_visibility || undefined);
         if (data.sharing?.visibility) setSharingVisibility(data.sharing.visibility as ShareVisibility);
@@ -1625,7 +1552,7 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
       </div>
 
       {queuedUpload && state === 'idle' && <section className="upload-alert" role="status"><p>Queued file: {queuedUpload.fileName}. Review metadata and choose who can access it before confirming.</p><button type="button" className="cta" disabled={!navigator.onLine} onClick={() => { if (analysisPending.current) return; const queuedFile = new File([queuedUpload.fileData], queuedUpload.fileName, { type: queuedUpload.mimeType || '' }); reviewedQueueFile.current = queuedFile; void analyzeFile(queuedFile); }}>Review queued file</button></section>}
-      {message && <div className={`upload-alert${reviewRequired ? ' review' : ''}`} style={{ marginBottom: 16 }}>{message}</div>}
+      {message && state !== 'duplicate' && <div className={`upload-alert${reviewRequired ? ' review' : ''}`} style={{ marginBottom: 16 }}>{message}</div>}
 
       {state === 'idle' && (
         <div className="upload-grid">
@@ -1817,22 +1744,25 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
       )}
 
       {state === 'duplicate' && (
-        <div className="duplicate-card">
-          <div className="duplicate-label">Duplicate detected</div>
-          <div className="duplicate-title">This {DOC_TYPE_LABEL[metadata.document_type] ?? metadata.document_type} may already be in ExamMind.</div>
-          <div className="duplicate-body">
-            {duplicateDocument?.title || 'A material with the same course and document details was found.'}
-            {duplicateDocument?.match_type === 'text_similarity' ? ' The readable text is also very similar.' : ''}
-            {' '}Choose what to do with your copy.
+        <section className="duplicate-card" role="alert" aria-labelledby="duplicate-title">
+          <div className="duplicate-summary">
+            <div className="duplicate-status"><AlertCircle size={17} aria-hidden="true" /> <span>Duplicate detected</span></div>
+            <h2 className="duplicate-title" id="duplicate-title">This {DOC_TYPE_LABEL[metadata.document_type] ?? 'material'} is already in your library.</h2>
+            <div className="duplicate-match">
+              <span>Existing material</span>
+              <strong>{duplicateDocument?.title || metadata.document_title || 'Matching material'}</strong>
+              <small>{duplicateDocument?.match_type === 'text_similarity' ? 'The readable content is also very similar.' : 'ExamMind found the same uploaded material.'}</small>
+            </div>
+            <p className="duplicate-body">Choose whether to keep this upload separately, save it as a newer version, or return to your library.</p>
           </div>
-          <div className="confirm-actions">
-            {duplicateDocument?.id && <button type="button" className="cta cta-ghost" onClick={() => go('offline')}>Open My Materials</button>}
-            <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(false, 'continue')}>Continue with this version</button>
-            <button type="button" className="cta" onClick={() => void confirmUpload(false, 'newer_version')}>Submit as newer version</button>
-            {hasQueue && <button type="button" className="cta" onClick={nextInQueue}>Next file ({queueIndex + 1}/{queue.length})</button>}
-            <button type="button" className="cta cta-ghost" onClick={() => setState('idle')}>Upload another file</button>
+          <div className="duplicate-actions">
+            {duplicateDocument?.id && <button type="button" className="cta cta-ghost" onClick={() => go('offline')}>Open existing material</button>}
+            <button type="button" className="cta cta-ghost" onClick={() => void confirmUpload(false, 'continue')}>Keep as separate upload</button>
+            <button type="button" className="cta" onClick={() => void confirmUpload(false, 'newer_version')}>Save as newer version</button>
+            {hasQueue && <button type="button" className="cta cta-ghost" onClick={nextInQueue}>Next file ({queueIndex + 1}/{queue.length})</button>}
+            <button type="button" className="cta cta-ghost" onClick={() => setState('idle')}>Choose another file</button>
           </div>
-        </div>
+        </section>
       )}
 
       {state === 'success' && (
@@ -1840,15 +1770,10 @@ export default function Upload({ go, user, learningSpace, archiveName = 'your le
           metadata={metadata}
           chunksIndexed={chunksIndexed}
           searchable={lastIndexed}
-          documentId={lastDocumentId}
-          documentType={lastDocumentType}
           initialVisibility={sharingVisibility}
           initialModerationStatus={lastModerationStatus}
           initialRequestedVisibility={lastRequestedVisibility}
-          initialGroupIds={selectedShareGroupIds}
-          groups={shareGroups}
           onViewLibrary={() => go('offline')}
-          onDismiss={() => setState('idle')}
           onUploadAnother={() => {
             if (hasQueue && queueIndex + 1 < queue.length) {
               nextInQueue();
