@@ -1398,7 +1398,7 @@ export default function App() {
         </LazyRoute>
       </main>
 
-      <MaxeTrigger ref={maxeTriggerRef} open={maxeOpen} onOpen={() => { setSidebarOpen(false); setMaxeOpen(true); }} />
+      {activeScreen !== 'workspace' && <MaxeTrigger ref={maxeTriggerRef} open={maxeOpen} onOpen={() => { setSidebarOpen(false); setMaxeOpen(true); }} />}
       {maxeOpen && (
         <LazyRoute>
           <MaxeWorkspace

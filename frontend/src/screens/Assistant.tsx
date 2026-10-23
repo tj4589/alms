@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LoaderCircle, SendHorizontal } from 'lucide-react';
 import type { ChatMessage, MaxeCitation, MsgType, ScreenType, User } from '../types';
 import { apiGet, apiPost } from '../lib/api';
+import MaxeMark from '../components/Maxe/MaxeMark';
 import './Assistant.css';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1139,7 +1141,7 @@ const GENERIC_PROMPTS = [
 function ThinkingBubble({ text }: { text: string }) {
   return (
     <div className="msg">
-      <div className="msg-ava ai">M</div>
+      <div className="msg-ava ai"><MaxeMark className="assistant-avatar-mark" /></div>
       <div className="bubble ai thinking-bubble">
         <span className="thinking-text">{text}</span>
         <span className="thinking-dots" aria-hidden="true">
@@ -1164,6 +1166,7 @@ function formatCitationTime(seconds: number): string {
 export default function Assistant({
   go,
   selectedQuestion,
+  focusRequest,
   messages,
   onMessagesChange,
   user,
@@ -1175,6 +1178,7 @@ export default function Assistant({
 }: {
   go: (s: ScreenType) => void;
   selectedQuestion?: string;
+  focusRequest?: number;
   messages: ChatMessage[];
   onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void;
   user: User | null;
@@ -1194,6 +1198,7 @@ export default function Assistant({
   const [relatedQuestionsLoading, setRelatedQuestionsLoading] = useState(false);
   const [relatedQuestionsError, setRelatedQuestionsError] = useState('');
   const msgsEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const lastAutoSubmittedRef = useRef('');
   const conversationStateRef = useRef<ConversationState>({
     pendingSlot: null,
@@ -1244,6 +1249,15 @@ export default function Assistant({
   useEffect(() => {
     if (selectedQuestion) setInput(selectedQuestion);
   }, [selectedQuestion]);
+
+  useEffect(() => {
+    if (!selectedText && !focusRequest) {
+      setInput(current => current === 'Explain this selected passage in simple terms.' ? '' : current);
+      return;
+    }
+    setInput(current => current || (selectedText ? 'Explain this selected passage in simple terms.' : ''));
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }, [focusRequest, selectedText]);
 
   useEffect(() => {
     msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1614,7 +1628,7 @@ export default function Assistant({
             {messages.map(message => (
               <div className={`msg ${message.role === 'user' ? 'usr' : ''}`} key={message.id}>
                 <div className={`msg-ava ${message.role === 'user' ? 'usr' : 'ai'}`}>
-                  {message.role === 'user' ? 'You' : 'M'}
+                  {message.role === 'user' ? 'You' : <MaxeMark className="assistant-avatar-mark" />}
                 </div>
                 <div className={`bubble ${message.role === 'user' ? 'usr' : 'ai'}`}>
                   {message.role === 'assistant' && message.mode === 'beyond_materials' && <div className="ai-mode-note">Beyond your materials</div>}
@@ -1695,6 +1709,7 @@ export default function Assistant({
 
           <div className="ai-foot">
             <input
+              ref={inputRef}
               className="ai-inp"
               aria-label="Message Maxe"
               type="text"
@@ -1704,8 +1719,8 @@ export default function Assistant({
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleSend(); } }}
               disabled={loading}
             />
-            <button className="send" aria-label={loading ? 'Sending message' : 'Send message to Maxe'} onClick={() => void handleSend()} disabled={loading || !input.trim()}>
-              {loading ? '...' : '>'}
+            <button type="button" className="send" aria-label={loading ? 'Sending message' : 'Send message to Maxe'} onClick={() => void handleSend()} disabled={loading || !input.trim()}>
+              {loading ? <LoaderCircle size={17} className="send-spinner" aria-hidden="true" /> : <SendHorizontal size={17} aria-hidden="true" />}
             </button>
           </div>
         </div>

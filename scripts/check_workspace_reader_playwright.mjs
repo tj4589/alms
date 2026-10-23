@@ -89,6 +89,17 @@ if (pointerReaderEvents) {
   await page.locator('#s-workspace .ws-slide-text-hit').first().click();
   assert.equal(await page.getByRole('button', { name: 'Ask Maxe about this' }).count(), 0, 'A normal click on a line opened Ask Maxe without a text selection');
 }
+await page.locator('#s-workspace .ws-slide-toolbar-copy small').selectText();
+await page.locator('#s-workspace .ws-slide-reader').dispatchEvent(pointerReaderEvents ? 'pointerup' : 'mouseup');
+assert.equal(await page.getByRole('button', { name: 'Ask Maxe about this' }).count(), 0, 'Toolbar instructions incorrectly opened Ask Maxe');
+assert.equal(await page.locator('#s-workspace .ws-selection-note').count(), 0, 'Toolbar text leaked into Maxe context');
+assert.equal(await page.getByRole('button', { name: 'New thread' }).count(), 1, 'New thread is not visible in the Maxe panel');
+assert.equal(await page.locator('#s-workspace .ws-maxe-mark .maxe-mark').count(), 1, 'Maxe panel is not using the bot avatar');
+assert.equal(await page.locator('#s-workspace .send svg').count(), 1, 'Maxe send control is missing its icon');
+assert.equal(await page.locator('.maxe-wrapper').count(), 0, 'Floating walking Maxe is still mounted beside the workspace panel');
+const newThreadBox = await page.getByRole('button', { name: 'New thread' }).boundingBox();
+const collapseBox = await page.locator('#s-workspace .ws-maxe-panel > .ws-collapse-button').boundingBox();
+assert.ok(newThreadBox && collapseBox && newThreadBox.x + newThreadBox.width < collapseBox.x, `New thread is hidden under the Maxe collapse control: ${JSON.stringify({ newThreadBox, collapseBox })}`);
 await page.locator('#s-workspace .ws-slide-text-hit').first().selectText();
 assert.match(await page.evaluate(() => window.getSelection()?.toString().trim() || ''), new RegExp(expectedText));
 await page.locator('#s-workspace .ws-slide-reader').dispatchEvent(pointerReaderEvents ? 'pointerup' : 'mouseup');
@@ -101,6 +112,8 @@ await page.locator('#s-workspace .ws-slide-reader').dispatchEvent(pointerReaderE
 await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
 await page.getByRole('button', { name: 'Ask Maxe about this' }).click();
 assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(), /Selected text in context/i);
+assert.match(await page.locator('#s-workspace .ai-inp').inputValue(), /Explain this selected passage/i);
+assert.equal(await page.locator('#s-workspace .ai-inp').evaluate(node => document.activeElement === node), true, 'Ask Maxe did not route focus into the right-panel chat input');
 await page.locator('#s-workspace .ws-reader-header h1').selectText();
 await page.locator('#s-workspace .ws-reader-content').dispatchEvent('mouseup');
 assert.equal(await page.getByRole('button', { name: 'Ask Maxe about this' }).count(), 0, 'Text outside the slide opened Ask Maxe');

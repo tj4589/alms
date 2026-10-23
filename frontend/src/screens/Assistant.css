@@ -97,3 +97,9 @@
 .assistant-related-item p{margin:5px 0;color:var(--text2);font-size:12px;line-height:1.45}
 .assistant-related-item small,.assistant-related-empty,.assistant-related-error{display:block;margin:6px 0 0;color:var(--text3);font-size:11px;line-height:1.4}
 .assistant-related-error{color:var(--danger,#b9402d)}
+
+#s-assistant .msg-ava{display:grid;place-items:center;overflow:hidden}
+#s-assistant .assistant-avatar-mark{display:block;width:26px;height:26px}
+#s-assistant .send{display:grid;place-items:center;flex:0 0 auto}
+#s-assistant .send-spinner{animation:assistant-send-spin .8s linear infinite}
+@keyframes assistant-send-spin{to{transform:rotate(360deg)}}

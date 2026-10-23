@@ -4,12 +4,13 @@ import {
   FileText, Image as ImageIcon, Link2, LoaderCircle, LockKeyhole, Music,
   ChevronLeft, ChevronRight, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen,
   PanelRightClose, PanelRightOpen, Plus, Presentation, RefreshCw, Search,
-  ShieldCheck, Sparkles, Trash2, Users, Video, X,
+  ShieldCheck, Sparkles, Trash2, Users, Video, X, MessageSquarePlus,
 } from 'lucide-react';
 import type { ChatMessage, MaxeCitation, ScreenType, User } from '../types';
 import { apiBlob, apiDelete, apiDownload, apiGet, apiPost, apiUrl } from '../lib/api';
 import Assistant, { type MaxeResourceContext } from './Assistant';
 import SaveButton from '../components/SaveButton';
+import MaxeMark from '../components/Maxe/MaxeMark';
 import './Workspace.css';
 import './WorkspaceCitation.css';
 
@@ -265,8 +266,15 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
   const handleSlideSelection = () => {
     const selection = window.getSelection();
     const text = selection?.toString().trim() || '';
-    if (text.length <= 1) {
+    const selectionNodes = [selection?.anchorNode, selection?.focusNode].filter((node): node is Node => Boolean(node));
+    const selectionBelongsToSlide = selectionNodes.length > 0 && selectionNodes.every(node => {
+      const element = node instanceof Element ? node : node.parentElement;
+      return Boolean(element?.closest('.ws-slide-sheet'));
+    });
+    if (text.length <= 1 || !selectionBelongsToSlide) {
+      window.getSelection()?.removeAllRanges();
       setSlideAction(null);
+      onTextAction?.('');
       return;
     }
     const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
@@ -824,10 +832,10 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
 }
 
 */
-function MaxePanel({ activeResource, selectedText, go, notifyUnavailable, messages, onMessagesChange, onNewThread, onCitationClick, user }: { activeResource: Resource | null; selectedText: string; go: (screen: ScreenType) => void; notifyUnavailable: (feature: string) => void; messages: ChatMessage[]; onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void; onNewThread: () => void; onCitationClick: (citation: MaxeCitation) => void; user: User | null }) {
+function MaxePanel({ activeResource, selectedText, go, notifyUnavailable, messages, onMessagesChange, onNewThread, onCitationClick, user, focusRequest = 0 }: { activeResource: Resource | null; selectedText: string; go: (screen: ScreenType) => void; notifyUnavailable: (feature: string) => void; messages: ChatMessage[]; onMessagesChange: (updater: (current: ChatMessage[]) => ChatMessage[]) => void; onNewThread: () => void; onCitationClick: (citation: MaxeCitation) => void; user: User | null; focusRequest?: number }) {
   const maxeResource: MaxeResourceContext | null = activeResource ? { id: activeResource.id, kind: activeResource.kind, title: activeResource.title, courseCode: activeResource.courseCode, isAudio: activeResource.isAudio } : null;
   void notifyUnavailable;
-  return <div className="ws-maxe-content"><header className="ws-maxe-header"><div className="ws-maxe-brand"><span className="ws-maxe-mark">M</span><div><strong>Maxe</strong><small>Study beside your source</small></div></div><button type="button" className="ws-text-action" onClick={onNewThread}>New thread</button></header><div className="ws-maxe-context" aria-live="polite"><span className="ws-eyebrow">Active source</span><strong>{activeResource?.title || 'No source selected'}</strong><small>{activeResource ? `${typeLabel(activeResource)} · ${activeResource.courseCode || 'Archive'}` : 'Choose a source so the context stays visible while you study.'}</small>{selectedText && <small className="ws-selection-note">Selected text is ready for Maxe</small>}</div><div className="ws-maxe-assistant"><Assistant go={go} selectedQuestion="" messages={messages} onMessagesChange={onMessagesChange} user={user} activeResource={maxeResource} selectedText={selectedText} selectedTextSource={selectedText ? activeResource?.title : null} onCitationClick={onCitationClick} /></div></div>;
+    return <div className="ws-maxe-content"><header className="ws-maxe-header"><div className="ws-maxe-brand"><span className="ws-maxe-mark"><MaxeMark /></span><div><strong>Maxe</strong><small>Study beside your source</small></div></div><button type="button" className="ws-new-thread" onClick={onNewThread}><MessageSquarePlus size={14} aria-hidden="true" /> New thread</button></header><div className="ws-maxe-context" aria-live="polite"><span className="ws-eyebrow">Active source</span><strong>{activeResource?.title || 'No source selected'}</strong><small>{activeResource ? `${typeLabel(activeResource)} Â· ${activeResource.courseCode || 'Archive'}` : 'Choose a source so the context stays visible while you study.'}</small>{selectedText && <small className="ws-selection-note">Selected passage ready — ask about it below</small>}</div><div className="ws-maxe-assistant"><Assistant go={go} selectedQuestion="" focusRequest={focusRequest} messages={messages} onMessagesChange={onMessagesChange} user={user} activeResource={maxeResource} selectedText={selectedText} selectedTextSource={selectedText ? activeResource?.title : null} onCitationClick={onCitationClick} /></div></div>;
 }
 
 export default function Workspace({ go, notifyUnavailable, messages, onMessagesChange, onNewThread, user, initialResource }: WorkspaceProps) {
