@@ -11,8 +11,10 @@ const slidePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0
 const space = { id: 1, slug: 'cu', name: 'Covenant University', type: 'university', status: 'active', membership: { id: 1, role: 'member', status: 'active', onboarding_required: false } };
 const resources = [
   { id: 1, title: 'Week 2 reading', file_name: 'week-2-reading.pdf', has_file: true, is_owner: true, course_id: 1, metadata_json: { document_type: 'lecture_note', document_title: 'Week 2 reading', course_code: 'ECO 101' } },
+  { id: 2, title: 'Week 3 handout', file_name: 'week-3-handout.docx', has_file: true, is_owner: true, course_id: 1, metadata_json: { document_type: 'lecture_note', document_title: 'Week 3 handout', course_code: 'ECO 101' } },
 ];
 const detail = { ...resources[0], content_text: 'Opportunity cost is the value of the next best alternative forgone.', sections: [{ id: 12, heading: 'Opportunity cost', body: 'Opportunity cost is the value of the next best alternative forgone.', page_from: 4, page_to: 4 }, { id: 13, heading: 'Decision context', body: 'The next best alternative provides the comparison point.', page_from: 5, page_to: 5 }] };
+const handoutDetail = { ...resources[1], content_text: 'A market is a group of buyers and sellers. Demand describes how much buyers are willing to purchase.', sections: [{ id: 22, heading: 'Markets and demand', body: 'A market is a group of buyers and sellers. Demand describes how much buyers are willing to purchase.', page_from: 1, page_to: 1 }] };
 
 const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true, args: ['--disable-background-networking', '--disable-component-update'] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block', reducedMotion: 'reduce' });
@@ -26,6 +28,7 @@ await context.route('**/*', async route => {
   else if (url.pathname === '/community/profile') body = { onboarding_required: false, onboarding_state: 'completed' };
   else if (url.pathname.endsWith('/lecture-notes')) body = resources;
   else if (url.pathname.endsWith('/lecture-notes/1')) body = detail;
+  else if (url.pathname.endsWith('/lecture-notes/2')) body = handoutDetail;
   else if (url.pathname.endsWith('/lecture-notes/1/pages')) body = { page_count: 2, pages: [
     { page: 1, width: 640, height: 360, text: detail.sections[0].body, spans: [{ text: detail.sections[0].body, x: 48, y: 72, width: 360, height: 24 }] },
     { page: 2, width: 640, height: 360, text: detail.sections[1].body, spans: [{ text: detail.sections[1].body, x: 48, y: 72, width: 360, height: 24 }] },
@@ -95,8 +98,19 @@ await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
 await page.getByRole('button', { name: 'Ask Maxe about this' }).click();
 assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(), /Selected text in context/i);
 
+// Ordinary reading text uses a separate selection action; clicking away must
+// dismiss that action without clearing the passage already shared with Maxe.
+await page.getByText('Week 3 handout', { exact: true }).first().click();
+await page.locator('#s-workspace .ws-reading-section p').waitFor();
+await page.locator('#s-workspace .ws-reading-section p').selectText();
+await page.locator('#s-workspace .ws-reader-content').dispatchEvent('mouseup');
+await page.locator('#s-workspace .ws-selection-action').waitFor();
+await page.locator('#s-workspace .ws-reader-header h1').click();
+assert.equal(await page.locator('#s-workspace .ws-selection-action').count(), 0, 'Ask Maxe action did not dismiss after clicking outside it');
+assert.match(await page.locator('#s-workspace .ws-selection-note').textContent(), /Selected text is ready for Maxe/i);
+
 await page.setViewportSize({ width: 390, height: 844 });
 assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Workspace reader overflows on mobile');
-console.log(JSON.stringify({ ok: true, native_pdf_viewer: false, selection_to_maxe: true, slide_only_ask_maxe: true, fullscreen_checked: fullscreenChecked, mobile_overflow: true, page_count: await page.locator('#s-workspace .ws-slide-count').textContent() }));
+console.log(JSON.stringify({ ok: true, native_pdf_viewer: false, selection_to_maxe: true, selection_action_click_away: true, slide_only_ask_maxe: true, fullscreen_checked: fullscreenChecked, mobile_overflow: true, page_count: await page.locator('#s-workspace .ws-slide-count').textContent() }));
 await context.close();
 await browser.close();

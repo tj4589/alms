@@ -194,13 +194,13 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
 
   useEffect(() => {
     if (!slideAction) return;
-    const dismissOutsideAction = (event: MouseEvent) => {
+    const dismissOutsideAction = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest('.ws-slide-selection-action') || target?.closest('.ws-slide-text-hit')) return;
       setSlideAction(null);
     };
-    document.addEventListener('mousedown', dismissOutsideAction);
-    return () => document.removeEventListener('mousedown', dismissOutsideAction);
+    document.addEventListener('pointerdown', dismissOutsideAction);
+    return () => document.removeEventListener('pointerdown', dismissOutsideAction);
   }, [slideAction]);
 
   if (!page) return null;
@@ -695,6 +695,16 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
   }, [canNativePreview, resource]);
 
   useEffect(() => { setShareOpen(false); setSelectionAction(null); setTranscript([]); }, [resource.key]);
+  useEffect(() => {
+    if (!selectionAction) return;
+    const dismissOutsideAction = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.ws-selection-action')) return;
+      setSelectionAction(null);
+    };
+    document.addEventListener('pointerdown', dismissOutsideAction);
+    return () => document.removeEventListener('pointerdown', dismissOutsideAction);
+  }, [selectionAction]);
   const onTranscriptLoaded = useCallback((segments: TranscriptSegment[]) => setTranscript(segments), []);
   const body = detail?.contentText || resource.contentText;
   const slidePages = useMemo(() => pdfPages || readerPages(detail, body), [body, detail, pdfPages]);
