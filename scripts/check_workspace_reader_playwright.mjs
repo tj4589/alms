@@ -58,13 +58,16 @@ await page.getByText('Week 2 reading', { exact: true }).first().click();
 await page.locator('#s-workspace .ws-slide-reader').waitFor();
 await page.locator('#s-workspace .ws-slide-visual img').waitFor();
 assert.equal(await page.locator('#s-workspace .ws-slide-text-hit').first().evaluate(node => getComputedStyle(node).userSelect), 'text');
+await page.locator('#s-workspace .ws-slide-text-hit').first().click();
+assert.equal(await page.getByRole('button', { name: 'Ask Maxe about this' }).count(), 0, 'A normal click on a line opened Ask Maxe without a text selection');
 await page.locator('#s-workspace .ws-slide-text-hit').first().selectText();
 assert.match(await page.evaluate(() => window.getSelection()?.toString().trim() || ''), /Opportunity cost/);
-await page.locator('#s-workspace .ws-slide-reader').dispatchEvent('mouseup');
+await page.locator('#s-workspace .ws-slide-reader').dispatchEvent('pointerup');
 await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
 await page.locator('#s-workspace .ws-slide-toolbar-copy').click();
 assert.equal(await page.getByRole('button', { name: 'Ask Maxe about this' }).count(), 0, 'Ask Maxe action did not dismiss after clicking outside the selected text');
-await page.locator('#s-workspace .ws-slide-text-hit').first().click();
+await page.locator('#s-workspace .ws-slide-text-hit').first().selectText();
+await page.locator('#s-workspace .ws-slide-reader').dispatchEvent('pointerup');
 await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
 await page.getByRole('button', { name: 'Ask Maxe about this' }).click();
 assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(), /Selected text in context/i);
@@ -93,7 +96,7 @@ assert.match(await page.locator('#s-workspace .ws-slide-count').textContent(), /
 await page.locator('#s-workspace .ws-slide-view-toggle').click();
 
 await page.locator('#s-workspace .ws-slide-sheet-body p').selectText();
-await page.locator('#s-workspace .ws-slide-reader').dispatchEvent('mouseup');
+await page.locator('#s-workspace .ws-slide-reader').dispatchEvent('pointerup');
 await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
 await page.getByRole('button', { name: 'Ask Maxe about this' }).click();
 assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(), /Selected text in context/i);
@@ -103,7 +106,7 @@ assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(),
 await page.getByText('Week 3 handout', { exact: true }).first().click();
 await page.locator('#s-workspace .ws-reading-section p').waitFor();
 await page.locator('#s-workspace .ws-reading-section p').selectText();
-await page.locator('#s-workspace .ws-reader-content').dispatchEvent('mouseup');
+await page.locator('#s-workspace .ws-reader-content').dispatchEvent('pointerup');
 await page.locator('#s-workspace .ws-selection-action').waitFor();
 await page.locator('#s-workspace .ws-reader-header h1').click();
 assert.equal(await page.locator('#s-workspace .ws-selection-action').count(), 0, 'Ask Maxe action did not dismiss after clicking outside it');

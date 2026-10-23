@@ -34,6 +34,17 @@ class ReaderPageEndpointTests(unittest.TestCase):
         self.assertTrue(any("Prospecting" in span["text"] for span in pages["pages"][0]["spans"]))
         self.assertEqual(image.media_type, "image/png")
         self.assertTrue(image.body.startswith(b"\x89PNG"))
+        self.assertEqual(int.from_bytes(image.body[16:20], "big"), 1536)
+        self.assertEqual(int.from_bytes(image.body[20:24], "big"), 864)
+
+    def test_preview_scale_caps_large_page_pixel_count(self):
+        document = fitz.open()
+        page = document.new_page(width=8000, height=8000)
+        scale = mvp._reader_preview_scale(page)
+        document.close()
+
+        self.assertLessEqual((8000 * scale) ** 2, mvp._READER_PREVIEW_MAX_PIXELS)
+        self.assertLessEqual(scale, mvp._READER_PREVIEW_MAX_SCALE)
 
     def test_visual_page_endpoint_rejects_invalid_page_numbers(self):
         with patch.object(mvp, "_pdf_lecture_note_or_404", return_value=self.note):

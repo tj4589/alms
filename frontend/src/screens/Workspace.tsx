@@ -54,7 +54,7 @@ type ShareLink = {
   revoked_at?: string | null; created_at?: string | null; token?: string; url?: string; title?: string;
 };
 type ReaderDetail = Resource & { sections: { id: number; heading: string | null; body: string; page_from?: number | null; page_to?: number | null }[] };
-type ReaderTextSpan = { text: string; x: number; y: number; width: number; height: number; fontSize?: number | null };
+type ReaderTextSpan = { text: string; x: number; y: number; width: number; height: number; fontSize?: number | null; font_size?: number | null };
 type ReaderPage = {
   id: string; heading: string | null; body: string; pageFrom: number | null; pageTo: number | null; isPage: boolean;
   imagePath?: string; pageWidth?: number; pageHeight?: number; textSpans?: ReaderTextSpan[];
@@ -196,7 +196,7 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
     if (!slideAction) return;
     const dismissOutsideAction = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('.ws-slide-selection-action') || target?.closest('.ws-slide-text-hit')) return;
+      if (target?.closest('.ws-slide-selection-action')) return;
       setSlideAction(null);
     };
     document.addEventListener('pointerdown', dismissOutsideAction);
@@ -239,18 +239,8 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
     const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
     if (range && (range.width || range.height)) showSlideAction(text, range);
   };
-  const handleSlideTextClick = (event: React.MouseEvent<HTMLSpanElement>, text: string) => {
-    if (window.getSelection()?.toString().trim()) return;
-    showSlideAction(text, event.currentTarget.getBoundingClientRect());
-  };
-  const handleSlideTextKeyDown = (event: React.KeyboardEvent<HTMLSpanElement>, text: string) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    showSlideAction(text, event.currentTarget.getBoundingClientRect());
-  };
-
-  return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} onMouseUp={handleSlideSelection} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
-    {slideAction && <button type="button" className="ws-slide-selection-action" style={{ left: slideAction.left, top: slideAction.top }} onMouseDown={event => event.preventDefault()} onMouseUp={event => event.stopPropagation()} onClick={() => { setSlideAction(null); onAskSelection?.(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
+  return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} onPointerUp={handleSlideSelection} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
+    {slideAction && <button type="button" className="ws-slide-selection-action" style={{ left: slideAction.left, top: slideAction.top }} onMouseDown={event => event.preventDefault()} onPointerUp={event => event.stopPropagation()} onClick={() => { setSlideAction(null); onAskSelection?.(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     <div className="ws-slide-toolbar">
       <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>{textView ? 'Select text to ask Maxe about it.' : 'Highlight slide text to ask Maxe. Use Text view for precise selection.'}</small></div>
       <div className="ws-slide-toolbar-actions">
@@ -266,17 +256,13 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
             {page.textSpans?.map((span, index) => <span
               className="ws-slide-text-hit"
               key={`${page.id}-text-${index}`}
-              role="button"
-              tabIndex={0}
-              aria-label={`Ask Maxe about: ${span.text.trim()}`}
               style={page.pageWidth && page.pageHeight ? {
                 left: `${(span.x / page.pageWidth) * 100}%`,
                 top: `${(span.y / page.pageHeight) * 100}%`,
                 width: `${(span.width / page.pageWidth) * 100}%`,
                 height: `${(span.height / page.pageHeight) * 100}%`,
+                fontSize: span.fontSize ? `${(span.fontSize / page.pageWidth) * 100}cqw` : undefined,
               } : undefined}
-              onClick={event => handleSlideTextClick(event, span.text)}
-              onKeyDown={event => handleSlideTextKeyDown(event, span.text)}
             >{span.text}</span>)}
           </div> : <span className="ws-slide-image-state">{imageLoading ? 'Preparing slide…' : 'Slide preview unavailable'}</span>}
         </div> : <>
@@ -667,7 +653,7 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
           imagePath: `/materials/lecture-notes/${resource.id}/pages/${item.page || index + 1}/image`,
           pageWidth: item.width,
           pageHeight: item.height,
-          textSpans: Array.isArray(item.spans) ? item.spans : [],
+          textSpans: Array.isArray(item.spans) ? item.spans.map(span => ({ ...span, fontSize: span.fontSize ?? span.font_size ?? null })) : [],
         })).filter(page => page.body.trim() || page.imagePath)
         : [];
       if (pages.length > 0) setPdfPages(pages);
@@ -758,8 +744,8 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
     onSelection(cleanText.slice(0, 4000), resource.title);
   };
 
-  return <div className="ws-reader-content" onMouseUp={captureSelection}>
-      {selectionAction && <button type="button" className="ws-selection-action" style={{ left: selectionAction.left, top: selectionAction.top }} onMouseDown={event => event.preventDefault()} onMouseUp={event => event.stopPropagation()} onClick={() => { setSelectionAction(null); onAskSelection(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
+  return <div className="ws-reader-content" onPointerUp={captureSelection}>
+      {selectionAction && <button type="button" className="ws-selection-action" style={{ left: selectionAction.left, top: selectionAction.top }} onMouseDown={event => event.preventDefault()} onPointerUp={event => event.stopPropagation()} onClick={() => { setSelectionAction(null); onAskSelection(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     {citationTargetLabel && <p className="ws-citation-target" role="status">{citationTargetLabel}</p>}
     {canManageSharing && <div className="ws-share-strip"><button type="button" className="ws-share-button" onClick={() => setShareOpen(value => !value)} aria-expanded={shareOpen} aria-controls="ws-share-title"><Link2 size={15} aria-hidden="true" />{shareOpen ? 'Close sharing' : 'Share this source'}</button></div>}
     {shareOpen && <ShareLinksPanel key={resource.key} resource={resource} onClose={() => setShareOpen(false)} />}

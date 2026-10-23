@@ -3,6 +3,7 @@ import binascii
 from collections import defaultdict
 from datetime import datetime, timezone
 import json
+import math
 import re
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -71,6 +72,11 @@ except Exception:
     fitz = None
 
 router = APIRouter(tags=["mvp"])
+
+# Keep PDF previews sharp on a full-width reader without letting unusually
+# large pages allocate unbounded pixmaps on the small staging instance.
+_READER_PREVIEW_MAX_PIXELS = 3_000_000
+_READER_PREVIEW_MAX_SCALE = 2.4
 
 
 class PracticeGenerateRequest(BaseModel):
@@ -699,6 +705,19 @@ def _pdf_lecture_note_or_404(
     return note
 
 
+def _reader_preview_scale(page: Any) -> float:
+    rect = page.rect
+    width = max(float(rect.width), 1.0)
+    height = max(float(rect.height), 1.0)
+    scale = min(_READER_PREVIEW_MAX_SCALE, math.sqrt(_READER_PREVIEW_MAX_PIXELS / (width * height)))
+    # Pixmap dimensions round up to whole pixels, so adjust the scale until
+    # the actual integer canvas stays under the memory budget too.
+    while math.ceil(width * scale) * math.ceil(height * scale) > _READER_PREVIEW_MAX_PIXELS:
+        pixel_count = math.ceil(width * scale) * math.ceil(height * scale)
+        scale *= math.sqrt(_READER_PREVIEW_MAX_PIXELS / pixel_count) * 0.999
+    return scale
+
+
 @router.get("/materials/lecture-notes/{note_id}/pages", response_model=PublicLectureNotePagesResponse)
 def read_lecture_note_pages(
     note_id: int,
@@ -765,9 +784,11 @@ def render_lecture_note_page(
         if page_number > len(document):
             raise HTTPException(status_code=404, detail="That page does not exist.")
         page = document.load_page(page_number - 1)
-        pixels = page.get_pixmap(matrix=fitz.Matrix(1.6, 1.6), alpha=False)
+        scale = _reader_preview_scale(page)
+        pixels = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+        png = pixels.tobytes("png")
         return Response(
-            content=pixels.tobytes("png"),
+            content=png,
             media_type="image/png",
             headers={"Cache-Control": "private, max-age=300"},
         )
