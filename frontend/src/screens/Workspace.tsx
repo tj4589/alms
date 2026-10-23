@@ -192,6 +192,17 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  useEffect(() => {
+    if (!slideAction) return;
+    const dismissOutsideAction = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.ws-slide-selection-action') || target?.closest('.ws-slide-text-hit')) return;
+      setSlideAction(null);
+    };
+    document.addEventListener('mousedown', dismissOutsideAction);
+    return () => document.removeEventListener('mousedown', dismissOutsideAction);
+  }, [slideAction]);
+
   if (!page) return null;
   const goToPage = (nextPage: number) => setCurrentPage(Math.min(pages.length - 1, Math.max(0, nextPage)));
   const toggleFullscreen = async () => {
@@ -241,7 +252,7 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
   return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} onMouseUp={handleSlideSelection} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
     {slideAction && <button type="button" className="ws-slide-selection-action" style={{ left: slideAction.left, top: slideAction.top }} onMouseDown={event => event.preventDefault()} onMouseUp={event => event.stopPropagation()} onClick={() => { setSlideAction(null); onAskSelection?.(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     <div className="ws-slide-toolbar">
-      <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>{textView ? 'Select text to ask Maxe about it.' : 'Click slide text to ask Maxe. Use Text view for precise selection.'}</small></div>
+      <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>{textView ? 'Select text to ask Maxe about it.' : 'Highlight slide text to ask Maxe. Use Text view for precise selection.'}</small></div>
       <div className="ws-slide-toolbar-actions">
         {page.imagePath && <button type="button" className={`ws-slide-view-toggle${textView ? ' is-active' : ''}`} onClick={() => setTextMode(value => !value)} aria-pressed={textView}>{textView ? 'Show slide' : 'Text view'}</button>}
         <button type="button" className="ws-slide-fullscreen" onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'} title={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'}>{isFullscreen ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}</button>
