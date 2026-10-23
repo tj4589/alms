@@ -76,6 +76,11 @@ DEFAULT_PAGE_RENDER_SCALE = 2.0
 MAX_PAGE_RENDER_PIXELS = 6_000_000
 MAX_PAGE_RENDER_DIMENSION = 4096
 
+# Keep PDF previews sharp on a full-width reader without letting unusually
+# large pages allocate unbounded pixmaps on the small staging instance.
+_READER_PREVIEW_MAX_PIXELS = 3_000_000
+_READER_PREVIEW_MAX_SCALE = 2.4
+
 
 class PracticeGenerateRequest(BaseModel):
     course_id: Optional[int] = None
@@ -701,6 +706,19 @@ def _pdf_lecture_note_or_404(
     if fitz is None:
         raise HTTPException(status_code=503, detail="Visual page previews are temporarily unavailable.")
     return note
+
+
+def _reader_preview_scale(page: Any) -> float:
+    rect = page.rect
+    width = max(float(rect.width), 1.0)
+    height = max(float(rect.height), 1.0)
+    scale = min(_READER_PREVIEW_MAX_SCALE, math.sqrt(_READER_PREVIEW_MAX_PIXELS / (width * height)))
+    # Pixmap dimensions round up to whole pixels, so adjust the scale until
+    # the actual integer canvas stays under the memory budget too.
+    while math.ceil(width * scale) * math.ceil(height * scale) > _READER_PREVIEW_MAX_PIXELS:
+        pixel_count = math.ceil(width * scale) * math.ceil(height * scale)
+        scale *= math.sqrt(_READER_PREVIEW_MAX_PIXELS / pixel_count) * 0.999
+    return scale
 
 
 @router.get("/materials/lecture-notes/{note_id}/pages", response_model=PublicLectureNotePagesResponse)

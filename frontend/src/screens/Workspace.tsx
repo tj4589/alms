@@ -272,7 +272,6 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
     const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
     if (range && (range.width || range.height)) showSlideAction(text, range);
   };
-
   return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} onPointerUp={handleSlideSelection} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
     {slideAction && <button type="button" className="ws-slide-selection-action" style={{ left: slideAction.left, top: slideAction.top }} onPointerDown={event => event.preventDefault()} onPointerUp={event => event.stopPropagation()} onClick={() => { setSlideAction(null); onAskSelection?.(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     <div className="ws-slide-toolbar">
