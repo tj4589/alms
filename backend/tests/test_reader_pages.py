@@ -30,6 +30,8 @@ class ReaderPageEndpointTests(unittest.TestCase):
 
         self.assertEqual(pages["page_count"], 1)
         self.assertIn("Prospecting & Pipeline Generation", pages["pages"][0]["text"])
+        self.assertEqual(pages["pages"][0]["width"], 640.0)
+        self.assertTrue(any("Prospecting" in span["text"] for span in pages["pages"][0]["spans"]))
         self.assertEqual(image.media_type, "image/png")
         self.assertTrue(image.body.startswith(b"\x89PNG"))
 

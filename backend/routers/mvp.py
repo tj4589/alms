@@ -45,6 +45,7 @@ from material_access import (
 from public_schemas import (
     PublicAudioTranscriptResponse,
     PublicLectureNotePage,
+    PublicLectureNoteTextSpan,
     PublicLectureNotePagesResponse,
     PublicLectureNoteReaderResponse,
     PublicLectureNoteResponse,
@@ -710,10 +711,37 @@ def read_lecture_note_pages(
     except Exception:
         raise HTTPException(status_code=422, detail="This PDF could not be prepared for page reading.")
     try:
-        pages = [
-            PublicLectureNotePage(page=index + 1, text=page.get_text() or "")
-            for index, page in enumerate(document)
-        ]
+        pages = []
+        for index, page in enumerate(document):
+            page_text = page.get_text() or ""
+            spans = []
+            try:
+                text_dict = page.get_text("dict")
+                for block in text_dict.get("blocks", []):
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            raw_text = str(span.get("text") or "")
+                            bbox = span.get("bbox")
+                            if not raw_text.strip() or not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                                continue
+                            x0, y0, x1, y1 = (float(value) for value in bbox)
+                            spans.append(PublicLectureNoteTextSpan(
+                                text=raw_text,
+                                x=x0,
+                                y=y0,
+                                width=max(0.0, x1 - x0),
+                                height=max(0.0, y1 - y0),
+                                font_size=float(span.get("size")) if span.get("size") is not None else None,
+                            ))
+            except Exception:
+                spans = []
+            pages.append(PublicLectureNotePage(
+                page=index + 1,
+                width=float(page.rect.width),
+                height=float(page.rect.height),
+                text=page_text,
+                spans=spans,
+            ))
         return PublicLectureNotePagesResponse(page_count=len(pages), pages=pages).model_dump(mode="json")
     finally:
         document.close()

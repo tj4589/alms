@@ -168,9 +168,21 @@ class PublicReaderSection(PublicDTO):
     cut_by: str
 
 
+class PublicLectureNoteTextSpan(PublicDTO):
+    text: str
+    x: float
+    y: float
+    width: float
+    height: float
+    font_size: float | None = None
+
+
 class PublicLectureNotePage(PublicDTO):
     page: int
+    width: float
+    height: float
     text: str = ""
+    spans: list[PublicLectureNoteTextSpan] = Field(default_factory=list)
 
 
 class PublicLectureNotePagesResponse(PublicDTO):

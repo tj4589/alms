@@ -26,7 +26,10 @@ await context.route('**/*', async route => {
   else if (url.pathname === '/community/profile') body = { onboarding_required: false, onboarding_state: 'completed' };
   else if (url.pathname.endsWith('/lecture-notes')) body = resources;
   else if (url.pathname.endsWith('/lecture-notes/1')) body = detail;
-  else if (url.pathname.endsWith('/lecture-notes/1/pages')) body = { page_count: 2, pages: [{ page: 1, text: detail.sections[0].body }, { page: 2, text: detail.sections[1].body }] };
+  else if (url.pathname.endsWith('/lecture-notes/1/pages')) body = { page_count: 2, pages: [
+    { page: 1, width: 640, height: 360, text: detail.sections[0].body, spans: [{ text: detail.sections[0].body, x: 48, y: 72, width: 360, height: 24 }] },
+    { page: 2, width: 640, height: 360, text: detail.sections[1].body, spans: [{ text: detail.sections[1].body, x: 48, y: 72, width: 360, height: 24 }] },
+  ] };
   else if (url.pathname.includes('/lecture-notes/1/pages/') && url.pathname.endsWith('/image')) return route.fulfill({ status: 200, contentType: 'image/png', body: slidePng });
   else if (url.pathname.endsWith('/past-questions')) body = [];
   else if (url.pathname === '/learning/profile') body = { explicit_preferences: {}, inferred_preferences: {} };
@@ -51,6 +54,10 @@ await page.locator('#s-workspace .ws-source-list').waitFor();
 await page.getByText('Week 2 reading', { exact: true }).first().click();
 await page.locator('#s-workspace .ws-slide-reader').waitFor();
 await page.locator('#s-workspace .ws-slide-visual img').waitFor();
+await page.locator('#s-workspace .ws-slide-text-hit').first().click();
+await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
+await page.getByRole('button', { name: 'Ask Maxe about this' }).click();
+assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(), /Selected text in context/i);
 assert.equal(await page.locator('#s-workspace iframe.ws-native-preview').count(), 0, 'Native browser PDF viewer leaked into the reader');
 assert.match(await page.locator('#s-workspace .ws-slide-count').textContent(), /1\s+of\s+2/);
 assert.equal(await page.locator('#s-workspace .ws-slide-nav[aria-label="Next slide"]').count(), 1);
