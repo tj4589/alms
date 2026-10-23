@@ -54,7 +54,7 @@ type ShareLink = {
   revoked_at?: string | null; created_at?: string | null; token?: string; url?: string; title?: string;
 };
 type ReaderDetail = Resource & { sections: { id: number; heading: string | null; body: string; page_from?: number | null; page_to?: number | null }[] };
-type ReaderPage = { id: string; heading: string | null; body: string; pageFrom: number | null; pageTo: number | null; isPage: boolean };
+type ReaderPage = { id: string; heading: string | null; body: string; pageFrom: number | null; pageTo: number | null; isPage: boolean; imagePath?: string };
 type WorkspaceProps = {
   go: (screen: ScreenType) => void;
   notifyUnavailable: (feature: string) => void;
@@ -150,7 +150,30 @@ function SlideReader({ pages, citationPage, citationSlide }: { pages: ReaderPage
   }, [citationPage, citationSlide, pages]);
   const [currentPage, setCurrentPage] = useState(() => citationIndex >= 0 ? citationIndex : 0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [textMode, setTextMode] = useState(false);
+  const [imageState, setImageState] = useState<{ path: string | null; url: string | null }>({ path: null, url: null });
   const page = pages[Math.min(currentPage, Math.max(0, pages.length - 1))];
+  const imagePath = page?.imagePath || null;
+  const textView = !imagePath || textMode;
+  const pageImageUrl = imageState.path === imagePath ? imageState.url : null;
+  const imageLoading = Boolean(imagePath && imageState.path !== imagePath);
+
+  useEffect(() => {
+    if (!imagePath) return;
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    void apiBlob(imagePath).then(blob => {
+      if (cancelled) return;
+      createdUrl = URL.createObjectURL(blob);
+      setImageState({ path: imagePath, url: createdUrl });
+    }).catch(() => {
+      if (!cancelled) setTextMode(true);
+    });
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [imagePath]);
 
   useEffect(() => {
     const handleFullscreenChange = () => setIsFullscreen(document.fullscreenElement === readerRef.current);
@@ -171,17 +194,29 @@ function SlideReader({ pages, citationPage, citationSlide }: { pages: ReaderPage
   const pageLabel = page.isPage
     ? `Page ${page.pageFrom}${page.pageTo && page.pageTo !== page.pageFrom ? `–${page.pageTo}` : ''}`
     : `Reading section ${currentPage + 1}`;
+  const hasVisual = Boolean(page.imagePath && pageImageUrl);
+  const handleReaderKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'ArrowRight') { event.preventDefault(); goToPage(currentPage + 1); }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); goToPage(currentPage - 1); }
+  };
 
-  return <section ref={readerRef} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
+  return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
     <div className="ws-slide-toolbar">
-      <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>Select text to ask Maxe about it.</small></div>
-      <button type="button" className="ws-slide-fullscreen" onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'} title={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'}>{isFullscreen ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}</button>
+      <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>{textView ? 'Select text to ask Maxe about it.' : 'Viewing the original slide. Switch to Text view to select words.'}</small></div>
+      <div className="ws-slide-toolbar-actions">
+        {page.imagePath && <button type="button" className={`ws-slide-view-toggle${textView ? ' is-active' : ''}`} onClick={() => setTextMode(value => !value)} aria-pressed={textView}>{textView ? 'Show slide' : 'Text view'}</button>}
+        <button type="button" className="ws-slide-fullscreen" onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'} title={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'}>{isFullscreen ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}</button>
+      </div>
     </div>
     <div className="ws-slide-stage">
-      <article className="ws-slide-sheet" key={page.id}>
-        <div className="ws-slide-sheet-meta"><span>{page.isPage ? 'Source page' : 'Source reading'}</span><span>{page.pageFrom ? `Page ${page.pageFrom}` : 'Text view'}</span></div>
-        <h2>{page.heading || `Slide ${currentPage + 1}`}</h2>
-        <div className="ws-slide-sheet-body">{splitParagraphs(page.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
+      <article className={`ws-slide-sheet${textView ? ' is-text-view' : ' is-visual-view'}`} key={page.id}>
+        {page.imagePath && !textView ? <div className="ws-slide-visual" aria-label={`Slide ${page.pageFrom}`}>
+          {hasVisual ? <img src={pageImageUrl || undefined} alt={`${pageLabel} from ${page.heading || 'the uploaded source'}`} /> : <span className="ws-slide-image-state">{imageLoading ? 'Preparing slide…' : 'Slide preview unavailable'}</span>}
+        </div> : <>
+          <div className="ws-slide-sheet-meta"><span>{page.isPage ? 'Source slide' : 'Source reading'}</span><span>{page.pageFrom ? `Slide ${page.pageFrom}` : 'Text view'}</span></div>
+          <h2>{page.heading || `Slide ${currentPage + 1}`}</h2>
+          <div className="ws-slide-sheet-body">{splitParagraphs(page.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
+        </>}
       </article>
     </div>
     <footer className="ws-slide-controls">
@@ -510,6 +545,7 @@ function ShareLinksPanel({ resource, onClose }: { resource: Resource; onClose: (
 
 function ResourceReader({ resource, go, onSelection, onAskSelection, citationTarget, user }: { resource: Resource; go: (screen: ScreenType) => void; onSelection: (text: string, source: string) => void; onAskSelection: () => void; citationTarget: CitationTarget; user: User | null }) {
   const [detail, setDetail] = useState<ReaderDetail | null>(resource.kind === 'past_question' ? { ...resource, sections: [] } : null);
+  const [pdfPages, setPdfPages] = useState<ReaderPage[] | null>(null);
   const [loading, setLoading] = useState(resource.kind === 'lecture_note' && !resource.isAudio);
   const [error, setError] = useState('');
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
@@ -549,6 +585,30 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
 
   useEffect(() => {
     let cancelled = false;
+    setPdfPages(null);
+    if (resource.kind !== 'lecture_note' || extension !== 'pdf' || !resource.hasFile) return () => { cancelled = true; };
+    void apiGet(`/materials/lecture-notes/${resource.id}/pages`).then(payload => {
+      if (cancelled) return;
+      const pages = Array.isArray((payload as { pages?: unknown[] } | null)?.pages)
+        ? ((payload as { pages: { page?: number; text?: string }[] }).pages || []).map((item, index) => ({
+          id: `pdf-page-${item.page || index + 1}`,
+          heading: null,
+          body: item.text || '',
+          pageFrom: item.page || index + 1,
+          pageTo: item.page || index + 1,
+          isPage: true,
+          imagePath: `/materials/lecture-notes/${resource.id}/pages/${item.page || index + 1}/image`,
+        })).filter(page => page.body.trim() || page.imagePath)
+        : [];
+      if (pages.length > 0) setPdfPages(pages);
+    }).catch(() => {
+      // Older APIs do not expose visual pages; the authorized section reader remains available.
+    });
+    return () => { cancelled = true; };
+  }, [extension, resource]);
+
+  useEffect(() => {
+    let cancelled = false;
     if (!canNativePreview) return () => { cancelled = true; };
     void apiBlob(resourceDownloadPath(resource)).then(blob => {
       if (!cancelled) setSourceUrl(URL.createObjectURL(blob));
@@ -567,7 +627,7 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
   useEffect(() => { setShareOpen(false); setSelectionAction(null); setTranscript([]); }, [resource.key]);
   const onTranscriptLoaded = useCallback((segments: TranscriptSegment[]) => setTranscript(segments), []);
   const body = detail?.contentText || resource.contentText;
-  const slidePages = useMemo(() => readerPages(detail, body), [body, detail]);
+  const slidePages = useMemo(() => pdfPages || readerPages(detail, body), [body, detail, pdfPages]);
   const selectedCitationPage = citationTarget?.resourceId === resource.id ? citationTarget.pageFrom : undefined;
   const selectedCitationSlide = citationTarget?.resourceId === resource.id ? citationTarget.slideFrom : undefined;
   const citationTargetLabel = selectedCitationPage ? `Opened at Page ${selectedCitationPage}` : selectedCitationSlide ? `Opened at Slide ${selectedCitationSlide}` : '';

@@ -168,6 +168,16 @@ class PublicReaderSection(PublicDTO):
     cut_by: str
 
 
+class PublicLectureNotePage(PublicDTO):
+    page: int
+    text: str = ""
+
+
+class PublicLectureNotePagesResponse(PublicDTO):
+    page_count: int
+    pages: list[PublicLectureNotePage] = Field(default_factory=list)
+
+
 class PublicLectureNoteReaderResponse(PublicLectureNoteResponse):
     course_code: str | None = None
     course_name: str | None = None

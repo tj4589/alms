@@ -7,6 +7,7 @@ const tooling = path.join(process.env.TEMP, 'exammind-s8-playwright/node_modules
 const { chromium } = await import(pathToFileURL(tooling).href);
 const apiOrigin = 'http://127.0.0.1:8001';
 const json = (body, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
+const slidePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 const space = { id: 1, slug: 'cu', name: 'Covenant University', type: 'university', status: 'active', membership: { id: 1, role: 'member', status: 'active', onboarding_required: false } };
 const resources = [
   { id: 1, title: 'Week 2 reading', file_name: 'week-2-reading.pdf', has_file: true, is_owner: true, course_id: 1, metadata_json: { document_type: 'lecture_note', document_title: 'Week 2 reading', course_code: 'ECO 101' } },
@@ -25,6 +26,8 @@ await context.route('**/*', async route => {
   else if (url.pathname === '/community/profile') body = { onboarding_required: false, onboarding_state: 'completed' };
   else if (url.pathname.endsWith('/lecture-notes')) body = resources;
   else if (url.pathname.endsWith('/lecture-notes/1')) body = detail;
+  else if (url.pathname.endsWith('/lecture-notes/1/pages')) body = { page_count: 2, pages: [{ page: 1, text: detail.sections[0].body }, { page: 2, text: detail.sections[1].body }] };
+  else if (url.pathname.includes('/lecture-notes/1/pages/') && url.pathname.endsWith('/image')) return route.fulfill({ status: 200, contentType: 'image/png', body: slidePng });
   else if (url.pathname.endsWith('/past-questions')) body = [];
   else if (url.pathname === '/learning/profile') body = { explicit_preferences: {}, inferred_preferences: {} };
   else if (url.pathname === '/learning/readiness') body = { available: false, score: null, topics: [] };
@@ -47,6 +50,7 @@ await page.locator('.desk-space-primary').click();
 await page.locator('#s-workspace .ws-source-list').waitFor();
 await page.getByText('Week 2 reading', { exact: true }).first().click();
 await page.locator('#s-workspace .ws-slide-reader').waitFor();
+await page.locator('#s-workspace .ws-slide-visual img').waitFor();
 assert.equal(await page.locator('#s-workspace iframe.ws-native-preview').count(), 0, 'Native browser PDF viewer leaked into the reader');
 assert.match(await page.locator('#s-workspace .ws-slide-count').textContent(), /1\s+of\s+2/);
 assert.equal(await page.locator('#s-workspace .ws-slide-nav[aria-label="Next slide"]').count(), 1);
@@ -55,6 +59,7 @@ await page.locator('#s-workspace .ws-slide-nav[aria-label="Next slide"]').click(
 assert.match(await page.locator('#s-workspace .ws-slide-count').textContent(), /2\s+of\s+2/);
 await page.locator('#s-workspace .ws-slide-nav[aria-label="Previous slide"]').click();
 assert.match(await page.locator('#s-workspace .ws-slide-count').textContent(), /1\s+of\s+2/);
+await page.locator('#s-workspace .ws-slide-view-toggle').click();
 
 await page.locator('#s-workspace .ws-slide-sheet-body p').selectText();
 await page.locator('#s-workspace .ws-reader-content').dispatchEvent('mouseup');

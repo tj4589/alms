@@ -6,6 +6,7 @@ import json
 import re
 from types import SimpleNamespace
 from typing import Any, Optional
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -43,6 +44,8 @@ from material_access import (
 )
 from public_schemas import (
     PublicAudioTranscriptResponse,
+    PublicLectureNotePage,
+    PublicLectureNotePagesResponse,
     PublicLectureNoteReaderResponse,
     PublicLectureNoteResponse,
     PublicPastQuestionResponse,
@@ -60,6 +63,11 @@ from notifications import notify_discussion_reply
 from learning_spaces import authorized_active_space
 from storage_safety import defer_binary_column
 from rate_limiting import user_rate_limit
+
+try:
+    import fitz  # PyMuPDF
+except Exception:
+    fitz = None
 
 router = APIRouter(tags=["mvp"])
 
@@ -672,6 +680,71 @@ def download_lecture_note(
             detail="This material was uploaded before files were kept, so the original is not stored.",
         )
     return _file_response(note.file_data, note.file_name, note.file_mime, note.title)
+
+
+def _pdf_lecture_note_or_404(
+    note_id: int,
+    db: Session,
+    current_user: models.User,
+) -> models.LectureNote:
+    note = db.query(models.LectureNote).filter(models.LectureNote.id == note_id).first()
+    if not note or not can_view_material(db, note, current_user):
+        raise HTTPException(status_code=404, detail="That material does not exist.")
+    is_pdf = str(note.file_mime or "").lower() == "application/pdf" or str(note.file_name or "").lower().endswith(".pdf")
+    if not note.file_data or not is_pdf:
+        raise HTTPException(status_code=404, detail="A visual page preview is not available for this material.")
+    if fitz is None:
+        raise HTTPException(status_code=503, detail="Visual page previews are temporarily unavailable.")
+    return note
+
+
+@router.get("/materials/lecture-notes/{note_id}/pages", response_model=PublicLectureNotePagesResponse)
+def read_lecture_note_pages(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    note = _pdf_lecture_note_or_404(note_id, db, current_user)
+    try:
+        document = fitz.open(stream=BytesIO(note.file_data), filetype="pdf")
+    except Exception:
+        raise HTTPException(status_code=422, detail="This PDF could not be prepared for page reading.")
+    try:
+        pages = [
+            PublicLectureNotePage(page=index + 1, text=page.get_text() or "")
+            for index, page in enumerate(document)
+        ]
+        return PublicLectureNotePagesResponse(page_count=len(pages), pages=pages).model_dump(mode="json")
+    finally:
+        document.close()
+
+
+@router.get("/materials/lecture-notes/{note_id}/pages/{page_number}/image")
+def render_lecture_note_page(
+    note_id: int,
+    page_number: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    note = _pdf_lecture_note_or_404(note_id, db, current_user)
+    if page_number < 1:
+        raise HTTPException(status_code=404, detail="That page does not exist.")
+    try:
+        document = fitz.open(stream=BytesIO(note.file_data), filetype="pdf")
+    except Exception:
+        raise HTTPException(status_code=422, detail="This PDF could not be prepared for page reading.")
+    try:
+        if page_number > len(document):
+            raise HTTPException(status_code=404, detail="That page does not exist.")
+        page = document.load_page(page_number - 1)
+        pixels = page.get_pixmap(matrix=fitz.Matrix(1.6, 1.6), alpha=False)
+        return Response(
+            content=pixels.tobytes("png"),
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=300"},
+        )
+    finally:
+        document.close()
 
 
 def _audio_note_or_404(
