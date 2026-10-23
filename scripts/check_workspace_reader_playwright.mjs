@@ -54,14 +54,29 @@ await page.locator('#s-workspace .ws-source-list').waitFor();
 await page.getByText('Week 2 reading', { exact: true }).first().click();
 await page.locator('#s-workspace .ws-slide-reader').waitFor();
 await page.locator('#s-workspace .ws-slide-visual img').waitFor();
+assert.equal(await page.locator('#s-workspace .ws-slide-text-hit').first().evaluate(node => getComputedStyle(node).userSelect), 'none');
 await page.locator('#s-workspace .ws-slide-text-hit').first().click();
 await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
 await page.getByRole('button', { name: 'Ask Maxe about this' }).click();
 assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(), /Selected text in context/i);
+await page.locator('#s-workspace .ws-reader-header h1').selectText();
+await page.locator('#s-workspace .ws-reader-content').dispatchEvent('mouseup');
+assert.equal(await page.getByRole('button', { name: 'Ask Maxe about this' }).count(), 0, 'Text outside the slide opened Ask Maxe');
 assert.equal(await page.locator('#s-workspace iframe.ws-native-preview').count(), 0, 'Native browser PDF viewer leaked into the reader');
 assert.match(await page.locator('#s-workspace .ws-slide-count').textContent(), /1\s+of\s+2/);
 assert.equal(await page.locator('#s-workspace .ws-slide-nav[aria-label="Next slide"]').count(), 1);
 assert.equal(await page.locator('#s-workspace .ws-slide-fullscreen').count(), 1);
+await page.locator('#s-workspace .ws-slide-fullscreen').click();
+const fullscreenChecked = await page.evaluate(() => Boolean(document.fullscreenElement));
+if (fullscreenChecked) {
+  const fullscreenMetrics = await page.locator('#s-workspace .ws-slide-sheet').evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
+  });
+  assert.ok(fullscreenMetrics.width <= fullscreenMetrics.viewportWidth + 1, 'Fullscreen slide exceeds viewport width');
+  assert.ok(fullscreenMetrics.height <= fullscreenMetrics.viewportHeight + 1, 'Fullscreen slide exceeds viewport height');
+  await page.keyboard.press('Escape');
+}
 await page.locator('#s-workspace .ws-slide-nav[aria-label="Next slide"]').click();
 assert.match(await page.locator('#s-workspace .ws-slide-count').textContent(), /2\s+of\s+2/);
 await page.locator('#s-workspace .ws-slide-nav[aria-label="Previous slide"]').click();
@@ -70,12 +85,12 @@ await page.locator('#s-workspace .ws-slide-view-toggle').click();
 
 await page.locator('#s-workspace .ws-slide-sheet-body p').selectText();
 await page.locator('#s-workspace .ws-reader-content').dispatchEvent('mouseup');
-await page.locator('#s-workspace .ws-selection-action').waitFor();
-await page.locator('#s-workspace .ws-selection-action').click();
+await page.getByRole('button', { name: 'Ask Maxe about this' }).waitFor();
+await page.getByRole('button', { name: 'Ask Maxe about this' }).click();
 assert.match(await page.locator('#s-workspace .ai-context-strip').textContent(), /Selected text in context/i);
 
 await page.setViewportSize({ width: 390, height: 844 });
 assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Workspace reader overflows on mobile');
-console.log(JSON.stringify({ ok: true, native_pdf_viewer: false, selection_to_maxe: true, mobile_overflow: true, page_count: await page.locator('#s-workspace .ws-slide-count').textContent() }));
+console.log(JSON.stringify({ ok: true, native_pdf_viewer: false, selection_to_maxe: true, slide_only_ask_maxe: true, fullscreen_checked: fullscreenChecked, mobile_overflow: true, page_count: await page.locator('#s-workspace .ws-slide-count').textContent() }));
 await context.close();
 await browser.close();

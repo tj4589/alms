@@ -145,11 +145,12 @@ function readerPages(detail: ReaderDetail | null, body: string): ReaderPage[] {
 }
 function resourceDownloadPath(resource: Resource): string { return resource.isAudio ? `/materials/audio/${resource.id}/download` : resource.kind === 'lecture_note' ? `/materials/lecture-notes/${resource.id}/download` : `/materials/past-questions/${resource.id}/download`; }
 
-function SlideReader({ pages, citationPage, citationSlide, onTextAction }: {
+function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSelection }: {
   pages: ReaderPage[];
   citationPage?: number;
   citationSlide?: number;
-  onTextAction?: (text: string, rect: DOMRect) => void;
+  onTextAction?: (text: string) => void;
+  onAskSelection?: () => void;
 }) {
   const readerRef = useRef<HTMLElement | null>(null);
   const citationIndex = useMemo(() => {
@@ -161,6 +162,7 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction }: {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [textMode, setTextMode] = useState(false);
   const [imageState, setImageState] = useState<{ path: string | null; url: string | null }>({ path: null, url: null });
+  const [slideAction, setSlideAction] = useState<{ left: number; top: number } | null>(null);
   const page = pages[Math.min(currentPage, Math.max(0, pages.length - 1))];
   const imagePath = page?.imagePath || null;
   const textView = !imagePath || textMode;
@@ -208,21 +210,38 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction }: {
     if (event.key === 'ArrowRight') { event.preventDefault(); goToPage(currentPage + 1); }
     if (event.key === 'ArrowLeft') { event.preventDefault(); goToPage(currentPage - 1); }
   };
+  const showSlideAction = (text: string, rect: DOMRect) => {
+    const cleanText = text.trim();
+    if (cleanText.length <= 1) return;
+    onTextAction?.(cleanText);
+    const readerRect = readerRef.current?.getBoundingClientRect();
+    if (!readerRect) return;
+    setSlideAction({
+      left: Math.min(readerRect.width - 190, Math.max(12, rect.left - readerRect.left + rect.width / 2 - 88)),
+      top: Math.max(12, rect.top - readerRect.top - 48),
+    });
+  };
+  const handleSlideSelection = () => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() || '';
+    if (text.length <= 1) return;
+    const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+    if (range && (range.width || range.height)) showSlideAction(text, range);
+  };
   const handleSlideTextClick = (event: React.MouseEvent<HTMLSpanElement>, text: string) => {
     if (window.getSelection()?.toString().trim()) return;
-    const cleanText = text.trim();
-    if (cleanText.length > 1) onTextAction?.(cleanText, event.currentTarget.getBoundingClientRect());
+    showSlideAction(text, event.currentTarget.getBoundingClientRect());
   };
   const handleSlideTextKeyDown = (event: React.KeyboardEvent<HTMLSpanElement>, text: string) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
-    const cleanText = text.trim();
-    if (cleanText.length > 1) onTextAction?.(cleanText, event.currentTarget.getBoundingClientRect());
+    showSlideAction(text, event.currentTarget.getBoundingClientRect());
   };
 
-  return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
+  return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} onMouseUp={handleSlideSelection} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
+    {slideAction && <button type="button" className="ws-slide-selection-action" style={{ left: slideAction.left, top: slideAction.top }} onMouseDown={event => event.preventDefault()} onMouseUp={event => event.stopPropagation()} onClick={() => { setSlideAction(null); onAskSelection?.(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     <div className="ws-slide-toolbar">
-      <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>{textView ? 'Select text to ask Maxe about it.' : 'Viewing the original slide. Switch to Text view to select words.'}</small></div>
+      <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>{textView ? 'Select text to ask Maxe about it.' : 'Click slide text to ask Maxe. Use Text view for precise selection.'}</small></div>
       <div className="ws-slide-toolbar-actions">
         {page.imagePath && <button type="button" className={`ws-slide-view-toggle${textView ? ' is-active' : ''}`} onClick={() => setTextMode(value => !value)} aria-pressed={textView}>{textView ? 'Show slide' : 'Text view'}</button>}
         <button type="button" className="ws-slide-fullscreen" onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'} title={isFullscreen ? 'Exit full screen' : 'Open reader in full screen'}>{isFullscreen ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}</button>
@@ -686,11 +705,23 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
     `/collaboration/materials/${resource.kind}/${resource.id}/export?format=${format}`,
     `resource-${resource.id}.${format}`,
   );
-  const captureSelection = () => {
+  const captureSelection = (event: React.MouseEvent<HTMLDivElement>) => {
+    const eventTarget = event.target instanceof Element ? event.target : null;
+    if (eventTarget?.closest('.ws-slide-reader')) return;
     const selection = window.getSelection();
     const text = selection?.toString().trim() || '';
+    const anchorElement = selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement;
+    const isInsideSlide = Boolean(anchorElement?.closest('.ws-slide-sheet'));
+    if (isSlideDocument) {
+      if (isInsideSlide) return;
+      setSelectionAction(null);
+      onSelection('', resource.title);
+      return;
+    }
+    if (isInsideSlide) return;
     if (text.length <= 1) {
       setSelectionAction(null);
+      onSelection('', resource.title);
       return;
     }
     const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
@@ -700,18 +731,14 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
       top: Math.max(12, range.top - 48),
     });
   };
-  const showSlideTextAction = (text: string, rect: DOMRect) => {
+  const showSlideTextAction = (text: string) => {
     const cleanText = text.trim();
     if (cleanText.length <= 1) return;
     onSelection(cleanText.slice(0, 4000), resource.title);
-    setSelectionAction({
-      left: Math.min(window.innerWidth - 176, Math.max(12, rect.left + rect.width / 2 - 88)),
-      top: Math.max(12, rect.top - 48),
-    });
   };
 
   return <div className="ws-reader-content" onMouseUp={captureSelection}>
-    {selectionAction && <button type="button" className="ws-selection-action" style={{ left: selectionAction.left, top: selectionAction.top }} onMouseDown={event => event.preventDefault()} onClick={() => { setSelectionAction(null); onAskSelection(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
+      {selectionAction && <button type="button" className="ws-selection-action" style={{ left: selectionAction.left, top: selectionAction.top }} onMouseDown={event => event.preventDefault()} onMouseUp={event => event.stopPropagation()} onClick={() => { setSelectionAction(null); onAskSelection(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     {citationTargetLabel && <p className="ws-citation-target" role="status">{citationTargetLabel}</p>}
     {canManageSharing && <div className="ws-share-strip"><button type="button" className="ws-share-button" onClick={() => setShareOpen(value => !value)} aria-expanded={shareOpen} aria-controls="ws-share-title"><Link2 size={15} aria-hidden="true" />{shareOpen ? 'Close sharing' : 'Share this source'}</button></div>}
     {shareOpen && <ShareLinksPanel key={resource.key} resource={resource} onClose={() => setShareOpen(false)} />}
@@ -730,7 +757,7 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
     {error && <div className="ws-reader-state is-error" role="alert">{error}</div>}
     {!loading && !error && resource.isAudio && <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} onTranscriptLoaded={onTranscriptLoaded} />}
     {!loading && !error && !resource.isAudio && <>
-      {isSlideDocument && slidePages.length > 0 && <SlideReader key={`${resource.key}-slides-${selectedCitationPage || selectedCitationSlide || 'start'}`} pages={slidePages} citationPage={selectedCitationPage} citationSlide={selectedCitationSlide} onTextAction={showSlideTextAction} />}
+      {isSlideDocument && slidePages.length > 0 && <SlideReader key={`${resource.key}-slides-${selectedCitationPage || selectedCitationSlide || 'start'}`} pages={slidePages} citationPage={selectedCitationPage} citationSlide={selectedCitationSlide} onTextAction={showSlideTextAction} onAskSelection={onAskSelection} />}
       {canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}
       {canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}
       {resource.hasFile && !canNativePreview && !isSlideDocument && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}
@@ -746,7 +773,7 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
     {shareOpen && <ShareLinksPanel key={resource.key} resource={resource} onClose={() => setShareOpen(false)} />}
     <header className="ws-reader-header"><div className="ws-reader-kicker"><span>{resource.courseCode || 'Archive'}</span><span>{typeLabel(resource)}</span><span className={`ws-status ws-status-${resource.status}`}><i aria-hidden="true" />{resource.statusLabel}</span></div><h1>{resource.title}</h1><p>{[resource.courseTitle, resource.year && String(resource.year), resource.semester, visibilityLabel(resource.visibility)].filter(Boolean).join(' · ')}</p><div className="ws-reader-actions">{resource.hasFile && <button type="button" className="ws-download-button" onClick={() => void download()} disabled={downloading}><ArrowDownToLine size={15} aria-hidden="true" />{downloading ? 'Preparing...' : 'Download original'}</button>}<SaveButton compact triggerLabel="Save" menuLabel="Save" target={{ itemType: resource.kind, refId: resource.id, title: resource.title, meta: typeLabel(resource), snapshot: async () => { const snapshot = detail || resource; const sections = 'sections' in snapshot && Array.isArray(snapshot.sections) ? snapshot.sections : []; const contentText = snapshot.contentText || body || sections.map(section => section.body).join('\n\n'); const savedTranscript = transcript.length > 0 ? { segments: transcript } : {}; return sections.length > 0 || contentText || transcript.length > 0 ? { ...snapshot, content_text: contentText, sections, ...savedTranscript } : null; }, exports: [{ label: 'Export Markdown', description: 'Download the authorized reading as Markdown', run: () => exportSource('md') }, { label: 'Export plain text', description: 'Download the authorized reading as text', run: () => exportSource('txt') }] }} /><button type="button" className="ws-text-action" onClick={() => go('upload')}>Add another source <Plus size={15} aria-hidden="true" /></button></div>{downloadError && <p className="ws-reader-error" role="alert">{downloadError}</p>}</header>
     {loading && <div className="ws-reader-state"><LoaderCircle size={19} className="ws-spin" aria-hidden="true" /> Opening source...</div>}{error && <div className="ws-reader-state is-error" role="alert">{error}</div>}
-    {!loading && !error && <>{resource.isAudio ? <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} onTranscriptLoaded={onTranscriptLoaded} /> : <>{isSlideDocument && slidePages.length > 0 && <SlideReader key={`${resource.key}-slides-${selectedCitationPage || selectedCitationSlide || 'start'}`} pages={slidePages} citationPage={selectedCitationPage} citationSlide={selectedCitationSlide} onTextAction={showSlideTextAction} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && !isSlideDocument && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{!isSlideDocument && (detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p></section> : null)}{isSlideDocument && slidePages.length === 0 && <div className="ws-reader-state">No readable slide text was kept for this source. Download the original to review it.</div>}</>}</>}
+    {!loading && !error && <>{resource.isAudio ? <AudioTranscriptReader key={resource.id} resource={resource} sourceUrl={sourceUrl} seekTo={citationTarget?.resourceId === resource.id ? citationTarget.startTime : undefined} onTranscriptLoaded={onTranscriptLoaded} /> : <>{isSlideDocument && slidePages.length > 0 && <SlideReader key={`${resource.key}-slides-${selectedCitationPage || selectedCitationSlide || 'start'}`} pages={slidePages} citationPage={selectedCitationPage} citationSlide={selectedCitationSlide} onTextAction={showSlideTextAction} onAskSelection={onAskSelection} />}{canNativePreview && sourceUrl && ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && <img className="ws-image-preview" src={sourceUrl} alt={`Preview of ${resource.title}`} />}{canNativePreview && sourceUrl && ['mp4', 'webm', 'mov'].includes(extension) && <video className="ws-media-preview" controls src={sourceUrl} />}{resource.hasFile && !canNativePreview && !isSlideDocument && <div className="ws-format-note"><FileText size={18} aria-hidden="true" /><span><strong>{typeLabel(resource)} source</strong><small>ExamMind is showing the extracted reading text here. Download the original when you need the source file.</small></span></div>}{previewError && <p className="ws-muted">The original preview is unavailable, but the extracted text is still available below.</p>}{!isSlideDocument && (detail?.sections?.length ? detail.sections.map(section => <section className="ws-reading-section" key={section.id}><div className="ws-section-label">{section.heading || 'Section'}{section.page_from ? <span>Pages {section.page_from}{section.page_to && section.page_to !== section.page_from ? `–${section.page_to}` : ''}</span> : null}</div>{splitParagraphs(section.body).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>) : body ? <section className="ws-reading-section"><div className="ws-section-label">Extracted text</div>{splitParagraphs(body).map((paragraph, index) => <p key={index}>{paragraph}</p></section> : null)}{isSlideDocument && slidePages.length === 0 && <div className="ws-reader-state">No readable slide text was kept for this source. Download the original to review it.</div>}</>}</>}
   </div>;
 }
 
