@@ -1,5 +1,6 @@
 import unittest
 import os
+import struct
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -41,6 +42,37 @@ class ReaderPageEndpointTests(unittest.TestCase):
                 mvp.render_lecture_note_page(7, 2, db=None, current_user=SimpleNamespace(id=1))
 
         self.assertEqual(failure.exception.status_code, 404)
+
+    def test_multi_page_render_is_adaptive_and_pixel_bounded(self):
+        document = fitz.open()
+        for index in range(6):
+            page = document.new_page(width=1600, height=900)
+            page.insert_text((80, 120), f"Slide {index + 1} prospecting overview")
+        pdf = document.tobytes()
+        document.close()
+        note = SimpleNamespace(file_data=pdf, file_mime="application/pdf", file_name="slides.pdf")
+
+        with patch.object(mvp, "_pdf_lecture_note_or_404", return_value=note):
+            normal = mvp.render_lecture_note_page(
+                7, 1, scale=1.5, db=None, current_user=SimpleNamespace(id=1)
+            )
+            high = None
+            largest_response = 0
+            for page_number in range(1, 7):
+                high = mvp.render_lecture_note_page(
+                    7, page_number, scale=4.0, db=None, current_user=SimpleNamespace(id=1)
+                )
+                largest_response = max(largest_response, len(high.body))
+
+        normal_width, normal_height = struct.unpack(">II", normal.body[16:24])
+        assert high is not None
+        high_width, high_height = struct.unpack(">II", high.body[16:24])
+        self.assertGreater(float(high.headers["X-Render-Scale"]), float(normal.headers["X-Render-Scale"]))
+        self.assertLessEqual(high_width * high_height, mvp.MAX_PAGE_RENDER_PIXELS)
+        self.assertLessEqual(normal_width * normal_height, mvp.MAX_PAGE_RENDER_PIXELS)
+        self.assertLessEqual(high_width, mvp.MAX_PAGE_RENDER_DIMENSION)
+        self.assertLessEqual(high_height, mvp.MAX_PAGE_RENDER_DIMENSION)
+        self.assertLess(largest_response, 30_000_000)
 
 
 if __name__ == "__main__":

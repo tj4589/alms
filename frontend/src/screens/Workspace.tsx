@@ -54,7 +54,7 @@ type ShareLink = {
   revoked_at?: string | null; created_at?: string | null; token?: string; url?: string; title?: string;
 };
 type ReaderDetail = Resource & { sections: { id: number; heading: string | null; body: string; page_from?: number | null; page_to?: number | null }[] };
-type ReaderTextSpan = { text: string; x: number; y: number; width: number; height: number; fontSize?: number | null };
+type ReaderTextSpan = { text: string; x: number; y: number; width: number; height: number; fontSize?: number | null; font_size?: number | null };
 type ReaderPage = {
   id: string; heading: string | null; body: string; pageFrom: number | null; pageTo: number | null; isPage: boolean;
   imagePath?: string; pageWidth?: number; pageHeight?: number; textSpans?: ReaderTextSpan[];
@@ -161,22 +161,50 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
   const [currentPage, setCurrentPage] = useState(() => citationIndex >= 0 ? citationIndex : 0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [textMode, setTextMode] = useState(false);
-  const [imageState, setImageState] = useState<{ path: string | null; url: string | null }>({ path: null, url: null });
+  const [imageState, setImageState] = useState<{ request: string | null; url: string | null }>({ request: null, url: null });
+  const [renderScale, setRenderScale] = useState(2);
   const [slideAction, setSlideAction] = useState<{ left: number; top: number } | null>(null);
+  const visualRef = useRef<HTMLDivElement | null>(null);
   const page = pages[Math.min(currentPage, Math.max(0, pages.length - 1))];
   const imagePath = page?.imagePath || null;
   const textView = !imagePath || textMode;
-  const pageImageUrl = imageState.path === imagePath ? imageState.url : null;
-  const imageLoading = Boolean(imagePath && imageState.path !== imagePath);
+  const imageRequest = imagePath ? `${imagePath}?scale=${renderScale.toFixed(2)}` : null;
+  const pageImageUrl = imageState.request === imageRequest ? imageState.url : null;
+  const imageLoading = Boolean(imageRequest && imageState.request !== imageRequest);
 
   useEffect(() => {
     if (!imagePath) return;
+    const visual = visualRef.current;
+    if (!visual) return;
+    const pageWidth = Math.max(page?.pageWidth || 612, 1);
+    const pageHeight = Math.max(page?.pageHeight || 792, 1);
+    const updateRenderScale = () => {
+      const boxWidth = visual.clientWidth || 760;
+      const boxHeight = visual.clientHeight || (boxWidth * pageHeight) / pageWidth;
+      const visibleWidth = Math.min(boxWidth, boxHeight * pageWidth / pageHeight);
+      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const nextScale = Math.min(4, Math.max(1.25, visibleWidth / pageWidth * devicePixelRatio));
+      const roundedScale = Math.round(nextScale * 4) / 4;
+      setRenderScale(current => current === roundedScale ? current : roundedScale);
+    };
+    updateRenderScale();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateRenderScale) : null;
+    observer?.observe(visual);
+    window.addEventListener('resize', updateRenderScale);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateRenderScale);
+    };
+  }, [imagePath, page?.id, page?.pageWidth, page?.pageHeight, isFullscreen]);
+
+  useEffect(() => {
+    if (!imageRequest) return;
     let cancelled = false;
     let createdUrl: string | null = null;
-    void apiBlob(imagePath).then(blob => {
+    void apiBlob(imageRequest).then(blob => {
       if (cancelled) return;
       createdUrl = URL.createObjectURL(blob);
-      setImageState({ path: imagePath, url: createdUrl });
+      setImageState({ request: imageRequest, url: createdUrl });
     }).catch(() => {
       if (!cancelled) setTextMode(true);
     });
@@ -184,7 +212,7 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [imagePath]);
+  }, [imageRequest]);
 
   useEffect(() => {
     const handleFullscreenChange = () => setIsFullscreen(document.fullscreenElement === readerRef.current);
@@ -194,14 +222,16 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
 
   useEffect(() => {
     if (!slideAction) return;
-    const dismissOutsideAction = (event: MouseEvent) => {
+    const dismissOutsideAction = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('.ws-slide-selection-action') || target?.closest('.ws-slide-text-hit')) return;
+      if (target?.closest('.ws-slide-selection-action')) return;
+      window.getSelection()?.removeAllRanges();
       setSlideAction(null);
+      onTextAction?.('');
     };
-    document.addEventListener('mousedown', dismissOutsideAction);
-    return () => document.removeEventListener('mousedown', dismissOutsideAction);
-  }, [slideAction]);
+    document.addEventListener('pointerdown', dismissOutsideAction);
+    return () => document.removeEventListener('pointerdown', dismissOutsideAction);
+  }, [onTextAction, slideAction]);
 
   if (!page) return null;
   const goToPage = (nextPage: number) => setCurrentPage(Math.min(pages.length - 1, Math.max(0, nextPage)));
@@ -235,22 +265,16 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
   const handleSlideSelection = () => {
     const selection = window.getSelection();
     const text = selection?.toString().trim() || '';
-    if (text.length <= 1) return;
+    if (text.length <= 1) {
+      setSlideAction(null);
+      return;
+    }
     const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
     if (range && (range.width || range.height)) showSlideAction(text, range);
   };
-  const handleSlideTextClick = (event: React.MouseEvent<HTMLSpanElement>, text: string) => {
-    if (window.getSelection()?.toString().trim()) return;
-    showSlideAction(text, event.currentTarget.getBoundingClientRect());
-  };
-  const handleSlideTextKeyDown = (event: React.KeyboardEvent<HTMLSpanElement>, text: string) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    showSlideAction(text, event.currentTarget.getBoundingClientRect());
-  };
 
-  return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} onMouseUp={handleSlideSelection} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
-    {slideAction && <button type="button" className="ws-slide-selection-action" style={{ left: slideAction.left, top: slideAction.top }} onMouseDown={event => event.preventDefault()} onMouseUp={event => event.stopPropagation()} onClick={() => { setSlideAction(null); onAskSelection?.(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
+  return <section ref={readerRef} tabIndex={0} onKeyDown={handleReaderKeyDown} onPointerUp={handleSlideSelection} className={`ws-slide-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="Slide reader">
+    {slideAction && <button type="button" className="ws-slide-selection-action" style={{ left: slideAction.left, top: slideAction.top }} onPointerDown={event => event.preventDefault()} onPointerUp={event => event.stopPropagation()} onClick={() => { setSlideAction(null); onAskSelection?.(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     <div className="ws-slide-toolbar">
       <div className="ws-slide-toolbar-copy"><span className="ws-eyebrow">Reading view</span><strong>{pageLabel}</strong><small>{textView ? 'Select text to ask Maxe about it.' : 'Highlight slide text to ask Maxe. Use Text view for precise selection.'}</small></div>
       <div className="ws-slide-toolbar-actions">
@@ -260,23 +284,19 @@ function SlideReader({ pages, citationPage, citationSlide, onTextAction, onAskSe
     </div>
     <div className="ws-slide-stage">
       <article className={`ws-slide-sheet${textView ? ' is-text-view' : ' is-visual-view'}`} key={page.id}>
-        {page.imagePath && !textView ? <div className="ws-slide-visual" aria-label={`Slide ${page.pageFrom}`}>
+        {page.imagePath && !textView ? <div ref={visualRef} className="ws-slide-visual" aria-label={`Slide ${page.pageFrom}`}>
           {hasVisual ? <div className="ws-slide-visual-page" style={page.pageWidth && page.pageHeight ? { aspectRatio: `${page.pageWidth} / ${page.pageHeight}` } : undefined}>
             <img src={pageImageUrl || undefined} alt="" aria-hidden="true" />
             {page.textSpans?.map((span, index) => <span
               className="ws-slide-text-hit"
               key={`${page.id}-text-${index}`}
-              role="button"
-              tabIndex={0}
-              aria-label={`Ask Maxe about: ${span.text.trim()}`}
               style={page.pageWidth && page.pageHeight ? {
                 left: `${(span.x / page.pageWidth) * 100}%`,
                 top: `${(span.y / page.pageHeight) * 100}%`,
                 width: `${(span.width / page.pageWidth) * 100}%`,
                 height: `${(span.height / page.pageHeight) * 100}%`,
+                fontSize: span.fontSize ? `${(span.fontSize / page.pageWidth) * 100}cqw` : undefined,
               } : undefined}
-              onClick={event => handleSlideTextClick(event, span.text)}
-              onKeyDown={event => handleSlideTextKeyDown(event, span.text)}
             >{span.text}</span>)}
           </div> : <span className="ws-slide-image-state">{imageLoading ? 'Preparing slide…' : 'Slide preview unavailable'}</span>}
         </div> : <>
@@ -667,7 +687,7 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
           imagePath: `/materials/lecture-notes/${resource.id}/pages/${item.page || index + 1}/image`,
           pageWidth: item.width,
           pageHeight: item.height,
-          textSpans: Array.isArray(item.spans) ? item.spans : [],
+          textSpans: Array.isArray(item.spans) ? item.spans.map(span => ({ ...span, fontSize: span.fontSize ?? span.font_size ?? null })) : [],
         })).filter(page => page.body.trim() || page.imagePath)
         : [];
       if (pages.length > 0) setPdfPages(pages);
@@ -694,7 +714,22 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
     };
   }, [canNativePreview, resource]);
 
-  useEffect(() => { setShareOpen(false); setSelectionAction(null); setTranscript([]); }, [resource.key]);
+  const clearReaderSelection = useCallback(() => {
+    window.getSelection()?.removeAllRanges();
+    setSelectionAction(null);
+    onSelection('', resource.title);
+  }, [onSelection, resource.title]);
+  useEffect(() => { setShareOpen(false); setTranscript([]); clearReaderSelection(); }, [clearReaderSelection, resource.key]);
+  useEffect(() => {
+    if (!selectionAction) return;
+    const dismissOutsideAction = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.ws-selection-action')) return;
+      clearReaderSelection();
+    };
+    document.addEventListener('pointerdown', dismissOutsideAction);
+    return () => document.removeEventListener('pointerdown', dismissOutsideAction);
+  }, [clearReaderSelection, selectionAction]);
   const onTranscriptLoaded = useCallback((segments: TranscriptSegment[]) => setTranscript(segments), []);
   const body = detail?.contentText || resource.contentText;
   const slidePages = useMemo(() => pdfPages || readerPages(detail, body), [body, detail, pdfPages]);
@@ -716,7 +751,7 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
     `/collaboration/materials/${resource.kind}/${resource.id}/export?format=${format}`,
     `resource-${resource.id}.${format}`,
   );
-  const captureSelection = (event: React.MouseEvent<HTMLDivElement>) => {
+  const captureSelection = (event: React.PointerEvent<HTMLDivElement>) => {
     const eventTarget = event.target instanceof Element ? event.target : null;
     if (eventTarget?.closest('.ws-slide-reader')) return;
     const selection = window.getSelection();
@@ -725,14 +760,12 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
     const isInsideSlide = Boolean(anchorElement?.closest('.ws-slide-sheet'));
     if (isSlideDocument) {
       if (isInsideSlide) return;
-      setSelectionAction(null);
-      onSelection('', resource.title);
+      clearReaderSelection();
       return;
     }
     if (isInsideSlide) return;
     if (text.length <= 1) {
-      setSelectionAction(null);
-      onSelection('', resource.title);
+      clearReaderSelection();
       return;
     }
     const range = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
@@ -744,12 +777,15 @@ function ResourceReader({ resource, go, onSelection, onAskSelection, citationTar
   };
   const showSlideTextAction = (text: string) => {
     const cleanText = text.trim();
-    if (cleanText.length <= 1) return;
+    if (cleanText.length <= 1) {
+      clearReaderSelection();
+      return;
+    }
     onSelection(cleanText.slice(0, 4000), resource.title);
   };
 
-  return <div className="ws-reader-content" onMouseUp={captureSelection}>
-      {selectionAction && <button type="button" className="ws-selection-action" style={{ left: selectionAction.left, top: selectionAction.top }} onMouseDown={event => event.preventDefault()} onMouseUp={event => event.stopPropagation()} onClick={() => { setSelectionAction(null); onAskSelection(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
+  return <div className="ws-reader-content" onPointerUp={captureSelection}>
+      {selectionAction && <button type="button" className="ws-selection-action" style={{ left: selectionAction.left, top: selectionAction.top }} onPointerDown={event => event.preventDefault()} onPointerUp={event => event.stopPropagation()} onClick={() => { setSelectionAction(null); onAskSelection(); }}><Sparkles size={14} aria-hidden="true" /> Ask Maxe about this</button>}
     {citationTargetLabel && <p className="ws-citation-target" role="status">{citationTargetLabel}</p>}
     {canManageSharing && <div className="ws-share-strip"><button type="button" className="ws-share-button" onClick={() => setShareOpen(value => !value)} aria-expanded={shareOpen} aria-controls="ws-share-title"><Link2 size={15} aria-hidden="true" />{shareOpen ? 'Close sharing' : 'Share this source'}</button></div>}
     {shareOpen && <ShareLinksPanel key={resource.key} resource={resource} onClose={() => setShareOpen(false)} />}
@@ -823,6 +859,7 @@ export default function Workspace({ go, notifyUnavailable, messages, onMessagesC
   };
   const startResize = (panel: 'sources' | 'maxe', event: React.PointerEvent<HTMLButtonElement>) => { event.preventDefault(); const startX = event.clientX; const startWidth = panel === 'sources' ? sourceWidth : maxeWidth; const onMove = (moveEvent: PointerEvent) => { const delta = moveEvent.clientX - startX; if (panel === 'sources') setSourceWidth(Math.min(420, Math.max(220, startWidth + delta))); else setMaxeWidth(Math.min(460, Math.max(280, startWidth - delta))); }; const stop = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', stop); document.body.classList.remove('ws-is-resizing'); }; window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', stop, { once: true }); document.body.classList.add('ws-is-resizing'); };
   const adjustWidth = (panel: 'sources' | 'maxe', direction: number) => { if (panel === 'sources') setSourceWidth(value => Math.min(420, Math.max(220, value + direction * 16))); else setMaxeWidth(value => Math.min(460, Math.max(280, value - direction * 16))); };
+  const handleResourceSelection = useCallback((text: string) => { setSelectedText(text); setCitationTarget(null); }, []);
   const gridStyle = { '--ws-source-width': sourcesCollapsed ? '52px' : `${sourceWidth}px`, '--ws-maxe-width': maxeCollapsed ? '52px' : `${maxeWidth}px` } as React.CSSProperties;
-  return <div className="page workspace-page" id="s-workspace"><header className="workspace-heading"><div><p className="ws-eyebrow">{user?.name ? `${user.name.split(' ')[0]}'s` : 'Your'} learning space</p><h1>Study desk</h1><p>Keep your sources, reading and questions in one calm place.</p></div><button type="button" className="ws-heading-upload" onClick={() => go('offline')}><BookOpen size={16} aria-hidden="true" /> My materials</button></header><div className="ws-mobile-tabs" role="tablist" aria-label="Workspace panels">{(['sources', 'reader', 'maxe'] as const).map(panel => <button type="button" role="tab" aria-selected={mobilePanel === panel} className={mobilePanel === panel ? 'is-active' : ''} key={panel} onClick={() => setMobilePanel(panel)}>{panel === 'sources' ? 'Sources' : panel === 'reader' ? 'Reader' : 'Maxe'}</button>)}</div>{error && <div className="ws-load-error" role="alert"><span>{error}</span><button type="button" onClick={() => void loadResources()}><RefreshCw size={14} aria-hidden="true" /> Try again</button></div>}<div className="ws-workbench" style={gridStyle}><aside className={`ws-panel ws-sources-panel${sourcesCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'sources' ? ' is-mobile-active' : ''}`} aria-label="Sources"><ResourceSidebar resources={resources} activeKey={selectedKey} search={search} onSearch={setSearch} onSelect={resource => { setSelectedKey(resource.key); setSelectedText(''); setCitationTarget(null); setMobilePanel('reader'); }} onUpload={() => go('upload')} onRefresh={() => void loadResources()} loading={loading} /><button type="button" className="ws-collapse-button" onClick={() => setSourcesCollapsed(value => !value)} aria-label={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'} title={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'}>{sourcesCollapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}</button></aside><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize sources panel" aria-valuenow={sourcesCollapsed ? 52 : sourceWidth} aria-valuemin={220} aria-valuemax={420} onPointerDown={event => startResize('sources', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('sources', -1); if (event.key === 'ArrowRight') adjustWidth('sources', 1); }} /><main className={`ws-panel ws-reader-panel${mobilePanel === 'reader' ? ' is-mobile-active' : ''}`} aria-label="Reader">{activeResource ? <ResourceReader resource={activeResource} go={go} onSelection={text => { setSelectedText(text); setCitationTarget(null); }} onAskSelection={() => setMobilePanel('maxe')} citationTarget={citationTarget} user={user} /> : <div className="ws-reader-empty"><BookOpen size={28} aria-hidden="true" /><h2>Select a source</h2><p>Choose a note or past question from the left to open its reading view.</p><button type="button" onClick={() => go('upload')}>Add your first source <Plus size={15} aria-hidden="true" /></button></div>}</main><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize Maxe panel" aria-valuenow={maxeCollapsed ? 52 : maxeWidth} aria-valuemin={280} aria-valuemax={460} onPointerDown={event => startResize('maxe', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('maxe', -1); if (event.key === 'ArrowRight') adjustWidth('maxe', 1); }} /><aside className={`ws-panel ws-maxe-panel${maxeCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'maxe' ? ' is-mobile-active' : ''}`} aria-label="Maxe assistant"><MaxePanel activeResource={activeResource} selectedText={selectedText} go={go} notifyUnavailable={notifyUnavailable} messages={messages} onMessagesChange={onMessagesChange} onNewThread={onNewThread} onCitationClick={handleCitationClick} user={user} /><button type="button" className="ws-collapse-button" onClick={() => setMaxeCollapsed(value => !value)} aria-label={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'} title={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'}>{maxeCollapsed ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}</button></aside></div></div>;
+  return <div className="page workspace-page" id="s-workspace"><header className="workspace-heading"><div><p className="ws-eyebrow">{user?.name ? `${user.name.split(' ')[0]}'s` : 'Your'} learning space</p><h1>Study desk</h1><p>Keep your sources, reading and questions in one calm place.</p></div><button type="button" className="ws-heading-upload" onClick={() => go('offline')}><BookOpen size={16} aria-hidden="true" /> My materials</button></header><div className="ws-mobile-tabs" role="tablist" aria-label="Workspace panels">{(['sources', 'reader', 'maxe'] as const).map(panel => <button type="button" role="tab" aria-selected={mobilePanel === panel} className={mobilePanel === panel ? 'is-active' : ''} key={panel} onClick={() => setMobilePanel(panel)}>{panel === 'sources' ? 'Sources' : panel === 'reader' ? 'Reader' : 'Maxe'}</button>)}</div>{error && <div className="ws-load-error" role="alert"><span>{error}</span><button type="button" onClick={() => void loadResources()}><RefreshCw size={14} aria-hidden="true" /> Try again</button></div>}<div className="ws-workbench" style={gridStyle}><aside className={`ws-panel ws-sources-panel${sourcesCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'sources' ? ' is-mobile-active' : ''}`} aria-label="Sources"><ResourceSidebar resources={resources} activeKey={selectedKey} search={search} onSearch={setSearch} onSelect={resource => { setSelectedKey(resource.key); setSelectedText(''); setCitationTarget(null); setMobilePanel('reader'); }} onUpload={() => go('upload')} onRefresh={() => void loadResources()} loading={loading} /><button type="button" className="ws-collapse-button" onClick={() => setSourcesCollapsed(value => !value)} aria-label={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'} title={sourcesCollapsed ? 'Expand sources' : 'Collapse sources'}>{sourcesCollapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}</button></aside><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize sources panel" aria-valuenow={sourcesCollapsed ? 52 : sourceWidth} aria-valuemin={220} aria-valuemax={420} onPointerDown={event => startResize('sources', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('sources', -1); if (event.key === 'ArrowRight') adjustWidth('sources', 1); }} /><main className={`ws-panel ws-reader-panel${mobilePanel === 'reader' ? ' is-mobile-active' : ''}`} aria-label="Reader">{activeResource ? <ResourceReader resource={activeResource} go={go} onSelection={handleResourceSelection} onAskSelection={() => setMobilePanel('maxe')} citationTarget={citationTarget} user={user} /> : <div className="ws-reader-empty"><BookOpen size={28} aria-hidden="true" /><h2>Select a source</h2><p>Choose a note or past question from the left to open its reading view.</p><button type="button" onClick={() => go('upload')}>Add your first source <Plus size={15} aria-hidden="true" /></button></div>}</main><button type="button" className="ws-divider" role="separator" aria-orientation="vertical" aria-label="Resize Maxe panel" aria-valuenow={maxeCollapsed ? 52 : maxeWidth} aria-valuemin={280} aria-valuemax={460} onPointerDown={event => startResize('maxe', event)} onKeyDown={event => { if (event.key === 'ArrowLeft') adjustWidth('maxe', -1); if (event.key === 'ArrowRight') adjustWidth('maxe', 1); }} /><aside className={`ws-panel ws-maxe-panel${maxeCollapsed ? ' is-collapsed' : ''}${mobilePanel === 'maxe' ? ' is-mobile-active' : ''}`} aria-label="Maxe assistant"><MaxePanel activeResource={activeResource} selectedText={selectedText} go={go} notifyUnavailable={notifyUnavailable} messages={messages} onMessagesChange={onMessagesChange} onNewThread={onNewThread} onCitationClick={handleCitationClick} user={user} /><button type="button" className="ws-collapse-button" onClick={() => setMaxeCollapsed(value => !value)} aria-label={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'} title={maxeCollapsed ? 'Expand Maxe' : 'Collapse Maxe'}>{maxeCollapsed ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}</button></aside></div></div>;
 }

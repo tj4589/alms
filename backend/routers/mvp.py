@@ -3,6 +3,7 @@ import binascii
 from collections import defaultdict
 from datetime import datetime, timezone
 import json
+import math
 import re
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -71,6 +72,9 @@ except Exception:
     fitz = None
 
 router = APIRouter(tags=["mvp"])
+DEFAULT_PAGE_RENDER_SCALE = 2.0
+MAX_PAGE_RENDER_PIXELS = 6_000_000
+MAX_PAGE_RENDER_DIMENSION = 4096
 
 
 class PracticeGenerateRequest(BaseModel):
@@ -751,6 +755,7 @@ def read_lecture_note_pages(
 def render_lecture_note_page(
     note_id: int,
     page_number: int,
+    scale: float = Query(default=DEFAULT_PAGE_RENDER_SCALE, ge=0.75, le=4.0),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
@@ -765,11 +770,32 @@ def render_lecture_note_page(
         if page_number > len(document):
             raise HTTPException(status_code=404, detail="That page does not exist.")
         page = document.load_page(page_number - 1)
-        pixels = page.get_pixmap(matrix=fitz.Matrix(1.6, 1.6), alpha=False)
+        # The browser requests a scale based on the visible slide size and
+        # device pixel ratio. Keep the server-side pixel budget bounded even
+        # when a very large page or an aggressive zoom is requested.
+        try:
+            requested_scale = float(scale)
+        except (TypeError, ValueError):
+            requested_scale = DEFAULT_PAGE_RENDER_SCALE
+        if not math.isfinite(requested_scale):
+            requested_scale = DEFAULT_PAGE_RENDER_SCALE
+        page_width = max(float(page.rect.width), 1.0)
+        page_height = max(float(page.rect.height), 1.0)
+        # Leave a small rounding margin because PyMuPDF rounds pixel
+        # dimensions up when it builds the pixmap.
+        max_scale_for_pixels = ((MAX_PAGE_RENDER_PIXELS - 100_000) / (page_width * page_height)) ** 0.5
+        max_scale_for_dimension = min(MAX_PAGE_RENDER_DIMENSION / page_width, MAX_PAGE_RENDER_DIMENSION / page_height)
+        render_scale = min(requested_scale, max_scale_for_pixels, max_scale_for_dimension)
+        pixels = page.get_pixmap(matrix=fitz.Matrix(render_scale, render_scale), alpha=False)
         return Response(
             content=pixels.tobytes("png"),
             media_type="image/png",
-            headers={"Cache-Control": "private, max-age=300"},
+            headers={
+                "Cache-Control": "private, max-age=300",
+                "X-Render-Scale": f"{render_scale:.3f}",
+                "X-Render-Width": str(pixels.width),
+                "X-Render-Height": str(pixels.height),
+            },
         )
     finally:
         document.close()
